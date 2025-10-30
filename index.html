@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="sv">
+<åhtml lang="sv">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -174,7 +174,7 @@ const LS_PW = 'film_pw';
 /* ===== Hjälpare ===== */
 const $  = (s)=>document.querySelector(s);
 const $$ = (s)=>document.querySelectorAll(s);
-const getPw = ()=> ($('#pw').value || localStorage.getItem(LS_PW) || '').trim();
+const getPw = ()=> 'Look4fun';
 const setPw = (v)=>{ $('#pw').value=v; localStorage.setItem(LS_PW,v); };
 const qs = (o)=> new URLSearchParams(o).toString();
 const api = (action, params={}) => fetch(`${API}?${qs({action, pw:getPw(), ...params})}`, {cache:'no-store'}).then(r=>r.json());
