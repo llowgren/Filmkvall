@@ -214,7 +214,14 @@ const api = (action, params={}) =>
 const round1 = (x)=>Math.round((Number(x)||0)*10)/10;
 const setStatus=(ok,msg)=>{ const el=$('#apiStatus'); el.textContent=(ok?'OK – ':'Fel – ')+msg; el.className='pill '+(ok?'ok':'err'); };
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
-
+/* ===== Watchmode-ID cache ===== */
+const _wmIdCache = new Map();
+async function getWmIdCached(imdbID){
+  if(_wmIdCache.has(imdbID)) return _wmIdCache.get(imdbID);
+  const id = await wmTitleIdFromImdb(imdbID);
+  _wmIdCache.set(imdbID, id);
+  return id;
+}
 /* ===== Tema (Auto/Ljust/Mörkt) ===== */
 function applyTheme(){
   const sel = $('#theme').value;
@@ -282,75 +289,75 @@ async function omdbLookup(query){
   }catch(_){}
   return null;
 }
-/* ===== Watchmode – slå först upp Watchmode-ID från IMDb-ID ===== */
+// Slå upp Watchmode-ID från IMDb-ID (robust: find -> fallback search)
 async function wmTitleIdFromImdb(imdbID){
   try{
-    const url = `https://api.watchmode.com/v1/search/?apiKey=${WATCHMODE_KEY}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
-    const res = await fetch(url, { cache: 'no-store' });
-    const data = await res.json();
-    const hit = (data && Array.isArray(data.title_results))
-      ? data.title_results.find(t => String(t.imdb_id) === String(imdbID))
-      : null;
-    return hit ? hit.id : null;
-  }catch(e){
-    console.error('Watchmode lookup error:', e);
-    return null;
-  }
+    const u1 = `https://api.watchmode.com/v1/find/?apiKey=${WATCHMODE_KEY}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
+    let r = await fetch(u1, {cache:'no-store'});
+    if(r.ok){
+      const j = await r.json();
+      if(j && j.title_id) return j.title_id;
+    }
+    const u2 = `https://api.watchmode.com/v1/search/?apiKey=${WATCHMODE_KEY}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
+    r = await fetch(u2, {cache:'no-store'});
+    if(r.ok){
+      const j = await r.json();
+      const hit = Array.isArray(j?.title_results) ? j.title_results.find(t => String(t.imdb_id) === String(imdbID)) : null;
+      if(hit?.id) return hit.id;
+    }
+  }catch(_){}
+  return null;
 }
-/* ===== Streamingtjänster i Sverige där det INGÅR (subscription) ===== */
+/* ===== Watchmode – slå först upp Watchmode-ID från IMDb-ID ===== */
 async function getStreamingInfo(imdbID) {
   if (!imdbID) return null;
   try {
-    const wmId = await wmTitleIdFromImdb(imdbID);
+    const wmId = await getWmIdCached(imdbID);
     if (!wmId) return null;
 
-    // Hämta endast källor som gäller i Sverige
     const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${WATCHMODE_KEY}&regions=SE`;
     const res = await fetch(url, { cache: 'no-store' });
     const data = await res.json();
     if (!Array.isArray(data)) return null;
 
-    // Normalisering och filtrering
     const seen = new Set();
     const normalizeName = (s) => String(s || '')
       .replace(/\s*\(with Ads\)$/i,'')
       .replace(/\s+HD$/,'')
       .trim();
 
-    // Filtrera ut tjänster där det "ingår" (type=sub) och som gäller för Sverige
     const filtered = data
-      .filter(s =>
-        s.type === 'sub' &&                        // ingår i abonnemang
-        (!s.region || s.region === 'SE') &&        // svenska regionen
-        s.name                                     // måste ha namn
-      )
+      .filter(s => s.type === 'sub' && s.name)
       .map(s => ({
-        service: normalizeName(s.name),            // t.ex. Netflix
+        service: normalizeName(s.name),
         quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
+        region: s.region || 'SE',
         link: s.web_url || ''
       }))
-      .filter(s => {                               // deduplikering per tjänst + kvalitet
-        const key = `${s.service}|${s.quality}`;
+      .filter(s => {
+        const key = `${s.service}|${s.quality}|${s.region}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       })
-      .sort((a,b)=> a.service.localeCompare(b.service));
+      .sort((a,b)=> (a.service+b.quality).localeCompare(b.service+b.quality));
 
     return filtered.length ? filtered : null;
-  } catch (e) {
-    console.error('Watchmode sources error:', e);
+  } catch(_){
     return null;
   }
-}
+} 
+    
 /* ===== Rendera OMDb + streaming ===== */
 async function renderOmdbInfo(containerId, data, query) {
   const el = document.getElementById(containerId);
-  if (!el) return;
-  if (!data) {
-    el.innerHTML = query ? `Hittade inget för “${escapeHtml(query)}”.` : '';
+  if(!el){ return; }
+
+  if(!data){
+    el.innerHTML = `<div style="color:var(--muted)">Hittade inget för: ${escapeHtml(query||'')}</div>`;
     return;
   }
+
   const title  = escapeHtml(data.Title || '');
   const year   = escapeHtml(data.Year || '');
   const rating = escapeHtml(data.imdbRating || '-');
@@ -362,13 +369,17 @@ async function renderOmdbInfo(containerId, data, query) {
     const options = await getStreamingInfo(data.imdbID);
     if (options && options.length > 0) {
       const pills = options.map(opt => {
-        const text = `${opt.service}${opt.quality ? ' ' + opt.quality : ''} (ingår)`;
+        const label = [
+          opt.service,
+          opt.quality ? ` ${opt.quality}` : '',
+          opt.region && opt.region !== 'SE' ? ` · ${opt.region}` : ''
+        ].join('');
         const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
-        return `<a ${href} class="pill" style="margin:2px; text-decoration:none">${text}</a>`;
+        return `<a ${href} class="pill" style="margin:2px; text-decoration:none">${label} (ingår)</a>`;
       }).join('');
       streamingHtml = `<div style="margin-top:8px"><strong>Streamas i Sverige:</strong><br>${pills}</div>`;
     } else {
-      streamingHtml = '<div style="margin-top:6px; color:var(--muted); font-size:12px">Ingen tjänst i Sverige där det ingår just nu.</div>';
+      streamingHtml = '<div style="margin-top:6px; color:var(--muted); font-size:12px">Ingen svensk tjänst där det ingår just nu.</div>';
     }
   }
 
