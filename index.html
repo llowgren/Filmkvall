@@ -26,11 +26,15 @@
     .row{display:flex; gap:12px; flex-wrap:wrap}
     .col{flex:1 1 220px; min-width:220px}
     label{display:block; font-size:13px; color:var(--muted); margin:0 0 6px}
-    input,select,button,textarea{
-      width:100%; padding:10px 12px; border-radius:10px;
-      border:1px solid var(--border); background:var(--input); color:var(--text);
-      outline:none;
-    }
+    input,select,textarea{
+  width:100%; padding:10px 12px; border-radius:10px;
+  border:1px solid var(--border); background:var(--input); color:var(--text);
+  outline:none;
+}
+button{
+  background:var(--btn); color:var(--btn-text); cursor:pointer;
+  border:1px solid var(--border); padding:8px 12px; border-radius:9px; font-size:14px;
+}
     button{background:var(--btn); color:var(--btn-text); cursor:pointer; border:1px solid var(--border); padding:8px 12px; border-radius:9px; font-size:14px}
     .primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a}
     .ghost{background:transparent}
@@ -50,43 +54,33 @@
     @media (max-width:640px){ #tops .row{ grid-template-columns:1fr; } }
 
     /* ---- OMDb: smal sökknapp & affisch ---- */
-.lookup-wrap {
-  display:flex;
-  gap:6px;
-  align-items:center;
+.lookup-wrap{
+  display:flex; gap:6px; align-items:center; flex-wrap:nowrap;
 }
-.lookup-input {
-  flex:1 1 auto;
+.lookup-input{
+  flex:1 1 auto; min-width:0;  /* låt input ta plats */
   padding:10px 12px;
 }
-.lookup-btn {
-  flex:0 0 auto;
-  padding:6px 8px;
-  font-size:12px;
-  line-height:1;
-  border-radius:8px;
-  border:1px solid var(--border);
-  background:var(--btn);
-  color:var(--btn-text);
-  cursor:pointer;
+.lookup-btn{
+  flex:0 0 auto; width:auto !important;  /* OVERRIDAR gamla width:100% om cache */
+  padding:6px 10px; font-size:12px; line-height:1; white-space:nowrap;
+  border-radius:8px; border:1px solid var(--border);
+  background:var(--btn); color:var(--btn-text); cursor:pointer;
 }
-.omdb-info {
-  margin:6px 0 8px;
-  font-size:13px;
-  color:var(--muted);
-  display:flex;
-  align-items:flex-start;
-  gap:8px;
+.omdb-info{
+  margin:6px 0 8px; font-size:13px; color:var(--muted);
+  display:flex; align-items:flex-start; gap:8px;
 }
-.omdb-info img {
-  width:48px;
-  height:auto;
-  border-radius:6px;
-  border:1px solid var(--border);
+.omdb-info img{
+  width:48px; height:auto; border-radius:6px; border:1px solid var(--border);
 }
-.omdb-info a {
-  color:inherit;
-  text-decoration:underline;
+.omdb-info a{ color:inherit; text-decoration:underline; }
+
+/* På väldigt smala skärmar: knappen under input */
+@media (max-width: 520px){
+  .lookup-wrap{ flex-wrap:wrap; }
+  .lookup-input{ flex-basis:100%; }
+  .lookup-btn{ margin-top:4px; }
 }
 
     /* ---- Poäng på en rad ---- */
