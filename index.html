@@ -26,16 +26,17 @@
     .row{display:flex; gap:12px; flex-wrap:wrap}
     .col{flex:1 1 220px; min-width:220px}
     label{display:block; font-size:13px; color:var(--muted); margin:0 0 6px}
+
+    /* kontroller */
     input,select,textarea{
-  width:100%; padding:10px 12px; border-radius:10px;
-  border:1px solid var(--border); background:var(--input); color:var(--text);
-  outline:none;
-}
-button{
-  background:var(--btn); color:var(--btn-text); cursor:pointer;
-  border:1px solid var(--border); padding:8px 12px; border-radius:9px; font-size:14px;
-}
-    button{background:var(--btn); color:var(--btn-text); cursor:pointer; border:1px solid var(--border); padding:8px 12px; border-radius:9px; font-size:14px}
+      width:100%; padding:10px 12px; border-radius:10px;
+      border:1px solid var(--border); background:var(--input); color:var(--text);
+      outline:none;
+    }
+    button{
+      background:var(--btn); color:var(--btn-text); cursor:pointer;
+      border:1px solid var(--border); padding:8px 12px; border-radius:9px; font-size:14px;
+    }
     .primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a}
     .ghost{background:transparent}
     .ok{color:var(--ok)} .err{color:var(--err)}
@@ -53,39 +54,30 @@ button{
     #tops .col{ display:flex; flex-direction:column; gap:6px; }
     @media (max-width:640px){ #tops .row{ grid-template-columns:1fr; } }
 
-    /* ---- OMDb: smal sökknapp & affisch ---- */
-.lookup-wrap{
-  display:flex; gap:6px; align-items:center; flex-wrap:nowrap;
-}
-.lookup-input{
-  flex:1 1 auto; min-width:0;  /* låt input ta plats */
-  padding:10px 12px;
-}
-.lookup-btn{
-  flex:0 0 auto; width:auto !important;  /* OVERRIDAR gamla width:100% om cache */
-  padding:6px 10px; font-size:12px; line-height:1; white-space:nowrap;
-  border-radius:8px; border:1px solid var(--border);
-  background:var(--btn); color:var(--btn-text); cursor:pointer;
-}
-.omdb-info{
-  margin:6px 0 8px; font-size:13px; color:var(--muted);
-  display:flex; align-items:flex-start; gap:8px;
-}
-.omdb-info img{
-  width:48px; height:auto; border-radius:6px; border:1px solid var(--border);
-}
-.omdb-info a{ color:inherit; text-decoration:underline; }
-
-/* På väldigt smala skärmar: knappen under input */
-@media (max-width: 520px){
-  .lookup-wrap{ flex-wrap:wrap; }
-  .lookup-input{ flex-basis:100%; }
-  .lookup-btn{ margin-top:4px; }
-}
+    /* ---- OMDb: liten sökknapp & 64px affisch ---- */
+    .lookup-wrap{display:flex; gap:6px; align-items:center; flex-wrap:nowrap}
+    .lookup-input{flex:1 1 auto; min-width:0; padding:10px 12px}
+    .lookup-btn{
+      flex:0 0 auto; width:auto; padding:6px 10px; font-size:12px; line-height:1; white-space:nowrap;
+      border-radius:8px; border:1px solid var(--border); background:var(--btn); color:var(--btn-text);
+    }
+    .omdb-info{
+      margin:6px 0 8px; font-size:13px; color:var(--muted);
+      display:flex; align-items:flex-start; gap:8px;
+    }
+    .omdb-info img{
+      width:64px; height:auto; border-radius:6px; border:1px solid var(--border);
+    }
+    .omdb-info a{ color:inherit; text-decoration:underline; }
+    @media (max-width:520px){
+      .lookup-wrap{flex-wrap:wrap}
+      .lookup-input{flex-basis:100%}
+      .lookup-btn{margin-top:4px}
+    }
 
     /* ---- Poäng på en rad ---- */
     #scoresRow{display:flex; gap:8px; align-items:flex-end; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
-    .score-col{min-width:120px; flex:1 1 0}
+    .score-col{min-width:100px; flex:1 1 0}
     .score-col label{margin-bottom:4px}
     .score-col input{padding:8px 10px; border-radius:8px; text-align:center}
   </style>
@@ -206,10 +198,10 @@ button{
 /* ===== KONFIG ===== */
 const API    = 'https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
-const PW     = 'Look4fun'; // hårdkodat lösen i frontenden
+const PW     = 'Look4fun';
 
 // OMDb
-const OMDB_KEY = 'b6f3e48';              // din nyckel
+const OMDB_KEY = 'b6f3e48';
 const OMDB_URL = 'https://www.omdbapi.com/';
 
 /* ===== Hjälpare ===== */
@@ -240,18 +232,66 @@ _mqlLight.addEventListener?.('change', _onSchemeChange);
 _mqlLight.addListener?.(_onSchemeChange);
 
 /* ===== OMDb ===== */
+function imdbUrlFrom(j){ return j?.imdbID ? `https://www.imdb.com/title/${j.imdbID}/` : ''; }
+function norm(s){ return String(s||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,''); }
+
 async function omdbLookup(query){
   if(!query) return null;
-  query = query.trim();
-  const tt = (query.match(/tt\d{7,}/i) || query.match(/imdb\.com\/title\/(tt\d+)/i));
-  const params = tt ? { i: (tt[1] || tt[0]).replace(/^.*(tt\d+).*$/,'$1') } : { t: query };
-  const url = `${OMDB_URL}?apikey=${OMDB_KEY}&plot=short&type=movie&${qs(params)}`;
+  let q = query.trim();
+
+  // plocka ev årtal "Titel (1997)"
+  let year = null;
+  const mYear = q.match(/\((\d{4})\)$/);
+  if(mYear){ year = mYear[1]; q = q.replace(/\s*\(\d{4}\)\s*$/,''); }
+
+  // tt-id eller imdb-länk
+  const tt = (q.match(/tt\d{7,}/i) || q.match(/imdb\.com\/title\/(tt\d+)/i));
+  if(tt){
+    const id = (tt[1] || tt[0]).replace(/^.*(tt\d+).*$/,'$1');
+    try{
+      const r = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&i=${id}&plot=short`,{cache:'no-store'});
+      const j = await r.json();
+      if(j && j.Response!=='False') return j;
+    }catch(e){}
+    return null;
+  }
+
+  // exakt titel
   try{
-    const r = await fetch(url, {cache:'no-store'}); const j = await r.json();
-    if(j && j.Response !== 'False') return j;
-  }catch(e){/* tyst */}
+    const r = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&t=${encodeURIComponent(q)}${year?`&y=${year}`:''}&type=movie&plot=short`,{cache:'no-store'});
+    const j = await r.json();
+    if(j && j.Response!=='False') return j;
+  }catch(e){}
+
+  // fallback: sök och välj bästa träff (svenska titlar fungerar bättre)
+  try{
+    const r = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&s=${encodeURIComponent(q)}&type=movie`,{cache:'no-store'});
+    const j = await r.json();
+    if(j && j.Response!=='False' && Array.isArray(j.Search) && j.Search.length){
+      const nq = norm(q);
+      const scored = j.Search
+        .map(it=>({ it, nt:norm(it.Title), y:it.Year }))
+        .map(o=>{
+          let score = 0;
+          if(o.nt === nq) score = 3;
+          else if(o.nt.startsWith(nq)) score = 2;
+          else if(o.nt.includes(nq)) score = 1;
+          if(year && String(o.y) === String(year)) score += 0.5;
+          return {score, it:o.it};
+        })
+        .sort((a,b)=>b.score-a.score);
+
+      const best = scored[0]?.it;
+      if(best?.imdbID){
+        const r2 = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&i=${best.imdbID}&plot=short`,{cache:'no-store'});
+        const j2 = await r2.json();
+        if(j2 && j2.Response!=='False') return j2;
+      }
+    }
+  }catch(e){}
   return null;
 }
+
 function renderOmdbInfo(containerId, data, query){
   const el = document.getElementById(containerId);
   if(!el) return;
@@ -259,21 +299,20 @@ function renderOmdbInfo(containerId, data, query){
     el.innerHTML = query ? `Hittade inget för “${escapeHtml(query)}”.` : '';
     return;
   }
-
-  const title = escapeHtml(data.Title || '');
-  const year  = escapeHtml(data.Year || '');
-  const rate  = escapeHtml(data.imdbRating || '-');
-  const link  = imdbUrlFrom(data);
+  const title  = escapeHtml(data.Title || '');
+  const year   = escapeHtml(data.Year  || '');
+  const rating = escapeHtml(data.imdbRating || '-');
+  const link   = imdbUrlFrom(data);
   const poster = (data.Poster && data.Poster !== 'N/A') ? `<img src="${data.Poster}" alt="poster">` : '';
 
   el.innerHTML = `
     ${poster}
     <div>
       <strong>${title}</strong>${year ? ` (${year})` : ''}<br>
-      IMDb ${rate}
-      ${link ? ` — <a href="${link}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
+      IMDb ${rating}${link ? ` — <a href="${link}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
     </div>`;
 }
+
 /* ===== Ladda hel sida ===== */
 async function loadAll(){
   const cur = await api('getCurrent');
@@ -281,7 +320,6 @@ async function loadAll(){
   $('#nextName').value  = cur.next || '';
   $('#suggested').value = cur.suggestion || '';
 
-  // poäng
   if (cur.scores){
     for (const p of PEOPLE){
       const el = document.getElementById(`s-${p}`);
@@ -289,10 +327,8 @@ async function loadAll(){
     }
   }
 
-  // min lista
   await loadMyList();
 
-  // topplistor
   const tops = await api('getTops', {limit:5});
   if (tops.ok){
     const films = (tops.bestFilms||[]).map(x=>`<div class="pill">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('') || '–';
@@ -300,7 +336,6 @@ async function loadAll(){
     $('#tops').innerHTML = `<div class="row"><div class="col"><label>Bästa filmer</label>${films}</div><div class="col"><label>Bästa väljare</label>${pickers}</div></div>`;
   }
 
-  // historik
   const hist = await api('getHistory', {limit:10});
   if (hist.ok){
     const rows = (hist.rows||[]).map(r=>{
@@ -315,9 +350,7 @@ async function loadAll(){
     $('#history').innerHTML = rows || 'Tomt.';
   }
 
-  // uppdatera OMDb-info för “på tur nu”
   await updateSuggestedInfo();
-
   setStatus(true,'API svarar.');
 }
 
@@ -356,7 +389,6 @@ async function loadMyList(){
   if (!j.ok) return;
   $('#w1').value=j.R1||''; $('#w2').value=j.R2||''; $('#w3').value=j.R3||''; $('#w4').value=j.R4||''; $('#w5').value=j.R5||'';
 
-  // Fyll OMDb-info direkt när listan hämtas
   for (const id of ['w1','w2','w3','w4','w5']){
     const q = document.getElementById(id).value;
     const data = await omdbLookup(q);
@@ -393,7 +425,6 @@ async function saveNight(){
 
 /* ===== OMDb UI-bindningar ===== */
 function bindLookupUI(){
-  // Sök-knappar
   document.querySelectorAll('button[data-lookup]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const id = btn.getAttribute('data-lookup');
@@ -404,7 +435,6 @@ function bindLookupUI(){
       renderOmdbInfo(infoId, data, q);
     });
   });
-  // Enter i fält
   ['w1','w2','w3','w4','w5','suggested'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
@@ -432,10 +462,8 @@ async function updateSuggestedInfo(){
 /* ===== Init ===== */
 function getParam(name){ return new URLSearchParams(location.search).get(name); }
 function bindUI(){
-  // personer
   $('#who').innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join('');
 
-  // default “Jag är”: URL > sparat > Lars
   const urlWho = getParam('who');
   const savedWho = localStorage.getItem('film_who');
   const fallbackWho = 'Lars';
@@ -443,12 +471,10 @@ function bindUI(){
   $('#who').value = initialWho;
   if (!savedWho) localStorage.setItem('film_who', initialWho);
 
-  // tema
   $('#theme').value = localStorage.getItem('film_theme') || 'auto';
   applyTheme();
   $('#theme').onchange = ()=>{ localStorage.setItem('film_theme', $('#theme').value); applyTheme(); };
 
-  // händelser
   $('#who').onchange         = ()=>{ localStorage.setItem('film_who', $('#who').value); loadMyList(); };
   $('#refreshScores').onclick= refreshScores;
   $('#saveAllScores').onclick= saveAllScores;
@@ -461,12 +487,10 @@ function bindUI(){
 (async function(){
   bindUI();
   bindLookupUI();
-
   try{
     const p = await api('ping');
     setStatus(!!p.ok, p.ok?'API svarar.':(p.error||'ok=false'));
   }catch(e){ setStatus(false, String(e)); }
-
   await loadAll();
 })();
 </script>
