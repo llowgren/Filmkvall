@@ -398,171 +398,162 @@ async function loadAll(){
   setStatus(true,'API svarar.');
 }
 
-/* ===== Poäng ===== */
+/* ===== Poäng, lista, tur ===== */
 async function refreshScores(){
-  const j=await api('getScores');
-  if(!j.ok) return setStatus(false,j.error||'getScores');
-  for(const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=j.scores?.[p]??''; }
-  $('#scoresRow').classList.add('flash'); setTimeout(()=>$('#scoresRow').classList.remove('flash'),700);
+  const j = await api('getScores');
+  if(!j.ok) return setStatus(false, j.error || 'getScores');
+  for (const p of PEOPLE) {
+    const el = document.getElementById(`s-${p}`);
+    if (el) el.value = j.scores?.[p] ?? '';
+  }
+  const row = document.getElementById('scoresRow');
+  row?.classList.add('flash');
+  setTimeout(()=>row?.classList.remove('flash'), 700);
 }
 
 async function saveAllScores(){
-  const scores={};
-  for(const p of PEOPLE){
-    const v=(document.getElementById(`s-${p}`)?.value||'').trim();
-    if(v!=='') scores[p]=v;
+  const scores = {};
+  for (const p of PEOPLE){
+    const v = (document.getElementById(`s-${p}`)?.value || '').trim();
+    if (v !== '') scores[p] = v;
   }
-  if(!Object.keys(scores).length) return setStatus(false,'inga poäng ifyllda');
-
-  // Försök bulk-endpoint först
-  let j = await api('saveScores', {scores: JSON.stringify(scores)});
-  if(!j.ok && /unknown/i.test(j.error||'')){
-    // Fallback: en och en
-    const jobs = Object.entries(scores).map(([person,score])=>api('saveScore',{person,score}));
-    const all = await Promise.all(jobs);
-    j = all.every(x=>x.ok) ? {ok:true} : {ok:false, error:'kunde inte spara alla poäng'};
-  }
-  setStatus(j.ok, j.ok?'poäng sparade':(j.error||'saveScores'));
+  if (!Object.keys(scores).length) return setStatus(false,'inga poäng ifyllda');
+  const j = await api('saveScores', { scores: JSON.stringify(scores) });
+  setStatus(j.ok, j.ok ? 'poäng sparade' : (j.error || 'saveScores'));
   if (j.ok) await refreshScores();
 }
 
-/* ===== Önskelista ===== */
+/* ===== Önskelista (min) ===== */
 async function loadMyList(){
-  const who = $('#who').value;
-  const j = await api('getWishlist', {person: who});
-  if (!j.ok) { setStatus(false, j.error||'getWishlist'); return; }
+  const who = document.getElementById('who').value;
+  const j = await api('getWishlist', { person: who });
+  if(!j.ok){ setStatus(false, j.error || 'getWishlist'); return; }
 
-  $('#w1').value = j.R1 || '';
-  $('#w2').value = j.R2 || '';
-  $('#w3').value = j.R3 || '';
-  $('#w4').value = j.R4 || '';
-  $('#w5').value = j.R5 || '';
+  document.getElementById('w1').value = j.R1 || '';
+  document.getElementById('w2').value = j.R2 || '';
+  document.getElementById('w3').value = j.R3 || '';
+  document.getElementById('w4').value = j.R4 || '';
+  document.getElementById('w5').value = j.R5 || '';
 
-  // Uppdatera OMDb-info
-  for (let i = 1; i <= 5; i++) {
+  // uppdatera OMDb-rutor
+  for (let i=1;i<=5;i++){
     const q = document.getElementById(`w${i}`).value;
     const data = await omdbLookup(q);
-    renderOmdbInfo(`w${i}-info`, data, q);
+    await renderOmdbInfo(`w${i}-info`, data, q);
   }
 }
 
 async function saveMyList(){
-  const who = $('#who').value;
+  const who = document.getElementById('who').value;
   const body = {
     person: who,
-    R1: $('#w1').value,
-    R2: $('#w2').value,
-    R3: $('#w3').value,
-    R4: $('#w4').value,
-    R5: $('#w5').value
+    R1: document.getElementById('w1').value,
+    R2: document.getElementById('w2').value,
+    R3: document.getElementById('w3').value,
+    R4: document.getElementById('w4').value,
+    R5: document.getElementById('w5').value,
   };
   const j = await api('saveWishlist', body);
-  setStatus(j.ok, j.ok ? 'lista sparad' : (j.error||'saveWishlist'));
-  if (j.ok){ $('#wishlistCol').classList.add('flash'); setTimeout(()=>$('#wishlistCol').classList.remove('flash'),700); }
+  setStatus(j.ok, j.ok ? 'lista sparad' : (j.error || 'saveWishlist'));
+  if (j.ok){
+    const box = document.getElementById('wishlistCol');
+    box?.classList.add('flash');
+    setTimeout(()=>box?.classList.remove('flash'), 700);
+  }
 }
 
-/* ===== Tur & kväll ===== */
 async function skipNext(){
   const j = await api('skipNext');
-  setStatus(j.ok, j.ok?`Tur flyttad – nästa: ${j.next||''}`:(j.error||'skipNext'));
-  await loadAll();
+  setStatus(j.ok, j.ok ? (`Tur flyttad – nästa: ${j.next||''}`) : (j.error || 'skipNext'));
+  if (j.ok) await loadAll();
 }
 
 async function saveNight(){
-  const who  = ($('#nextName').value||'').trim();
-  const film = ($('#suggested').value||'').trim();
-  const comment = ($('#comment').value||'').trim();
-  if(!who || !film) return setStatus(false,'saknar “Nästa i tur” eller film');
+  const who = (document.getElementById('nextName').value || '').trim();
+  const film = (document.getElementById('suggested').value || '').trim();
+  const comment = (document.getElementById('comment').value || '').trim();
+  if (!who || !film) return setStatus(false,'saknar “Nästa i tur” eller film');
 
-  const j = await api('saveNight',{who,film,comment});
-  if (!j.ok) return setStatus(false, j.error||'saveNight');
-
-  // Skifta personens önskelista (#2→#1 etc) så #1 tas bort
-  const w = await api('getWishlist',{person:who});
-  if (w.ok){
-    await api('saveWishlist', {
-      person: who,
-      R1: w.R2||'', R2: w.R3||'', R3: w.R4||'', R4: w.R5||'', R5: ''
-    });
-  }
-
-  // Nollställ poängfält och kommentar
-  for (const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=''; }
-  $('#comment').value='';
-
-  setStatus(true, `Kväll sparad – ny tur: ${j.nextPerson||''}`);
-  await loadAll();
+  const j = await api('saveNight', { who, film, comment });
+  setStatus(j.ok, j.ok ? (`Kväll sparad – ny tur: ${j.nextPerson||''}`) : (j.error || 'saveNight'));
+  if (j.ok) await loadAll();
 }
-
-/* ===== IMDb/Streaming-UI koppling ===== */
+// --- Bindningar för OMDb-knappar och fält ---
 function bindLookupUI(){
   document.querySelectorAll('button[data-lookup]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      const id = btn.getAttribute('data-lookup');
-      const input = document.getElementById(id);
-      const q = input?.value || '';
+      const id = btn.getAttribute('data-lookup');          // t.ex. 'w1' eller 'suggested'
+      const q  = document.getElementById(id)?.value || '';
       const data = await omdbLookup(q);
       renderOmdbInfo(`${id}-info`, data, q);
     });
   });
+
+  // Enter/ändring i inmatningsfält => uppdatera infobox
   ['w1','w2','w3','w4','w5','suggested'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
     el.addEventListener('keydown', async (e)=>{
       if(e.key === 'Enter'){
         e.preventDefault();
-        const q = el.value;
-        const data = await omdbLookup(q);
-        renderOmdbInfo(`${id}-info`, data, q);
+        const data = await omdbLookup(el.value);
+        renderOmdbInfo(`${id}-info`, data, el.value);
       }
     });
     el.addEventListener('change', async ()=>{
-      const q = el.value;
-      const data = await omdbLookup(q);
-      renderOmdbInfo(`${id}-info`, data, q);
+      const data = await omdbLookup(el.value);
+      renderOmdbInfo(`${id}-info`, data, el.value);
     });
   });
 }
+
 async function updateSuggestedInfo(){
-  const q = $('#suggested').value || '';
+  const q = document.getElementById('suggested').value || '';
   const data = await omdbLookup(q);
   renderOmdbInfo('suggested-info', data, q);
 }
 
-/* ===== Init ===== */
+// --- UI-bindningar, tema och start ---
 function getParam(name){ return new URLSearchParams(location.search).get(name); }
+
 function bindUI(){
   // personer
-  $('#who').innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join('');
+  document.getElementById('who').innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join('');
   const urlWho = getParam('who');
   const savedWho = localStorage.getItem('film_who');
   const fallbackWho = 'Lars';
   const initialWho = [urlWho, savedWho, fallbackWho].find(w => PEOPLE.includes(w)) || PEOPLE[0];
-  $('#who').value = initialWho;
+  document.getElementById('who').value = initialWho;
   if (!savedWho) localStorage.setItem('film_who', initialWho);
 
   // tema
-  $('#theme').value = localStorage.getItem('film_theme') || 'auto';
+  document.getElementById('theme').value = localStorage.getItem('film_theme') || 'auto';
   applyTheme();
-  $('#theme').onchange = ()=>{ localStorage.setItem('film_theme', $('#theme').value); applyTheme(); };
+  document.getElementById('theme').onchange = ()=>{
+    localStorage.setItem('film_theme', document.getElementById('theme').value);
+    applyTheme();
+  };
 
-  // events
-  $('#who').onchange         = ()=>{ localStorage.setItem('film_who', $('#who').value); loadMyList(); };
-  $('#refreshScores').onclick= refreshScores;
-  $('#saveAllScores').onclick= saveAllScores;
-  $('#skip').onclick         = skipNext;
-  $('#saveNight').onclick    = saveNight;
-  $('#loadList').onclick     = loadMyList;
-  $('#saveList').onclick     = saveMyList;
+  // knappar
+  document.getElementById('who').onchange         = ()=>{ localStorage.setItem('film_who', document.getElementById('who').value); loadMyList(); };
+  document.getElementById('refreshScores').onclick= refreshScores;
+  document.getElementById('saveAllScores').onclick= saveAllScores;
+  document.getElementById('skip').onclick         = skipNext;
+  document.getElementById('saveNight').onclick    = saveNight;
+  document.getElementById('loadList').onclick     = loadMyList;
+  document.getElementById('saveList').onclick     = saveMyList;
 }
 
+// --- Starta appen ---
 (async function(){
   bindUI();
   bindLookupUI();
   try{
     const p = await api('ping');
-    setStatus(!!p.ok, p.ok?'API svarar.':(p.error||'ok=false'));
-  }catch(e){ setStatus(false, String(e)); }
+    setStatus(!!p.ok, p.ok ? 'API svarar.' : (p.error || 'ok=false'));
+  }catch(e){
+    setStatus(false, String(e));
+  }
   await loadAll();
 })();
 </script>
