@@ -385,7 +385,49 @@ async function loadAll(){
   await updateSuggestedInfo();
   setStatus(true,'API svarar.');
 }
+/* ===== Önskelista (min) ===== */
+async function loadMyList(){
+  const who = $('#who').value;
+  const j = await api('getWishlist', {person: who});
+  if (!j.ok) {
+    setStatus(false, j.error || 'getWishlist');
+    return;
+  }
 
+  // Fyll i fält
+  $('#w1').value = j.R1 || '';
+  $('#w2').value = j.R2 || '';
+  $('#w3').value = j.R3 || '';
+  $('#w4').value = j.R4 || '';
+  $('#w5').value = j.R5 || '';
+
+  // Uppdatera OMDb-info (affischer etc.)
+  for (let i = 1; i <= 5; i++) {
+    const q = $(`#w${i}`).value;
+    const data = await omdbLookup(q);
+    renderOmdbInfo(`w${i}-info`, data, q);
+  }
+}
+
+async function saveMyList(){
+  const who = $('#who').value;
+  const body = {
+    person: who,
+    R1: $('#w1').value,
+    R2: $('#w2').value,
+    R3: $('#w3').value,
+    R4: $('#w4').value,
+    R5: $('#w5').value
+  };
+
+  const j = await api('saveWishlist', body);
+  setStatus(j.ok, j.ok ? 'lista sparad' : (j.error || 'saveWishlist'));
+  if (j.ok) {
+    // Bekräftelsevisning eller liten animation
+    $('#wishlistCol').classList.add('flash');
+    setTimeout(() => $('#wishlistCol').classList.remove('flash'), 700);
+  }
+}
 /* ===== Poäng, lista, tur – oförändrat ===== */
 async function refreshScores(){ /* ... samma som tidigare ... */ }
 async function saveAllScores(){ /* ... */ }
