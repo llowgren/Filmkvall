@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Filmkväll – tur & poäng</title>
+  <style>
+    :root{
+      --bg:#0f1116; --panel:#161a22; --text:#e6e8ee; --muted:#9aa3b2;
+      --accent:#f6c247; --accent-weak:#ffe399; --ok:#2ea86b; --err:#e5534b;
+      --input:#0f1116; --border:#2a3140; --btn:#1f2533; --btn-text:#e6e8ee;
+    }
+    *{box-sizing:border-box}
+    body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
+    .wrap{max-width:980px; margin:24px auto; padding:0 16px;}
+    h1{font-size:26px; margin:0 0 8px;}
+    h3{margin:0 0 10px}
+    .muted{color:var(--muted)}
+    .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0;}
+    .row{display:flex; gap:12px; flex-wrap:wrap;}
+    .col{flex:1 1 220px; min-width:220px}
+    label{display:block; font-size:13px; color:var(--muted); margin:0 0 6px;}
+    input, select, button, textarea{
+      width:100%; padding:10px 12px; border-radius:10px;
+      border:1px solid var(--border); background:var(--input); color:var(--text);
+      outline:none;
+    }
+    input::placeholder{color:#7b8597}
+    button{
+      background:var(--btn); color:var(--btn-text); cursor:pointer; border:1px solid var(--border);
+      padding:8px 12px; border-radius:9px; font-size:14px;
+    }
+    .primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a}
+    .ghost{background:transparent}
+    .ok{color:var(--ok)} .err{color:var(--err)}
+    .toolbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+    .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px; background:#1e2431; border:1px solid var(--border)}
+    .grid5{display:grid; grid-template-columns:repeat(5,1fr); gap:12px}
+    .right{margin-left:auto}
+    .sep{height:1px; background:var(--border); margin:14px 0}
+    .tight{margin-top:6px; margin-bottom:6px}
+    .note{font-size:13px; color:var(--muted); margin-top:6px}
+    .flash{animation:flash 700ms ease}
+    @keyframes flash{0%{box-shadow:0 0 0 0 rgba(246,194,71,.0)}40%{box-shadow:0 0 0 6px rgba(246,194,71,.25)}100%{box-shadow:0 0 0 0 rgba(246,194,71,.0)}}
+    @media (prefers-color-scheme: light){
+      :root{
+        --bg:#f6f7fb; --panel:#ffffff; --text:#151823; --muted:#5b6475;
+        --accent:#f6c247; --accent-weak:#ffe399; --input:#ffffff; --border:#dfe3ee; --btn:#eef0f6; --btn-text:#111826;
+      }
+      input,select,textarea{box-shadow:0 0 0 1px var(--border) inset}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Filmkväll – tur & poäng</h1>
+    <p class="muted">Välj vem du är, spara lösenord, uppdatera din lista och sätt poäng.</p>
+
+    <!-- Inställningar -->
+    <div class="card">
+      <div class="row">
+        <div class="col">
+          <label>Jag är</label>
+          <select id="who"></select>
+        </div>
+        <div class="col">
+          <label>Tema</label>
+          <select id="theme">
+            <option value="auto">Auto</option>
+            <option value="dark">Mörkt</option>
+            <option value="light">Ljust</option>
+          </select>
+        </div>
+        <div class="col">
+          <label>Färg</label>
+          <select id="accent">
+            <option value="gul">Gul</option>
+            <option value="blå">Blå</option>
+            <option value="grön">Grön</option>
+            <option value="röd">Röd</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="toolbar tight">
+        <div class="col" style="flex:1 1 320px; min-width:280px">
+          <label>Lösenord</label>
+          <input id="pw" type="password" placeholder="Look4fun" />
+        </div>
+        <button id="togglePw" class="ghost">Visa</button>
+        <button id="savePw" class="ghost">Spara lösenord</button>
+        <div id="apiStatus" class="pill right">Init…</div>
+      </div>
+    </div>
+
+    <!-- På tur nu -->
+    <div class="card" id="nowCard">
+      <h3>På tur nu</h3>
+
+      <div class="row">
+        <div class="col">
+          <label>Nästa i tur</label>
+          <input id="nextName" type="text" readonly>
+        </div>
+        <div class="col">
+          <label>Film (förslag från #1 i listan)</label>
+          <input id="suggested" type="text" readonly>
+        </div>
+      </div>
+
+      <!-- Poängrad (OVANFÖR knappar) -->
+      <div class="row" id="scoresRow">
+        <div class="col"><label>Hannah</label><input id="s-Hannah" placeholder="–" inputmode="decimal"></div>
+        <div class="col"><label>Maria</label><input id="s-Maria"  placeholder="–" inputmode="decimal"></div>
+        <div class="col"><label>Tuva</label><input id="s-Tuva"   placeholder="–" inputmode="decimal"></div>
+        <div class="col"><label>Alva</label><input id="s-Alva"   placeholder="–" inputmode="decimal"></div>
+        <div class="col"><label>Lars</label><input id="s-Lars"   placeholder="–" inputmode="decimal"></div>
+      </div>
+
+      <div class="toolbar tight">
+        <button id="refreshScores" class="ghost">Uppdatera poäng</button>
+        <button id="saveAllScores" class="primary">Spara poäng</button>
+        <span class="right"></span>
+        <button id="skip" class="ghost">Hoppa över</button>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>Kommentar</label>
+          <input id="comment" placeholder="valfritt">
+        </div>
+        <div class="col" style="align-self:end">
+          <button id="saveNight" class="primary">Spara kväll</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Min lista -->
+    <div class="card">
+      <h3>Mina kommande (1–5)</h3>
+      <div class="grid5">
+        <input id="w1" placeholder="#1 – högst upp">
+        <input id="w2" placeholder="#2">
+        <input id="w3" placeholder="#3">
+        <input id="w4" placeholder="#4">
+        <input id="w5" placeholder="#5">
+      </div>
+      <div class="toolbar tight">
+        <button id="loadList" class="ghost">Hämta min lista</button>
+        <button id="saveList" class="primary">Spara min lista</button>
+      </div>
+      <p class="note">När kvällen sparas för den som är på tur flyttas #2–#5 upp (och #1 tas bort).</p>
+    </div>
+
+    <!-- Topplistor -->
+    <div class="card">
+      <h3>Topplistor (topp 5)</h3>
+      <div id="tops"></div>
+    </div>
+
+    <!-- Historik -->
+    <div class="card">
+      <h3>Historik (senaste 10)</h3>
+      <div id="history"></div>
+    </div>
+  </div>
+
+  <script>
+  /************** KONFIG **************/
+  const GAS_URL   = "https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec";
+  const DEFAULT_PW= "Look4fun";
+  const PEOPLE    = ["Hannah","Maria","Tuva","Alva","Lars"];
+
+  /************** HJÄLPARE **************/
+  const $ = (id)=>document.getElementById(id);
+  const getPw = ()=> (localStorage.getItem("filmkvall_pw") || $("pw").value || "").trim();
+  const qs = (p)=> new URLSearchParams(p).toString();
+  const api = async (action, extra={})=>{
+    const url = GAS_URL + "?" + qs({action, pw:getPw(), ...extra});
+    const r = await fetch(url, { cache:"no-store" });
+    return r.json();
+  };
+  const round1 = (x)=> Math.round((Number(x)||0)*10)/10;
+
+  function setTheme(){
+    const t = $("theme").value;
+    document.documentElement.style.colorScheme = (t==="light")?"light":"dark";
+  }
+  function applyAccent(){
+    const a = $("accent").value;
+    const root = document.documentElement;
+    if (a==="blå"){ root.style.setProperty("--accent","#59a5ff"); root.style.setProperty("--accent-weak","#b9d8ff"); }
+    else if (a==="grön"){ root.style.setProperty("--accent","#59d38b"); root.style.setProperty("--accent-weak","#b9f2d3"); }
+    else if (a==="röd"){ root.style.setProperty("--accent","#ff8aa0"); root.style.setProperty("--accent-weak","#ffd0da"); }
+    else { root.style.setProperty("--accent","#f6c247"); root.style.setProperty("--accent-weak","#ffe399"); }
+  }
+
+  /************** UI INIT **************/
+  function fillPeople(){
+    $("who").innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join("");
+  }
+
+  function restorePrefs(){
+    $("pw").value = localStorage.getItem("filmkvall_pw") || DEFAULT_PW;
+    $("who").value = localStorage.getItem("filmkvall_who") || PEOPLE[0];
+    $("theme").value = localStorage.getItem("filmkvall_theme") || "auto";
+    $("accent").value = localStorage.getItem("filmkvall_accent") || "gul";
+    setTheme(); applyAccent();
+  }
+
+  function bindSettings(){
+    $("togglePw").onclick = ()=>{
+      $("pw").type = $("pw").type==="password" ? "text" : "password";
+      $("togglePw").textContent = $("pw").type==="password" ? "Visa" : "Dölj";
+    };
+    $("savePw").onclick = ()=>{
+      localStorage.setItem("filmkvall_pw", $("pw").value.trim());
+      $("apiStatus").textContent = "Sparat";
+      $("apiStatus").classList.add("flash");
+      setTimeout(()=>$("apiStatus").classList.remove("flash"),800);
+    };
+    $("who").onchange = ()=> localStorage.setItem("filmkvall_who", $("who").value);
+    $("theme").onchange = ()=> { localStorage.setItem("filmkvall_theme", $("theme").value); setTheme(); };
+    $("accent").onchange = ()=> { localStorage.setItem("filmkvall_accent", $("accent").value); applyAccent(); };
+  }
+
+  /************** LADDNING & RENDER **************/
+  async function loadAll(){
+    $("apiStatus").textContent = "Hämtar…";
+    const j = await api("getAll", { person: $("who").value, top:5, hist:10 });
+    if (!j.ok){ $("apiStatus").textContent = "Fel – " + (j.error||""); return; }
+    $("apiStatus").textContent = "OK – API svarar.";
+
+    // current
+    const c = j.current || {};
+    $("nextName").value   = c.next || "";
+    $("suggested").value  = c.suggestion || "";
+    if (c.scores){
+      for (const p of PEOPLE){
+        const v = c.scores[p] ?? "";
+        const box = $("s-" + p);
+        if (box) box.value = v;
+      }
+    }
+
+    // wishlist (min lista)
+    const w = j.wishlist || {};
+    $("w1").value = w.R1||""; $("w2").value=w.R2||""; $("w3").value=w.R3||"";
+    $("w4").value = w.R4||""; $("w5").value=w.R5||"";
+
+    // toppar
+    const t = j.tops || {};
+    const hostT = $("tops");
+    const films = (t.bestFilms||[]).map(x=>`<div class="pill" style="display:block;margin:6px 0">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join("");
+    const picks = (t.bestPickers||[]).map(x=>`<div class="pill" style="display:block;margin:6px 0">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join("");
+    hostT.innerHTML = `
+      <div class="row">
+        <div class="col"><label>Bästa filmer</label>${films || "–"}</div>
+        <div class="col"><label>Bästa väljare</label>${picks || "–"}</div>
+      </div>`;
+
+    // historik
+    const h = j.history || {};
+    const hostH = $("history");
+    if (!h.rows?.length){ hostH.textContent = "Tomt."; }
+    else {
+      hostH.innerHTML = h.rows.map(r=>{
+        const avg = calcAvg(r);
+        const per = PEOPLE.map(p=>`${p}: ${r[p]||"-"}`).join(" • ");
+        return `<div class="pill" style="display:block;margin:6px 0;padding:10px 12px">
+          <strong>${r["Film"]||"–"}</strong> — ${r["Datum"]||""}
+          <span class="muted"> (val: ${r["Vem valde"]||"-"}, Snitt: ${avg})</span><br/>
+          <span class="muted">${per}</span>
+        </div>`;
+      }).join("");
+    }
+  }
+
+  function calcAvg(r){
+    const nums = PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
+    if (!nums.length) return "-";
+    return round1(nums.reduce((a,b)=>a+b,0)/nums.length);
+  }
+
+  /************** AKTIONER **************/
+  $("refreshScores").onclick = async ()=>{
+    const j = await api("getScores");
+    if (j.ok && j.scores){
+      for (const p of PEOPLE){ $("s-"+p).value = j.scores[p] ?? ""; }
+      $("scoresRow").classList.add("flash");
+      setTimeout(()=>$("scoresRow").classList.remove("flash"),800);
+    }
+  };
+
+  $("saveAllScores").onclick = async ()=>{
+    const scores = {};
+    for (const p of PEOPLE){
+      const v = ($("s-"+p).value || "").toString().trim();
+      if (v !== "") scores[p] = v;
+    }
+    if (!Object.keys(scores).length) return;
+    $("apiStatus").textContent = "Sparar poäng…";
+    const j = await api("saveScores", {scores: JSON.stringify(scores)});
+    $("apiStatus").textContent = j.ok ? "Poäng sparade" : ("Fel – " + (j.error||""));
+    if (j.ok){ $("saveAllScores").classList.add("flash"); setTimeout(()=>$("saveAllScores").classList.remove("flash"),800); }
+  };
+
+  $("saveNight").onclick = async ()=>{
+    const who = $("nextName").value.trim();
+    const film = $("suggested").value.trim();
+    const comment = $("comment").value.trim();
+    if (!who || !film){ alert("Saknar 'Nästa i tur' eller filmförslag."); return; }
+    $("apiStatus").textContent = "Sparar kväll…";
+    const j = await api("saveNight", {who, film, comment});
+    $("apiStatus").textContent = j.ok ? "Kväll sparad" : ("Fel – " + (j.error||""));
+    if (j.ok){ await loadAll(); }
+  };
+
+  $("skip").onclick = async ()=>{
+    $("apiStatus").textContent = "Hoppar över…";
+    const j = await api("skipNext");
+    $("apiStatus").textContent = j.ok ? ("Nästa: " + (j.next||"")) : ("Fel – "+(j.error||""));
+    await loadAll();
+  };
+
+  $("saveList").onclick = async ()=>{
+    const who = $("who").value;
+    const body = { person: who, R1:$("w1").value, R2:$("w2").value, R3:$("w3").value, R4:$("w4").value, R5:$("w5").value };
+    const j = await api("saveWishlist", body);
+    $("apiStatus").textContent = j.ok ? "Lista sparad" : ("Fel – " + (j.error||""));
+    if (j.ok){ $("saveList").classList.add("flash"); setTimeout(()=>$("saveList").classList.remove("flash"),800); }
+    await loadAll(); // uppdatera förslag
+  };
+
+  $("loadList").onclick = async ()=>{
+    const j = await api("getWishlist", {person:$("who").value});
+    if (j.ok){
+      $("w1").value = j.R1||""; $("w2").value=j.R2||""; $("w3").value=j.R3||"";
+      $("w4").value = j.R4||""; $("w5").value=j.R5||"";
+      $("loadList").classList.add("flash"); setTimeout(()=>$("loadList").classList.remove("flash"),800);
+    }
+  };
+
+  /************** START **************/
+  (async function init(){
+    fillPeople();
+    restorePrefs();
+    bindSettings();
+    await loadAll();
+  })();
+  </script>
+</body>
+</html>
