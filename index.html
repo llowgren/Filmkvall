@@ -166,121 +166,181 @@
   </div>
 
 <script>
-/* ====== KONFIG ====== */
+/* ===== KONFIG ===== */
 const API = 'https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
+const LS_PW = 'film_pw';
 
-/* ====== HJÄLPARE ====== */
-const $ = s => document.querySelector(s);
-const $$ = s => document.querySelectorAll(s);
-const LS_KEY_PW = 'film_pw';
-function getPw(){ return ($('#pw').value || localStorage.getItem(LS_KEY_PW) || '').trim(); }
-function setPw(v){ $('#pw').value = v; localStorage.setItem(LS_KEY_PW, v); }
-function setStatus(ok,msg){ const el=$('#apiStatus'); el.textContent = (ok?'OK – ':'Fel – ') + msg; el.className = ok?'ok':'err'; }
-function api(action, params={}) {
-  const q = new URLSearchParams({ ...params, action, pw: getPw() });
-  return fetch(`${API}?${q.toString()}`, { method:'GET' }).then(r=>r.json());
+/* ===== Hjälpare ===== */
+const $  = (s)=>document.querySelector(s);
+const $$ = (s)=>document.querySelectorAll(s);
+const getPw = ()=> ($('#pw').value || localStorage.getItem(LS_PW) || '').trim();
+const setPw = (v)=>{ $('#pw').value=v; localStorage.setItem(LS_PW,v); };
+const qs = (o)=> new URLSearchParams(o).toString();
+const api = (action, params={}) => fetch(`${API}?${qs({action, pw:getPw(), ...params})}`, {cache:'no-store'}).then(r=>r.json());
+const round1 = (x)=>Math.round((Number(x)||0)*10)/10;
+const setStatus=(ok,msg)=>{ const el=$('#apiStatus'); el.textContent=(ok?'OK – ':'Fel – ')+msg; el.className=ok?'ok':'err'; };
+
+/* ===== Tema/accent (behåller dina selecter) ===== */
+function applyTheme(){
+  const t = $('#theme').value;
+  document.documentElement.style.colorScheme = (t==='light')?'light':(t==='dark'?'dark':'normal');
+}
+function applyAccent(){
+  const a = $('#accent').value;
+  const r = document.documentElement;
+  const map = {
+    'gul' : ['#f6c247','#ffe399'],
+    'blå' : ['#59a5ff','#b9d8ff'],
+    'grön': ['#59d38b','#b9f2d3'],
+    'röd' : ['#ff8aa0','#ffd0da']
+  };
+  const [a1,a2]=map[a]||map['gul'];
+  r.style.setProperty('--accent',a1); r.style.setProperty('--accent-weak',a2);
 }
 
-/* ====== INIT & UI-KOPPLING ====== */
-window.addEventListener('DOMContentLoaded', () => {
-  // sätt ev. sparat lösenord i fältet
-  const saved = localStorage.getItem(LS_KEY_PW) || '';
-  if (saved) $('#pw').value = saved;
-
-  // testa kontakt
-  ping();
-
-  // knappar
-  $('#btnShowPw')?.addEventListener('click', () => {
-    const f = $('#pw');
-    f.type = (f.type === 'password') ? 'text' : 'password';
-    $('#btnShowPw').textContent = (f.type === 'password') ? 'Visa' : 'Dölj';
-  });
-  $('#btnSavePw')?.addEventListener('click', savePassword);
-
-  $('#btnUpdateScores')?.addEventListener('click', loadScores);
-  $('#btnSaveScores')?.addEventListener('click', saveScores);
-  $('#btnSkip')?.addEventListener('click', skipNext);
-  $('#btnSaveNight')?.addEventListener('click', saveNight);
-
-  // ladda “på tur”, förslag & poäng
-  loadCurrent();
-  loadScores();
-  // ladda ev. egen önskelista-knappar om du har dem i din HTML...
-});
-
-/* ====== FUNKTIONER ====== */
-function ping(){
-  api('ping')
-    .then(j => setStatus(!!j.ok, j.ok ? 'API svarar.' : (j.error||'ok=false')))
-    .catch(e => setStatus(false, String(e)));
+/* ===== Ladda hel sida ===== */
+async function loadAll(){
+  try{
+    // current + scores
+    const cur = await api('getCurrent');
+    if(!cur.ok) return setStatus(false,cur.error||'getCurrent');
+    $('#nextName').value  = cur.next || '';
+    $('#suggested').value = cur.suggestion || '';
+    if (cur.scores){
+      for (const p of PEOPLE){ const el = document.getElementById(`s-${p}`); if(el) el.value = cur.scores[p] ?? ''; }
+    }
+    // min lista
+    await loadMyList();
+    // toppar (topp 5)
+    const tops = await api('getTops',{limit:5});
+    if (tops.ok){
+      const films = (tops.bestFilms||[]).map(x=>`<div class="pill" style="display:block;margin:6px 0">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('') || '–';
+      const pickers = (tops.bestPickers||[]).map(x=>`<div class="pill" style="display:block;margin:6px 0">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join('') || '–';
+      $('#tops').innerHTML = `<div class="row"><div class="col"><label>Bästa filmer</label>${films}</div><div class="col"><label>Bästa väljare</label>${pickers}</div></div>`;
+    }
+    // historik (senaste 10, inkl snitt & per person)
+    const hist = await api('getHistory',{limit:10});
+    if (hist.ok){
+      const rows = (hist.rows||[]).map(r=>{
+        const nums = PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
+        const avg = nums.length? round1(nums.reduce((a,b)=>a+b,0)/nums.length) : '-';
+        const per = PEOPLE.map(p=>`${p}: ${r[p]||'-'}`).join(' • ');
+        return `<div class="pill" style="display:block;margin:6px 0;padding:10px 12px">
+          <strong>${r['Film']||'–'}</strong> — ${r['Datum']||''}
+          <span class="muted"> (val: ${r['Vem valde']||'-'}, Snitt: ${avg})</span><br/><span class="muted">${per}</span>
+        </div>`;
+      }).join('');
+      $('#history').innerHTML = rows || 'Tomt.';
+    }
+    setStatus(true,'API svarar.');
+  }catch(e){ setStatus(false,String(e)); }
 }
 
-function savePassword(){
-  const pw = ($('#pw').value||'').trim();
-  if (!pw){ setStatus(false,'ange lösenord'); return; }
-  // verifiera mot backend med ping och spara lokalt
-  api('ping').then(j=>{
-    if (j.ok){ setPw(pw); setStatus(true,'lösenord sparat'); loadCurrent(); loadScores(); }
-    else setStatus(false, j.error||'fel lösen');
-  }).catch(e=>setStatus(false,String(e)));
+/* ===== Poäng ===== */
+async function refreshScores(){
+  const j = await api('getScores');
+  if(!j.ok) return setStatus(false,j.error||'getScores');
+  for (const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=j.scores?.[p] ?? ''; }
+  $('#scoresRow').classList.add('flash'); setTimeout(()=>$('#scoresRow').classList.remove('flash'),700);
+}
+async function saveAllScores(){
+  // bygg paket
+  const scores={};
+  for (const p of PEOPLE){
+    const v=(document.getElementById(`s-${p}`)?.value||'').trim();
+    if (v!=='') scores[p]=v;
+  }
+  if (!Object.keys(scores).length) return setStatus(false,'inga poäng ifyllda');
+  // 1) försök saveScores (bulk)
+  let j = await api('saveScores', {scores: JSON.stringify(scores)});
+  // 2) om ok:false/unknown action → spara en och en
+  if (!j.ok && /unknown/i.test(j.error||'')){
+    const jobs = Object.entries(scores).map(([person,score])=>api('saveScore',{person,score}));
+    const all = await Promise.all(jobs);
+    j = all.every(x=>x.ok) ? {ok:true} : {ok:false, error:'kunde inte spara alla poäng'};
+  }
+  if (j.ok){ setStatus(true,'poäng sparade'); await refreshScores(); }
+  else setStatus(false, j.error||'saveScores');
 }
 
-function loadCurrent(){
-  api('getCurrent').then(j=>{
-    if (!j.ok) return setStatus(false, j.error||'getCurrent');
-    $('#nextName') && ($('#nextName').value = j.next || '');
-    $('#suggestion') && ($('#suggestion').value = j.suggestion || '');
-  }).catch(e=>setStatus(false,String(e)));
+/* ===== Önskelista (min) ===== */
+async function loadMyList(){
+  const who = $('#who').value;
+  const j = await api('getWishlist',{person:who});
+  if (!j.ok) return;
+  $('#w1').value=j.R1||''; $('#w2').value=j.R2||''; $('#w3').value=j.R3||''; $('#w4').value=j.R4||''; $('#w5').value=j.R5||'';
+}
+async function saveMyList(){
+  const who = $('#who').value;
+  const body={person:who, R1:$('#w1').value, R2:$('#w2').value, R3:$('#w3').value, R4:$('#w4').value, R5:$('#w5').value};
+  const j = await api('saveWishlist', body);
+  setStatus(j.ok, j.ok?'lista sparad':(j.error||'saveWishlist'));
+  if (j.ok) { $('#saveList').classList.add('flash'); setTimeout(()=>$('#saveList').classList.remove('flash'),700); }
 }
 
-function loadScores(){
-  api('getScores').then(j=>{
-    if (!j.ok) return setStatus(false, j.error||'getScores');
-    (PEOPLE||[]).forEach(p=>{
-      const el = document.getElementById(`score_${p}`);
-      if (el) el.value = (j.scores && j.scores[p]) ? j.scores[p] : '';
-    });
-    setStatus(true,'poäng hämtade');
-  }).catch(e=>setStatus(false,String(e)));
+/* ===== Tur & kväll ===== */
+async function skipNext(){
+  const j = await api('skipNext');
+  setStatus(j.ok, j.ok?(`Tur flyttad – nästa: ${j.next||''}`):(j.error||'skipNext'));
+  await loadAll();
+}
+async function saveNight(){
+  const who  = ($('#nextName').value||'').trim();
+  const film = ($('#suggested').value||'').trim();
+  const comment = ($('#comment').value||'').trim();
+  if (!who || !film) return setStatus(false,'saknar “Nästa i tur” eller film');
+
+  const j = await api('saveNight',{who,film,comment});
+  if (!j.ok) return setStatus(false, j.error||'saveNight');
+
+  // Skifta önskelistan (#2→#1 etc) för den som valde
+  const w = await api('getWishlist',{person:who});
+  if (w.ok){
+    await api('saveWishlist', {person:who, R1:w.R2||'', R2:w.R3||'', R3:w.R4||'', R4:w.R5||'', R5:''});
+  }
+
+  // nollställ poängfält
+  for (const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=''; }
+  $('#comment').value='';
+
+  setStatus(true, `Kväll sparad – ny tur: ${j.nextPerson||''}`);
+  await loadAll();
 }
 
-function saveScores(){
-  const jobs = (PEOPLE||[]).map(p=>{
-    const v = (document.getElementById(`score_${p}`)?.value||'').trim();
-    if (!v) return Promise.resolve({ok:true,skipped:true});
-    return api('saveScore', { person:p, score:v });
-  });
-  Promise.all(jobs).then(()=>{
-    setStatus(true,'poäng sparade'); 
-    loadScores();
-  }).catch(e=>setStatus(false,String(e)));
+/* ===== Inställningar/kopplingar ===== */
+function bindUI(){
+  // personer i select
+  $('#who').innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join('');
+  // restore
+  const savedPw = localStorage.getItem(LS_PW)||''; if(savedPw) $('#pw').value=savedPw;
+  $('#theme').value = localStorage.getItem('film_theme') || 'auto';
+  $('#accent').value= localStorage.getItem('film_accent')|| 'gul';
+  applyTheme(); applyAccent();
+
+  // events
+  $('#togglePw').onclick = ()=>{ const f=$('#pw'); f.type=(f.type==='password'?'text':'password'); $('#togglePw').textContent=(f.type==='password'?'Visa':'Dölj'); };
+  $('#savePw').onclick   = async ()=>{ const r = await api('ping'); if(r.ok){ setPw($('#pw').value.trim()); setStatus(true,'lösenord sparat'); } else setStatus(false,r.error||'fel lösen'); };
+
+  $('#theme').onchange = ()=>{ localStorage.setItem('film_theme',$('#theme').value); applyTheme(); };
+  $('#accent').onchange= ()=>{ localStorage.setItem('film_accent',$('#accent').value); applyAccent(); };
+  $('#who').onchange   = ()=>{ loadMyList(); };
+
+  $('#refreshScores').onclick = refreshScores;
+  $('#saveAllScores').onclick = saveAllScores;
+  $('#skip').onclick          = skipNext;
+  $('#saveNight').onclick     = saveNight;
+  $('#loadList').onclick      = loadMyList;
+  $('#saveList').onclick      = saveMyList;
 }
 
-function skipNext(){
-  api('skipNext').then(j=>{
-    if (!j.ok) return setStatus(false, j.error||'skipNext');
-    setStatus(true, `Tur flyttad – nästa: ${j.next||''}`);
-    loadCurrent();
-  }).catch(e=>setStatus(false,String(e)));
-}
-
-function saveNight(){
-  const who = ($('#nextName')?.value||'').trim();
-  const film = ($('#suggestion')?.value||'').trim();
-  const imdb = ($('#imdb')?.value||'').trim();
-  const comment = ($('#comment')?.value||'').trim();
-  if (!who || !film) { setStatus(false,'saknar “Nästa i tur” eller film'); return; }
-  api('saveNight', { who, film, imdb, comment }).then(j=>{
-    if (!j.ok) return setStatus(false, j.error||'saveNight');
-    // nollställ poängfält
-    (PEOPLE||[]).forEach(p=>{ const el=document.getElementById(`score_${p}`); if(el) el.value=''; });
-    $('#imdb') && ($('#imdb').value=''); $('#comment') && ($('#comment').value='');
-    setStatus(true, `Kväll sparad – ny tur: ${j.nextPerson||''}`);
-    loadCurrent(); loadScores();
-  }).catch(e=>setStatus(false,String(e)));
-}
+/* ===== Start ===== */
+(async function(){
+  bindUI();
+  // testkontakt
+  try{ const p=await api('ping'); setStatus(!!p.ok, p.ok?'API svarar.':(p.error||'ok=false')); }catch(e){ setStatus(false,String(e)); }
+  await loadAll();
+})();
 </script>
 </body>
 </html>
