@@ -1,5 +1,5 @@
 <!doctype html>
-<åhtml lang="sv">
+<html lang="sv">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -37,9 +37,6 @@
     .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px; background:#1e2431; border:1px solid var(--border)}
     .grid5{display:grid; grid-template-columns:repeat(5,1fr); gap:12px}
     .right{margin-left:auto}
-    .sep{height:1px; background:var(--border); margin:14px 0}
-    .tight{margin-top:6px; margin-bottom:6px}
-    .note{font-size:13px; color:var(--muted); margin-top:6px}
     .flash{animation:flash 700ms ease}
     @keyframes flash{0%{box-shadow:0 0 0 0 rgba(246,194,71,.0)}40%{box-shadow:0 0 0 6px rgba(246,194,71,.25)}100%{box-shadow:0 0 0 0 rgba(246,194,71,.0)}}
     @media (prefers-color-scheme: light){
@@ -54,9 +51,9 @@
 <body>
   <div class="wrap">
     <h1>Filmkväll – tur & poäng</h1>
-    <p class="muted">Välj vem du är, spara lösenord, uppdatera din lista och sätt poäng.</p>
+    <p class="muted">Välj vem du är, uppdatera din lista och sätt poäng. Allt sparas i arket.</p>
 
-    <!-- Inställningar -->
+    <!-- Inställningar (förenklade: ingen färg, inget lösenord) -->
     <div class="card">
       <div class="row">
         <div class="col">
@@ -72,31 +69,15 @@
           </select>
         </div>
         <div class="col">
-          <label>Färg</label>
-          <select id="accent">
-            <option value="gul">Gul</option>
-            <option value="blå">Blå</option>
-            <option value="grön">Grön</option>
-            <option value="röd">Röd</option>
-          </select>
+          <label>Status</label>
+          <div id="apiStatus" class="pill">Init…</div>
         </div>
-      </div>
-
-      <div class="toolbar tight">
-        <div class="col" style="flex:1 1 320px; min-width:280px">
-          <label>Lösenord</label>
-          <input id="pw" type="password" placeholder="Look4fun" />
-        </div>
-        <button id="togglePw" class="ghost">Visa</button>
-        <button id="savePw" class="ghost">Spara lösenord</button>
-        <div id="apiStatus" class="pill right">Init…</div>
       </div>
     </div>
 
     <!-- På tur nu -->
     <div class="card" id="nowCard">
       <h3>På tur nu</h3>
-
       <div class="row">
         <div class="col">
           <label>Nästa i tur</label>
@@ -108,7 +89,6 @@
         </div>
       </div>
 
-      <!-- Poängrad (OVANFÖR knappar) -->
       <div class="row" id="scoresRow">
         <div class="col"><label>Hannah</label><input id="s-Hannah" placeholder="–" inputmode="decimal"></div>
         <div class="col"><label>Maria</label><input id="s-Maria"  placeholder="–" inputmode="decimal"></div>
@@ -117,7 +97,7 @@
         <div class="col"><label>Lars</label><input id="s-Lars"   placeholder="–" inputmode="decimal"></div>
       </div>
 
-      <div class="toolbar tight">
+      <div class="toolbar">
         <button id="refreshScores" class="ghost">Uppdatera poäng</button>
         <button id="saveAllScores" class="primary">Spara poäng</button>
         <span class="right"></span>
@@ -145,11 +125,11 @@
         <input id="w4" placeholder="#4">
         <input id="w5" placeholder="#5">
       </div>
-      <div class="toolbar tight">
+      <div class="toolbar">
         <button id="loadList" class="ghost">Hämta min lista</button>
         <button id="saveList" class="primary">Spara min lista</button>
       </div>
-      <p class="note">När kvällen sparas för den som är på tur flyttas #2–#5 upp (och #1 tas bort).</p>
+      <p class="muted">När kvällen sparas för den som är på tur flyttas #2–#5 upp (och #1 tas bort).</p>
     </div>
 
     <!-- Topplistor -->
@@ -169,40 +149,26 @@
 /* ===== KONFIG ===== */
 const API = 'https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
-const LS_PW = 'film_pw';
+/* Hårdkodat lösenord */
+const getPw = () => 'Look4fun';
 
 /* ===== Hjälpare ===== */
 const $  = (s)=>document.querySelector(s);
 const $$ = (s)=>document.querySelectorAll(s);
-const getPw = ()=> 'Look4fun';
-const setPw = (v)=>{ $('#pw').value=v; localStorage.setItem(LS_PW,v); };
-const qs = (o)=> new URLSearchParams(o).toString();
+const qs = o => new URLSearchParams(o).toString();
 const api = (action, params={}) => fetch(`${API}?${qs({action, pw:getPw(), ...params})}`, {cache:'no-store'}).then(r=>r.json());
 const round1 = (x)=>Math.round((Number(x)||0)*10)/10;
-const setStatus=(ok,msg)=>{ const el=$('#apiStatus'); el.textContent=(ok?'OK – ':'Fel – ')+msg; el.className=ok?'ok':'err'; };
+const setStatus=(ok,msg)=>{ const el=$('#apiStatus'); el.textContent=(ok?'OK – ':'Fel – ')+msg; el.className=ok?'pill ok':'pill err'; };
 
-/* ===== Tema/accent (behåller dina selecter) ===== */
+/* ===== Tema (endast auto/mörkt/ljust) ===== */
 function applyTheme(){
   const t = $('#theme').value;
   document.documentElement.style.colorScheme = (t==='light')?'light':(t==='dark'?'dark':'normal');
 }
-function applyAccent(){
-  const a = $('#accent').value;
-  const r = document.documentElement;
-  const map = {
-    'gul' : ['#f6c247','#ffe399'],
-    'blå' : ['#59a5ff','#b9d8ff'],
-    'grön': ['#59d38b','#b9f2d3'],
-    'röd' : ['#ff8aa0','#ffd0da']
-  };
-  const [a1,a2]=map[a]||map['gul'];
-  r.style.setProperty('--accent',a1); r.style.setProperty('--accent-weak',a2);
-}
 
-/* ===== Ladda hel sida ===== */
+/* ===== Ladda allt ===== */
 async function loadAll(){
   try{
-    // current + scores
     const cur = await api('getCurrent');
     if(!cur.ok) return setStatus(false,cur.error||'getCurrent');
     $('#nextName').value  = cur.next || '';
@@ -210,16 +176,16 @@ async function loadAll(){
     if (cur.scores){
       for (const p of PEOPLE){ const el = document.getElementById(`s-${p}`); if(el) el.value = cur.scores[p] ?? ''; }
     }
-    // min lista
+
     await loadMyList();
-    // toppar (topp 5)
+
     const tops = await api('getTops',{limit:5});
     if (tops.ok){
       const films = (tops.bestFilms||[]).map(x=>`<div class="pill" style="display:block;margin:6px 0">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('') || '–';
       const pickers = (tops.bestPickers||[]).map(x=>`<div class="pill" style="display:block;margin:6px 0">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join('') || '–';
       $('#tops').innerHTML = `<div class="row"><div class="col"><label>Bästa filmer</label>${films}</div><div class="col"><label>Bästa väljare</label>${pickers}</div></div>`;
     }
-    // historik (senaste 10, inkl snitt & per person)
+
     const hist = await api('getHistory',{limit:10});
     if (hist.ok){
       const rows = (hist.rows||[]).map(r=>{
@@ -233,6 +199,7 @@ async function loadAll(){
       }).join('');
       $('#history').innerHTML = rows || 'Tomt.';
     }
+
     setStatus(true,'API svarar.');
   }catch(e){ setStatus(false,String(e)); }
 }
@@ -245,16 +212,13 @@ async function refreshScores(){
   $('#scoresRow').classList.add('flash'); setTimeout(()=>$('#scoresRow').classList.remove('flash'),700);
 }
 async function saveAllScores(){
-  // bygg paket
   const scores={};
   for (const p of PEOPLE){
     const v=(document.getElementById(`s-${p}`)?.value||'').trim();
     if (v!=='') scores[p]=v;
   }
   if (!Object.keys(scores).length) return setStatus(false,'inga poäng ifyllda');
-  // 1) försök saveScores (bulk)
   let j = await api('saveScores', {scores: JSON.stringify(scores)});
-  // 2) om ok:false/unknown action → spara en och en
   if (!j.ok && /unknown/i.test(j.error||'')){
     const jobs = Object.entries(scores).map(([person,score])=>api('saveScore',{person,score}));
     const all = await Promise.all(jobs);
@@ -264,7 +228,7 @@ async function saveAllScores(){
   else setStatus(false, j.error||'saveScores');
 }
 
-/* ===== Önskelista (min) ===== */
+/* ===== Önskelista ===== */
 async function loadMyList(){
   const who = $('#who').value;
   const j = await api('getWishlist',{person:who});
@@ -300,7 +264,6 @@ async function saveNight(){
     await api('saveWishlist', {person:who, R1:w.R2||'', R2:w.R3||'', R3:w.R4||'', R4:w.R5||'', R5:''});
   }
 
-  // nollställ poängfält
   for (const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=''; }
   $('#comment').value='';
 
@@ -308,22 +271,13 @@ async function saveNight(){
   await loadAll();
 }
 
-/* ===== Inställningar/kopplingar ===== */
+/* ===== Init ===== */
 function bindUI(){
-  // personer i select
   $('#who').innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join('');
-  // restore
-  const savedPw = localStorage.getItem(LS_PW)||''; if(savedPw) $('#pw').value=savedPw;
   $('#theme').value = localStorage.getItem('film_theme') || 'auto';
-  $('#accent').value= localStorage.getItem('film_accent')|| 'gul';
-  applyTheme(); applyAccent();
-
-  // events
-  $('#togglePw').onclick = ()=>{ const f=$('#pw'); f.type=(f.type==='password'?'text':'password'); $('#togglePw').textContent=(f.type==='password'?'Visa':'Dölj'); };
-  $('#savePw').onclick   = async ()=>{ const r = await api('ping'); if(r.ok){ setPw($('#pw').value.trim()); setStatus(true,'lösenord sparat'); } else setStatus(false,r.error||'fel lösen'); };
+  applyTheme();
 
   $('#theme').onchange = ()=>{ localStorage.setItem('film_theme',$('#theme').value); applyTheme(); };
-  $('#accent').onchange= ()=>{ localStorage.setItem('film_accent',$('#accent').value); applyAccent(); };
   $('#who').onchange   = ()=>{ loadMyList(); };
 
   $('#refreshScores').onclick = refreshScores;
@@ -334,10 +288,8 @@ function bindUI(){
   $('#saveList').onclick      = saveMyList;
 }
 
-/* ===== Start ===== */
 (async function(){
   bindUI();
-  // testkontakt
   try{ const p=await api('ping'); setStatus(!!p.ok, p.ok?'API svarar.':(p.error||'ok=false')); }catch(e){ setStatus(false,String(e)); }
   await loadAll();
 })();
