@@ -5,92 +5,58 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Filmkväll – tur & poäng</title>
   <style>
-    :root {
-      --bg: #0f1116;
-      --panel: #161a22;
-      --text: #e6e8ee;
-      --muted: #9aa3b2;
-      --accent: #f6c247;
-      --accent-weak: #ffe399;
-      --ok: #2ea86b;
-      --err: #e5534b;
-      --input: #0f1116;
-      --border: #2a3140;
-      --btn: #1f2533;
-      --btn-text: #e6e8ee;
-      --pill-bg: #1f2533;
+    :root{
+      --bg:#0f1116; --panel:#161a22; --text:#e6e8ee; --muted:#9aa3b2;
+      --accent:#f6c247; --accent-weak:#ffe399; --ok:#2ea86b; --err:#e5534b;
+      --input:#0f1116; --border:#2a3140; --btn:#1f2533; --btn-text:#e6e8ee;
+      --pill-bg:#1f2533;
     }
+    [data-theme="light"]{
+      --bg:#f6f7fb; --panel:#ffffff; --text:#151823; --muted:#5b6475;
+      --input:#ffffff; --border:#dfe3ee; --btn:#eef0f6; --btn-text:#111826;
+      --pill-bg:#f1f3f8;
+    }
+    *{box-sizing:border-box}
+    body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
+    .wrap{max-width:980px; margin:24px auto; padding:0 16px;}
+    h1{font-size:26px; margin:0 0 8px}
+    h3{margin:0 0 10px}
+    .muted{color:var(--muted)}
+    .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0}
+    .row{display:flex; gap:12px; flex-wrap:wrap}
+    .col{flex:1 1 220px; min-width:220px}
+    label{display:block; font-size:13px; color:var(--muted); margin:0 0 6px}
+    input,select,button,textarea{
+      width:100%; padding:10px 12px; border-radius:10px;
+      border:1px solid var(--border); background:var(--input); color:var(--text);
+      outline:none;
+    }
+    button{background:var(--btn); color:var(--btn-text); cursor:pointer; border:1px solid var(--border); padding:8px 12px; border-radius:9px; font-size:14px}
+    .primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a}
+    .ghost{background:transparent}
+    .ok{color:var(--ok)} .err{color:var(--err)}
+    .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px; background:var(--pill-bg); border:1px solid var(--border)}
+    #apiStatus.pill{padding:8px 12px; display:inline-block; line-height:1.2}
+    .right{margin-left:auto}
+    .flash{animation:flash 700ms ease}
+    @keyframes flash{0%{box-shadow:0 0 0 0 rgba(246,194,71,0)}40%{box-shadow:0 0 0 6px rgba(246,194,71,.25)}100%{box-shadow:0 0 0 0 rgba(246,194,71,0)}}
 
-    [data-theme="light"] {
-      --bg: #f6f7fb;
-      --panel: #ffffff;
-      --text: #151823;
-      --muted: #5b6475;
-      --input: #ffffff;
-      --border: #dfe3ee;
-      --btn: #eef0f6;
-      --btn-text: #111826;
-      --pill-bg: #f1f3f8;
-    }
+    /* “Mina kommande” i kolumn */
+    .wishlist-col input{margin-bottom:8px}
 
-    * { box-sizing: border-box; }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      margin: 0;
+    /* Topplistor två kolumner (staplar på mobil) */
+    #tops .row{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:16px;
     }
-    .wrap { max-width: 980px; margin: 24px auto; padding: 0 16px; }
-    h1 { font-size: 26px; margin: 0 0 8px; }
-    h3 { margin: 0 0 10px; }
-    .muted { color: var(--muted); }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      margin: 14px 0;
+    #tops .col{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
     }
-    .row { display: flex; gap: 12px; flex-wrap: wrap; }
-    .col { flex: 1 1 220px; min-width: 220px; }
-    label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
-    input, select, button, textarea {
-      width: 100%; padding: 10px 12px; border-radius: 10px;
-      border: 1px solid var(--border); background: var(--input); color: var(--text);
-      outline: none;
-    }
-    button {
-      background: var(--btn);
-      color: var(--btn-text);
-      cursor: pointer;
-      border: 1px solid var(--border);
-      padding: 8px 12px;
-      border-radius: 9px;
-      font-size: 14px;
-    }
-    .primary { background: var(--accent); color: #1b1f2a; border-color: #c8a73a; }
-    .ghost { background: transparent; }
-    .ok { color: var(--ok); }
-    .err { color: var(--err); }
-    .pill {
-      display: inline-block;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-size: 13px;
-      background: var(--pill-bg);
-      border: 1px solid var(--border);
-    }
-    .right { margin-left: auto; }
-    .flash { animation: flash 700ms ease; }
-    @keyframes flash {
-      0% { box-shadow: 0 0 0 0 rgba(246,194,71,0); }
-      40% { box-shadow: 0 0 0 6px rgba(246,194,71,0.25); }
-      100% { box-shadow: 0 0 0 0 rgba(246,194,71,0); }
-    }
-
-    /* Mina kommande i kolumn */
-    .wishlist-col input {
-      margin-bottom: 8px;
+    @media (max-width:640px){
+      #tops .row{ grid-template-columns:1fr; }
     }
   </style>
 </head>
@@ -135,6 +101,7 @@
         </div>
       </div>
 
+      <!-- Poängrad -->
       <div class="row" id="scoresRow">
         <div class="col"><label>Hannah</label><input id="s-Hannah" placeholder="–" inputmode="decimal"></div>
         <div class="col"><label>Maria</label><input id="s-Maria"  placeholder="–" inputmode="decimal"></div>
@@ -192,101 +159,182 @@
   </div>
 
 <script>
-const API = 'https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec';
+/* ===== KONFIG ===== */
+const API    = 'https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec'; // Byt vid ny web app-URL
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
-const getPw = ()=> 'Look4fun';
+const PW     = 'Look4fun'; // hårdkodat lösen i frontenden
 
-const $ = s => document.querySelector(s);
-const qs = o => new URLSearchParams(o).toString();
-const api = (a,p={}) => fetch(`${API}?${qs({action:a,pw:getPw(),...p})}`,{cache:'no-store'}).then(r=>r.json());
-const round1 = x => Math.round((Number(x)||0)*10)/10;
-const setStatus = (ok,msg)=>{ const el=$('#apiStatus'); el.textContent=(ok?'OK – ':'Fel – ')+msg; el.className='pill '+(ok?'ok':'err'); };
+/* ===== Hjälpare ===== */
+const $  = (s)=>document.querySelector(s);
+const $$ = (s)=>document.querySelectorAll(s);
+const qs = (o)=> new URLSearchParams(o).toString();
+const api = (action, params={}) =>
+  fetch(`${API}?${qs({action, pw:PW, ...params})}`, {cache:'no-store'}).then(r=>r.json());
+const round1 = (x)=>Math.round((Number(x)||0)*10)/10;
+const setStatus=(ok,msg)=>{ const el=$('#apiStatus'); el.textContent=(ok?'OK – ':'Fel – ')+msg; el.className='pill '+(ok?'ok':'err'); };
 
-function applyTheme() {
-  const t = $('#theme').value;
+/* ===== Tema ===== */
+function applyTheme(){
+  const sel = $('#theme').value; // 'auto' | 'light' | 'dark'
   const root = document.documentElement;
-  if (t === 'light') root.setAttribute('data-theme', 'light');
-  else if (t === 'dark') root.removeAttribute('data-theme'); 
-  else { // auto
-    if (window.matchMedia('(prefers-color-scheme: light)').matches)
-      root.setAttribute('data-theme', 'light');
-    else root.removeAttribute('data-theme');
+  let mode = sel;
+  if (sel === 'auto'){
+    mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   }
-}
+  if (mode === 'light') root.setAttribute('data-theme', 'light');
+  else root.removeAttribute('data-theme');
 
+  // Hjälp native kontroller lite
+  root.style.colorScheme = (mode === 'light') ? 'light' : 'dark';
+}
+// Följ systemets färgschema i auto-läge
+const _mqlLight = window.matchMedia('(prefers-color-scheme: light)');
+const _onSchemeChange = () => { if ($('#theme')?.value === 'auto') applyTheme(); };
+_mqlLight.addEventListener?.('change', _onSchemeChange);
+_mqlLight.addListener?.(_onSchemeChange); // iOS/Safari fallback
+
+/* ===== Ladda hel sida ===== */
 async function loadAll(){
+  // current + scores
   const cur = await api('getCurrent');
-  if(!cur.ok) return setStatus(false,cur.error);
-  $('#nextName').value = cur.next||''; $('#suggested').value = cur.suggestion||'';
-  if(cur.scores){ for(const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=cur.scores[p]??''; } }
+  if(!cur.ok) return setStatus(false,cur.error||'getCurrent');
+  $('#nextName').value  = cur.next || '';
+  $('#suggested').value = cur.suggestion || '';
+  if (cur.scores){
+    for (const p of PEOPLE){
+      const el = document.getElementById(`s-${p}`);
+      if (el) el.value = cur.scores[p] ?? '';
+    }
+  }
+
+  // min lista
   await loadMyList();
 
-  const tops = await api('getTops',{limit:5});
-  if(tops.ok){
-    const films = (tops.bestFilms||[]).map(x=>`<div class="pill">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('');
-    const pickers = (tops.bestPickers||[]).map(x=>`<div class="pill">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join('');
-    $('#tops').innerHTML = `<div class="row"><div class="col"><label>Bästa filmer</label>${films}</div><div class="col"><label>Bästa väljare</label>${pickers}</div></div>`;
+  // topplistor (topp 5)
+  const tops = await api('getTops', {limit:5});
+  if (tops.ok){
+    const films = (tops.bestFilms||[]).map(x=>`<div class="pill">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('') || '–';
+    const pickers = (tops.bestPickers||[]).map(x=>`<div class="pill">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join('') || '–';
+    $('#tops').innerHTML = `
+      <div class="row">
+        <div class="col"><label>Bästa filmer</label>${films}</div>
+        <div class="col"><label>Bästa väljare</label>${pickers}</div>
+      </div>`;
   }
 
-  const hist = await api('getHistory',{limit:10});
-  if(hist.ok){
-    $('#history').innerHTML = hist.rows.map(r=>{
-      const nums=PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
-      const avg=nums.length?round1(nums.reduce((a,b)=>a+b,0)/nums.length):'-';
-      const per=PEOPLE.map(p=>`${p}: ${r[p]||'-'}`).join(' • ');
-      return `<div><strong>${r['Film']}</strong> — ${r['Datum']} <span class="muted">(val: ${r['Vem valde']}, snitt: ${avg})</span><br><span class="muted">${per}</span></div>`;
+  // historik (senaste 10, inkl snitt & per person)
+  const hist = await api('getHistory', {limit:10});
+  if (hist.ok){
+    const rows = (hist.rows||[]).map(r=>{
+      const nums = PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
+      const avg = nums.length? round1(nums.reduce((a,b)=>a+b,0)/nums.length) : '-';
+      const per = PEOPLE.map(p=>`${p}: ${r[p]||'-'}`).join(' • ');
+      return `<div class="pill" style="display:block;margin:6px 0;padding:10px 12px">
+        <strong>${r['Film']||'–'}</strong> — ${r['Datum']||''}
+        <span class="muted"> (val: ${r['Vem valde']||'-'}, Snitt: ${avg})</span><br/>
+        <span class="muted">${per}</span>
+      </div>`;
     }).join('');
+    $('#history').innerHTML = rows || 'Tomt.';
   }
 
   setStatus(true,'API svarar.');
 }
 
+/* ===== Poäng ===== */
 async function refreshScores(){
-  const j=await api('getScores');
-  if(!j.ok)return setStatus(false,j.error);
-  for(const p of PEOPLE){const el=document.getElementById(`s-${p}`);if(el)el.value=j.scores?.[p]??'';}
-}
-async function saveAllScores(){
-  const s={};for(const p of PEOPLE){const v=(document.getElementById(`s-${p}`)?.value||'').trim();if(v!=='')s[p]=v;}
-  if(!Object.keys(s).length)return setStatus(false,'inga poäng ifyllda');
-  const j=await api('saveScores',{scores:JSON.stringify(s)});
-  setStatus(j.ok,j.ok?'poäng sparade':j.error);
-}
-async function loadMyList(){
-  const who=$('#who').value;const j=await api('getWishlist',{person:who});
-  if(!j.ok)return;$('#w1').value=j.R1||'';$('#w2').value=j.R2||'';$('#w3').value=j.R3||'';$('#w4').value=j.R4||'';$('#w5').value=j.R5||'';
-}
-async function saveMyList(){
-  const who=$('#who').value;
-  const b={person:who,R1:$('#w1').value,R2:$('#w2').value,R3:$('#w3').value,R4:$('#w4').value,R5:$('#w5').value};
-  const j=await api('saveWishlist',b);setStatus(j.ok,j.ok?'lista sparad':j.error);
-}
-async function skipNext(){const j=await api('skipNext');setStatus(j.ok,j.ok?`Tur flyttad – nästa: ${j.next}`:j.error);await loadAll();}
-async function saveNight(){
-  const who=$('#nextName').value.trim();const film=$('#suggested').value.trim();const comment=$('#comment').value.trim();
-  if(!who||!film)return setStatus(false,'saknar “Nästa i tur” eller film');
-  const j=await api('saveNight',{who,film,comment});
-  setStatus(j.ok,j.ok?`Kväll sparad – ny tur: ${j.nextPerson}`:j.error);await loadAll();
+  const j = await api('getScores');
+  if(!j.ok) return setStatus(false,j.error||'getScores');
+  for (const p of PEOPLE){
+    const el = document.getElementById(`s-${p}`);
+    if (el) el.value = j.scores?.[p] ?? '';
+  }
+  $('#scoresRow').classList.add('flash'); setTimeout(()=>$('#scoresRow').classList.remove('flash'),700);
 }
 
+async function saveAllScores(){
+  // samla allt som är ifyllt
+  const scores = {};
+  for (const p of PEOPLE){
+    const v = (document.getElementById(`s-${p}`)?.value || '').toString().trim();
+    if (v !== '') scores[p] = v;
+  }
+  if (!Object.keys(scores).length) return setStatus(false,'inga poäng ifyllda');
+
+  // bulk om backend har saveScores, fallback en-och-en annars
+  let j = await api('saveScores', {scores: JSON.stringify(scores)});
+  if (!j.ok && /unknown/i.test(j.error||'')){
+    const jobs = Object.entries(scores).map(([person,score])=> api('saveScore',{person,score}));
+    const all = await Promise.all(jobs);
+    j = all.every(x=>x.ok) ? {ok:true} : {ok:false, error:'kunde inte spara alla poäng'};
+  }
+  if (j.ok){ setStatus(true,'poäng sparade'); await refreshScores(); }
+  else setStatus(false, j.error||'saveScores');
+}
+
+/* ===== Önskelista (min) ===== */
+async function loadMyList(){
+  const who = $('#who').value;
+  const j = await api('getWishlist', {person:who});
+  if (!j.ok) return;
+  $('#w1').value=j.R1||''; $('#w2').value=j.R2||''; $('#w3').value=j.R3||''; $('#w4').value=j.R4||''; $('#w5').value=j.R5||'';
+}
+async function saveMyList(){
+  const who = $('#who').value;
+  const body = {person:who, R1:$('#w1').value, R2:$('#w2').value, R3:$('#w3').value, R4:$('#w4').value, R5:$('#w5').value};
+  const j = await api('saveWishlist', body);
+  setStatus(j.ok, j.ok?'lista sparad':(j.error||'saveWishlist'));
+  if (j.ok){ /* visuell bekräftelse */ }
+}
+
+/* ===== Tur & kväll ===== */
+async function skipNext(){
+  const j = await api('skipNext');
+  setStatus(j.ok, j.ok?(`Tur flyttad – nästa: ${j.next||''}`):(j.error||'skipNext'));
+  await loadAll();
+}
+async function saveNight(){
+  const who  = ($('#nextName').value||'').trim();
+  const film = ($('#suggested').value||'').trim();
+  const comment = ($('#comment').value||'').trim();
+  if (!who || !film) return setStatus(false,'saknar “Nästa i tur” eller film');
+
+  const j = await api('saveNight', {who, film, comment});
+  if (!j.ok) return setStatus(false, j.error||'saveNight');
+
+  // Nollställ poängfält och kommentar
+  for (const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=''; }
+  $('#comment').value='';
+
+  setStatus(true, `Kväll sparad – ny tur: ${j.nextPerson||''}`);
+  await loadAll();
+}
+
+/* ===== Init ===== */
 function bindUI(){
-  $('#who').innerHTML=PEOPLE.map(p=>`<option>${p}</option>`).join('');
-  $('#theme').value=localStorage.getItem('film_theme')||'auto';
+  // personer
+  $('#who').innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join('');
+  // tema (auto default) och lyssnare
+  $('#theme').value = localStorage.getItem('film_theme') || 'auto';
   applyTheme();
-  $('#theme').onchange=()=>{localStorage.setItem('film_theme',$('#theme').value);applyTheme();};
-  $('#who').onchange=loadMyList;
-  $('#refreshScores').onclick=refreshScores;
-  $('#saveAllScores').onclick=saveAllScores;
-  $('#skip').onclick=skipNext;
-  $('#saveNight').onclick=saveNight;
-  $('#loadList').onclick=loadMyList;
-  $('#saveList').onclick=saveMyList;
+  $('#theme').onchange = ()=>{ localStorage.setItem('film_theme', $('#theme').value); applyTheme(); };
+
+  // händelser
+  $('#who').onchange         = loadMyList;
+  $('#refreshScores').onclick= refreshScores;
+  $('#saveAllScores').onclick= saveAllScores;
+  $('#skip').onclick         = skipNext;
+  $('#saveNight').onclick    = saveNight;
+  $('#loadList').onclick     = loadMyList;
+  $('#saveList').onclick     = saveMyList;
 }
 
 (async function(){
   bindUI();
-  const p=await api('ping');
-  setStatus(!!p.ok,p.ok?'API svarar.':p.error);
+  try{
+    const p = await api('ping');
+    setStatus(!!p.ok, p.ok?'API svarar.':(p.error||'ok=false'));
+  }catch(e){ setStatus(false, String(e)); }
   await loadAll();
 })();
 </script>
