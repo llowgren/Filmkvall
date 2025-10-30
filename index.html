@@ -165,189 +165,122 @@
     </div>
   </div>
 
-  <script>
-  /************** KONFIG **************/
-  const GAS_URL   = "https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec";
-  const DEFAULT_PW= "Look4fun";
-  const PEOPLE    = ["Hannah","Maria","Tuva","Alva","Lars"];
+<script>
+/* ====== KONFIG ====== */
+const API = 'https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec';
+const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
 
-  /************** HJÄLPARE **************/
-  const $ = (id)=>document.getElementById(id);
-  const getPw = ()=> (localStorage.getItem("filmkvall_pw") || $("pw").value || "").trim();
-  const qs = (p)=> new URLSearchParams(p).toString();
-  const api = async (action, extra={})=>{
-    const url = GAS_URL + "?" + qs({action, pw:getPw(), ...extra});
-    const r = await fetch(url, { cache:"no-store" });
-    return r.json();
-  };
-  const round1 = (x)=> Math.round((Number(x)||0)*10)/10;
+/* ====== HJÄLPARE ====== */
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const LS_KEY_PW = 'film_pw';
+function getPw(){ return ($('#pw').value || localStorage.getItem(LS_KEY_PW) || '').trim(); }
+function setPw(v){ $('#pw').value = v; localStorage.setItem(LS_KEY_PW, v); }
+function setStatus(ok,msg){ const el=$('#apiStatus'); el.textContent = (ok?'OK – ':'Fel – ') + msg; el.className = ok?'ok':'err'; }
+function api(action, params={}) {
+  const q = new URLSearchParams({ ...params, action, pw: getPw() });
+  return fetch(`${API}?${q.toString()}`, { method:'GET' }).then(r=>r.json());
+}
 
-  function setTheme(){
-    const t = $("theme").value;
-    document.documentElement.style.colorScheme = (t==="light")?"light":"dark";
-  }
-  function applyAccent(){
-    const a = $("accent").value;
-    const root = document.documentElement;
-    if (a==="blå"){ root.style.setProperty("--accent","#59a5ff"); root.style.setProperty("--accent-weak","#b9d8ff"); }
-    else if (a==="grön"){ root.style.setProperty("--accent","#59d38b"); root.style.setProperty("--accent-weak","#b9f2d3"); }
-    else if (a==="röd"){ root.style.setProperty("--accent","#ff8aa0"); root.style.setProperty("--accent-weak","#ffd0da"); }
-    else { root.style.setProperty("--accent","#f6c247"); root.style.setProperty("--accent-weak","#ffe399"); }
-  }
+/* ====== INIT & UI-KOPPLING ====== */
+window.addEventListener('DOMContentLoaded', () => {
+  // sätt ev. sparat lösenord i fältet
+  const saved = localStorage.getItem(LS_KEY_PW) || '';
+  if (saved) $('#pw').value = saved;
 
-  /************** UI INIT **************/
-  function fillPeople(){
-    $("who").innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join("");
-  }
+  // testa kontakt
+  ping();
 
-  function restorePrefs(){
-    $("pw").value = localStorage.getItem("filmkvall_pw") || DEFAULT_PW;
-    $("who").value = localStorage.getItem("filmkvall_who") || PEOPLE[0];
-    $("theme").value = localStorage.getItem("filmkvall_theme") || "auto";
-    $("accent").value = localStorage.getItem("filmkvall_accent") || "gul";
-    setTheme(); applyAccent();
-  }
+  // knappar
+  $('#btnShowPw')?.addEventListener('click', () => {
+    const f = $('#pw');
+    f.type = (f.type === 'password') ? 'text' : 'password';
+    $('#btnShowPw').textContent = (f.type === 'password') ? 'Visa' : 'Dölj';
+  });
+  $('#btnSavePw')?.addEventListener('click', savePassword);
 
-  function bindSettings(){
-    $("togglePw").onclick = ()=>{
-      $("pw").type = $("pw").type==="password" ? "text" : "password";
-      $("togglePw").textContent = $("pw").type==="password" ? "Visa" : "Dölj";
-    };
-    $("savePw").onclick = ()=>{
-      localStorage.setItem("filmkvall_pw", $("pw").value.trim());
-      $("apiStatus").textContent = "Sparat";
-      $("apiStatus").classList.add("flash");
-      setTimeout(()=>$("apiStatus").classList.remove("flash"),800);
-    };
-    $("who").onchange = ()=> localStorage.setItem("filmkvall_who", $("who").value);
-    $("theme").onchange = ()=> { localStorage.setItem("filmkvall_theme", $("theme").value); setTheme(); };
-    $("accent").onchange = ()=> { localStorage.setItem("filmkvall_accent", $("accent").value); applyAccent(); };
-  }
+  $('#btnUpdateScores')?.addEventListener('click', loadScores);
+  $('#btnSaveScores')?.addEventListener('click', saveScores);
+  $('#btnSkip')?.addEventListener('click', skipNext);
+  $('#btnSaveNight')?.addEventListener('click', saveNight);
 
-  /************** LADDNING & RENDER **************/
-  async function loadAll(){
-    $("apiStatus").textContent = "Hämtar…";
-    const j = await api("getAll", { person: $("who").value, top:5, hist:10 });
-    if (!j.ok){ $("apiStatus").textContent = "Fel – " + (j.error||""); return; }
-    $("apiStatus").textContent = "OK – API svarar.";
+  // ladda “på tur”, förslag & poäng
+  loadCurrent();
+  loadScores();
+  // ladda ev. egen önskelista-knappar om du har dem i din HTML...
+});
 
-    // current
-    const c = j.current || {};
-    $("nextName").value   = c.next || "";
-    $("suggested").value  = c.suggestion || "";
-    if (c.scores){
-      for (const p of PEOPLE){
-        const v = c.scores[p] ?? "";
-        const box = $("s-" + p);
-        if (box) box.value = v;
-      }
-    }
+/* ====== FUNKTIONER ====== */
+function ping(){
+  api('ping')
+    .then(j => setStatus(!!j.ok, j.ok ? 'API svarar.' : (j.error||'ok=false')))
+    .catch(e => setStatus(false, String(e)));
+}
 
-    // wishlist (min lista)
-    const w = j.wishlist || {};
-    $("w1").value = w.R1||""; $("w2").value=w.R2||""; $("w3").value=w.R3||"";
-    $("w4").value = w.R4||""; $("w5").value=w.R5||"";
+function savePassword(){
+  const pw = ($('#pw').value||'').trim();
+  if (!pw){ setStatus(false,'ange lösenord'); return; }
+  // verifiera mot backend med ping och spara lokalt
+  api('ping').then(j=>{
+    if (j.ok){ setPw(pw); setStatus(true,'lösenord sparat'); loadCurrent(); loadScores(); }
+    else setStatus(false, j.error||'fel lösen');
+  }).catch(e=>setStatus(false,String(e)));
+}
 
-    // toppar
-    const t = j.tops || {};
-    const hostT = $("tops");
-    const films = (t.bestFilms||[]).map(x=>`<div class="pill" style="display:block;margin:6px 0">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join("");
-    const picks = (t.bestPickers||[]).map(x=>`<div class="pill" style="display:block;margin:6px 0">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join("");
-    hostT.innerHTML = `
-      <div class="row">
-        <div class="col"><label>Bästa filmer</label>${films || "–"}</div>
-        <div class="col"><label>Bästa väljare</label>${picks || "–"}</div>
-      </div>`;
+function loadCurrent(){
+  api('getCurrent').then(j=>{
+    if (!j.ok) return setStatus(false, j.error||'getCurrent');
+    $('#nextName') && ($('#nextName').value = j.next || '');
+    $('#suggestion') && ($('#suggestion').value = j.suggestion || '');
+  }).catch(e=>setStatus(false,String(e)));
+}
 
-    // historik
-    const h = j.history || {};
-    const hostH = $("history");
-    if (!h.rows?.length){ hostH.textContent = "Tomt."; }
-    else {
-      hostH.innerHTML = h.rows.map(r=>{
-        const avg = calcAvg(r);
-        const per = PEOPLE.map(p=>`${p}: ${r[p]||"-"}`).join(" • ");
-        return `<div class="pill" style="display:block;margin:6px 0;padding:10px 12px">
-          <strong>${r["Film"]||"–"}</strong> — ${r["Datum"]||""}
-          <span class="muted"> (val: ${r["Vem valde"]||"-"}, Snitt: ${avg})</span><br/>
-          <span class="muted">${per}</span>
-        </div>`;
-      }).join("");
-    }
-  }
+function loadScores(){
+  api('getScores').then(j=>{
+    if (!j.ok) return setStatus(false, j.error||'getScores');
+    (PEOPLE||[]).forEach(p=>{
+      const el = document.getElementById(`score_${p}`);
+      if (el) el.value = (j.scores && j.scores[p]) ? j.scores[p] : '';
+    });
+    setStatus(true,'poäng hämtade');
+  }).catch(e=>setStatus(false,String(e)));
+}
 
-  function calcAvg(r){
-    const nums = PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
-    if (!nums.length) return "-";
-    return round1(nums.reduce((a,b)=>a+b,0)/nums.length);
-  }
+function saveScores(){
+  const jobs = (PEOPLE||[]).map(p=>{
+    const v = (document.getElementById(`score_${p}`)?.value||'').trim();
+    if (!v) return Promise.resolve({ok:true,skipped:true});
+    return api('saveScore', { person:p, score:v });
+  });
+  Promise.all(jobs).then(()=>{
+    setStatus(true,'poäng sparade'); 
+    loadScores();
+  }).catch(e=>setStatus(false,String(e)));
+}
 
-  /************** AKTIONER **************/
-  $("refreshScores").onclick = async ()=>{
-    const j = await api("getScores");
-    if (j.ok && j.scores){
-      for (const p of PEOPLE){ $("s-"+p).value = j.scores[p] ?? ""; }
-      $("scoresRow").classList.add("flash");
-      setTimeout(()=>$("scoresRow").classList.remove("flash"),800);
-    }
-  };
+function skipNext(){
+  api('skipNext').then(j=>{
+    if (!j.ok) return setStatus(false, j.error||'skipNext');
+    setStatus(true, `Tur flyttad – nästa: ${j.next||''}`);
+    loadCurrent();
+  }).catch(e=>setStatus(false,String(e)));
+}
 
-  $("saveAllScores").onclick = async ()=>{
-    const scores = {};
-    for (const p of PEOPLE){
-      const v = ($("s-"+p).value || "").toString().trim();
-      if (v !== "") scores[p] = v;
-    }
-    if (!Object.keys(scores).length) return;
-    $("apiStatus").textContent = "Sparar poäng…";
-    const j = await api("saveScores", {scores: JSON.stringify(scores)});
-    $("apiStatus").textContent = j.ok ? "Poäng sparade" : ("Fel – " + (j.error||""));
-    if (j.ok){ $("saveAllScores").classList.add("flash"); setTimeout(()=>$("saveAllScores").classList.remove("flash"),800); }
-  };
-
-  $("saveNight").onclick = async ()=>{
-    const who = $("nextName").value.trim();
-    const film = $("suggested").value.trim();
-    const comment = $("comment").value.trim();
-    if (!who || !film){ alert("Saknar 'Nästa i tur' eller filmförslag."); return; }
-    $("apiStatus").textContent = "Sparar kväll…";
-    const j = await api("saveNight", {who, film, comment});
-    $("apiStatus").textContent = j.ok ? "Kväll sparad" : ("Fel – " + (j.error||""));
-    if (j.ok){ await loadAll(); }
-  };
-
-  $("skip").onclick = async ()=>{
-    $("apiStatus").textContent = "Hoppar över…";
-    const j = await api("skipNext");
-    $("apiStatus").textContent = j.ok ? ("Nästa: " + (j.next||"")) : ("Fel – "+(j.error||""));
-    await loadAll();
-  };
-
-  $("saveList").onclick = async ()=>{
-    const who = $("who").value;
-    const body = { person: who, R1:$("w1").value, R2:$("w2").value, R3:$("w3").value, R4:$("w4").value, R5:$("w5").value };
-    const j = await api("saveWishlist", body);
-    $("apiStatus").textContent = j.ok ? "Lista sparad" : ("Fel – " + (j.error||""));
-    if (j.ok){ $("saveList").classList.add("flash"); setTimeout(()=>$("saveList").classList.remove("flash"),800); }
-    await loadAll(); // uppdatera förslag
-  };
-
-  $("loadList").onclick = async ()=>{
-    const j = await api("getWishlist", {person:$("who").value});
-    if (j.ok){
-      $("w1").value = j.R1||""; $("w2").value=j.R2||""; $("w3").value=j.R3||"";
-      $("w4").value = j.R4||""; $("w5").value=j.R5||"";
-      $("loadList").classList.add("flash"); setTimeout(()=>$("loadList").classList.remove("flash"),800);
-    }
-  };
-
-  /************** START **************/
-  (async function init(){
-    fillPeople();
-    restorePrefs();
-    bindSettings();
-    await loadAll();
-  })();
-  </script>
+function saveNight(){
+  const who = ($('#nextName')?.value||'').trim();
+  const film = ($('#suggestion')?.value||'').trim();
+  const imdb = ($('#imdb')?.value||'').trim();
+  const comment = ($('#comment')?.value||'').trim();
+  if (!who || !film) { setStatus(false,'saknar “Nästa i tur” eller film'); return; }
+  api('saveNight', { who, film, imdb, comment }).then(j=>{
+    if (!j.ok) return setStatus(false, j.error||'saveNight');
+    // nollställ poängfält
+    (PEOPLE||[]).forEach(p=>{ const el=document.getElementById(`score_${p}`); if(el) el.value=''; });
+    $('#imdb') && ($('#imdb').value=''); $('#comment') && ($('#comment').value='');
+    setStatus(true, `Kväll sparad – ny tur: ${j.nextPerson||''}`);
+    loadCurrent(); loadScores();
+  }).catch(e=>setStatus(false,String(e)));
+}
+</script>
 </body>
 </html>
