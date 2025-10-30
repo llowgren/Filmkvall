@@ -5,44 +5,99 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Filmkväll – tur & poäng</title>
   <style>
-    :root{
-      --bg:#0f1116; --panel:#161a22; --text:#e6e8ee; --muted:#9aa3b2;
-      --accent:#f6c247; --accent-weak:#ffe399; --ok:#2ea86b; --err:#e5534b;
-      --input:#0f1116; --border:#2a3140; --btn:#1f2533; --btn-text:#e6e8ee;
+    :root {
+      --bg: #0f1116;
+      --panel: #161a22;
+      --text: #e6e8ee;
+      --muted: #9aa3b2;
+      --accent: #f6c247;
+      --accent-weak: #ffe399;
+      --ok: #2ea86b;
+      --err: #e5534b;
+      --input: #0f1116;
+      --border: #2a3140;
+      --btn: #1f2533;
+      --btn-text: #e6e8ee;
+      --pill-bg: #1f2533;
     }
-    *{box-sizing:border-box}
-    body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
-    .wrap{max-width:980px; margin:24px auto; padding:0 16px;}
-    h1{font-size:26px; margin:0 0 8px;}
-    h3{margin:0 0 10px}
-    .muted{color:var(--muted)}
-    .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0;}
-    .row{display:flex; gap:12px; flex-wrap:wrap;}
-    .col{flex:1 1 220px; min-width:220px}
-    label{display:block; font-size:13px; color:var(--muted); margin:0 0 6px;}
-    input, select, button, textarea{
-      width:100%; padding:10px 12px; border-radius:10px;
-      border:1px solid var(--border); background:var(--input); color:var(--text);
-      outline:none;
+
+    [data-theme="light"] {
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --text: #151823;
+      --muted: #5b6475;
+      --input: #ffffff;
+      --border: #dfe3ee;
+      --btn: #eef0f6;
+      --btn-text: #111826;
+      --pill-bg: #f1f3f8;
     }
-    button{
-      background:var(--btn); color:var(--btn-text); cursor:pointer; border:1px solid var(--border);
-      padding:8px 12px; border-radius:9px; font-size:14px;
+
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      margin: 0;
     }
-    .primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a}
-    .ghost{background:transparent}
-    .ok{color:var(--ok)} .err{color:var(--err)}
-    .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px; background:#1e2431; border:1px solid var(--border)}
-    .grid5{display:grid; grid-template-columns:repeat(5,1fr); gap:12px}
-    .right{margin-left:auto}
-    .flash{animation:flash 700ms ease}
-    @keyframes flash{0%{box-shadow:0 0 0 0 rgba(246,194,71,.0)}40%{box-shadow:0 0 0 6px rgba(246,194,71,.25)}100%{box-shadow:0 0 0 0 rgba(246,194,71,.0)}}
+    .wrap { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+    h1 { font-size: 26px; margin: 0 0 8px; }
+    h3 { margin: 0 0 10px; }
+    .muted { color: var(--muted); }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin: 14px 0;
+    }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .col { flex: 1 1 220px; min-width: 220px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+    input, select, button, textarea {
+      width: 100%; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--input); color: var(--text);
+      outline: none;
+    }
+    button {
+      background: var(--btn);
+      color: var(--btn-text);
+      cursor: pointer;
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      border-radius: 9px;
+      font-size: 14px;
+    }
+    .primary { background: var(--accent); color: #1b1f2a; border-color: #c8a73a; }
+    .ghost { background: transparent; }
+    .ok { color: var(--ok); }
+    .err { color: var(--err); }
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      background: var(--pill-bg);
+      border: 1px solid var(--border);
+    }
+    .right { margin-left: auto; }
+    .flash { animation: flash 700ms ease; }
+    @keyframes flash {
+      0% { box-shadow: 0 0 0 0 rgba(246,194,71,0); }
+      40% { box-shadow: 0 0 0 6px rgba(246,194,71,0.25); }
+      100% { box-shadow: 0 0 0 0 rgba(246,194,71,0); }
+    }
+
+    /* Mina kommande i kolumn */
+    .wishlist-col input {
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Filmkväll – tur & poäng</h1>
-    <p class="muted">Välj vem du är, uppdatera din lista och sätt poäng.</p>
+    <p class="muted">Välj vem du är, uppdatera din lista och sätt poäng. Allt sparas i arket.</p>
 
     <!-- Inställningar -->
     <div class="card">
@@ -109,7 +164,7 @@
     <!-- Min lista -->
     <div class="card">
       <h3>Mina kommande (1–5)</h3>
-      <div class="grid5">
+      <div class="wishlist-col">
         <input id="w1" placeholder="#1 – högst upp">
         <input id="w2" placeholder="#2">
         <input id="w3" placeholder="#3">
@@ -120,11 +175,12 @@
         <button id="loadList" class="ghost">Hämta min lista</button>
         <button id="saveList" class="primary">Spara min lista</button>
       </div>
+      <p class="muted">När kvällen sparas för den som är på tur flyttas #2–#5 upp (och #1 tas bort).</p>
     </div>
 
     <!-- Topplistor -->
     <div class="card">
-      <h3>Topplistor</h3>
+      <h3>Topplistor (topp 5)</h3>
       <div id="tops"></div>
     </div>
 
@@ -136,124 +192,101 @@
   </div>
 
 <script>
-/* ===== KONFIG ===== */
 const API = 'https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
 const getPw = ()=> 'Look4fun';
 
-/* ===== Hjälpare ===== */
 const $ = s => document.querySelector(s);
 const qs = o => new URLSearchParams(o).toString();
-const api = (action, p={}) => fetch(`${API}?${qs({action, pw:getPw(), ...p})}`, {cache:'no-store'}).then(r=>r.json());
+const api = (a,p={}) => fetch(`${API}?${qs({action:a,pw:getPw(),...p})}`,{cache:'no-store'}).then(r=>r.json());
 const round1 = x => Math.round((Number(x)||0)*10)/10;
-const setStatus = (ok,msg)=>{ const el=$('#apiStatus'); el.textContent=(ok?'OK – ':'Fel – ')+msg; el.className=ok?'pill ok':'pill err'; };
+const setStatus = (ok,msg)=>{ const el=$('#apiStatus'); el.textContent=(ok?'OK – ':'Fel – ')+msg; el.className='pill '+(ok?'ok':'err'); };
 
-/* ===== Tema ===== */
-function applyTheme(){
+function applyTheme() {
   const t = $('#theme').value;
-  document.documentElement.style.colorScheme = (t==='light')?'light':(t==='dark'?'dark':'normal');
+  const root = document.documentElement;
+  if (t === 'light') root.setAttribute('data-theme', 'light');
+  else if (t === 'dark') root.removeAttribute('data-theme'); 
+  else { // auto
+    if (window.matchMedia('(prefers-color-scheme: light)').matches)
+      root.setAttribute('data-theme', 'light');
+    else root.removeAttribute('data-theme');
+  }
 }
 
-/* ===== Ladda allt ===== */
 async function loadAll(){
-  try{
-    const cur = await api('getCurrent');
-    if(!cur.ok) return setStatus(false,cur.error||'getCurrent');
-    $('#nextName').value  = cur.next || '';
-    $('#suggested').value = cur.suggestion || '';
-    if (cur.scores){
-      for (const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value = cur.scores[p] ?? ''; }
-    }
+  const cur = await api('getCurrent');
+  if(!cur.ok) return setStatus(false,cur.error);
+  $('#nextName').value = cur.next||''; $('#suggested').value = cur.suggestion||'';
+  if(cur.scores){ for(const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=cur.scores[p]??''; } }
+  await loadMyList();
 
-    await loadMyList();
+  const tops = await api('getTops',{limit:5});
+  if(tops.ok){
+    const films = (tops.bestFilms||[]).map(x=>`<div class="pill">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('');
+    const pickers = (tops.bestPickers||[]).map(x=>`<div class="pill">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join('');
+    $('#tops').innerHTML = `<div class="row"><div class="col"><label>Bästa filmer</label>${films}</div><div class="col"><label>Bästa väljare</label>${pickers}</div></div>`;
+  }
 
-    const tops = await api('getTops',{limit:5});
-    if (tops.ok){
-      const films = (tops.bestFilms||[]).map(x=>`<div>${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('') || '–';
-      const pickers = (tops.bestPickers||[]).map(x=>`<div>${x.who} — <strong>${x.avg}</strong> (${x.n} filmer)</div>`).join('') || '–';
-      $('#tops').innerHTML = `<div class="row"><div class="col"><label>Bästa filmer</label>${films}</div><div class="col"><label>Bästa väljare</label>${pickers}</div></div>`;
-    }
+  const hist = await api('getHistory',{limit:10});
+  if(hist.ok){
+    $('#history').innerHTML = hist.rows.map(r=>{
+      const nums=PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
+      const avg=nums.length?round1(nums.reduce((a,b)=>a+b,0)/nums.length):'-';
+      const per=PEOPLE.map(p=>`${p}: ${r[p]||'-'}`).join(' • ');
+      return `<div><strong>${r['Film']}</strong> — ${r['Datum']} <span class="muted">(val: ${r['Vem valde']}, snitt: ${avg})</span><br><span class="muted">${per}</span></div>`;
+    }).join('');
+  }
 
-    const hist = await api('getHistory',{limit:10});
-    if (hist.ok){
-      $('#history').innerHTML = hist.rows.map(r=>{
-        const nums = PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
-        const avg = nums.length? round1(nums.reduce((a,b)=>a+b,0)/nums.length) : '-';
-        const per = PEOPLE.map(p=>`${p}: ${r[p]||'-'}`).join(' • ');
-        return `<div><strong>${r['Film']}</strong> — ${r['Datum']} <span class="muted">(val: ${r['Vem valde']}, snitt: ${avg})</span><br><span class="muted">${per}</span></div>`;
-      }).join('');
-    }
-
-    setStatus(true,'API svarar.');
-  }catch(e){ setStatus(false,String(e)); }
+  setStatus(true,'API svarar.');
 }
 
-/* ===== Poäng ===== */
 async function refreshScores(){
-  const j = await api('getScores');
-  if(!j.ok) return setStatus(false,j.error||'getScores');
-  for (const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=j.scores?.[p] ?? ''; }
+  const j=await api('getScores');
+  if(!j.ok)return setStatus(false,j.error);
+  for(const p of PEOPLE){const el=document.getElementById(`s-${p}`);if(el)el.value=j.scores?.[p]??'';}
 }
 async function saveAllScores(){
-  const scores={};
-  for (const p of PEOPLE){
-    const v=(document.getElementById(`s-${p}`)?.value||'').trim();
-    if (v!=='') scores[p]=v;
-  }
-  if (!Object.keys(scores).length) return setStatus(false,'inga poäng ifyllda');
-  const j = await api('saveScores', {scores: JSON.stringify(scores)});
-  setStatus(j.ok, j.ok?'poäng sparade':(j.error||'saveScores'));
+  const s={};for(const p of PEOPLE){const v=(document.getElementById(`s-${p}`)?.value||'').trim();if(v!=='')s[p]=v;}
+  if(!Object.keys(s).length)return setStatus(false,'inga poäng ifyllda');
+  const j=await api('saveScores',{scores:JSON.stringify(s)});
+  setStatus(j.ok,j.ok?'poäng sparade':j.error);
 }
-
-/* ===== Önskelista ===== */
 async function loadMyList(){
-  const who = $('#who').value;
-  const j = await api('getWishlist',{person:who});
-  if (!j.ok) return;
-  $('#w1').value=j.R1||''; $('#w2').value=j.R2||''; $('#w3').value=j.R3||''; $('#w4').value=j.R4||''; $('#w5').value=j.R5||'';
+  const who=$('#who').value;const j=await api('getWishlist',{person:who});
+  if(!j.ok)return;$('#w1').value=j.R1||'';$('#w2').value=j.R2||'';$('#w3').value=j.R3||'';$('#w4').value=j.R4||'';$('#w5').value=j.R5||'';
 }
 async function saveMyList(){
-  const who = $('#who').value;
-  const body={person:who,R1:$('#w1').value,R2:$('#w2').value,R3:$('#w3').value,R4:$('#w4').value,R5:$('#w5').value};
-  const j = await api('saveWishlist', body);
-  setStatus(j.ok, j.ok?'lista sparad':(j.error||'saveWishlist'));
+  const who=$('#who').value;
+  const b={person:who,R1:$('#w1').value,R2:$('#w2').value,R3:$('#w3').value,R4:$('#w4').value,R5:$('#w5').value};
+  const j=await api('saveWishlist',b);setStatus(j.ok,j.ok?'lista sparad':j.error);
 }
-
-/* ===== Tur & kväll ===== */
-async function skipNext(){
-  const j = await api('skipNext');
-  setStatus(j.ok, j.ok?`Tur flyttad – nästa: ${j.next}`:(j.error||'skipNext'));
-  await loadAll();
-}
+async function skipNext(){const j=await api('skipNext');setStatus(j.ok,j.ok?`Tur flyttad – nästa: ${j.next}`:j.error);await loadAll();}
 async function saveNight(){
-  const who=$('#nextName').value.trim();
-  const film=$('#suggested').value.trim();
-  const comment=$('#comment').value.trim();
-  if(!who||!film) return setStatus(false,'saknar “Nästa i tur” eller film');
+  const who=$('#nextName').value.trim();const film=$('#suggested').value.trim();const comment=$('#comment').value.trim();
+  if(!who||!film)return setStatus(false,'saknar “Nästa i tur” eller film');
   const j=await api('saveNight',{who,film,comment});
-  setStatus(j.ok,j.ok?`Kväll sparad – ny tur: ${j.nextPerson}`:(j.error||'saveNight'));
-  await loadAll();
+  setStatus(j.ok,j.ok?`Kväll sparad – ny tur: ${j.nextPerson}`:j.error);await loadAll();
 }
 
-/* ===== Init ===== */
 function bindUI(){
-  $('#who').innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join('');
-  $('#theme').value = localStorage.getItem('film_theme') || 'auto';
+  $('#who').innerHTML=PEOPLE.map(p=>`<option>${p}</option>`).join('');
+  $('#theme').value=localStorage.getItem('film_theme')||'auto';
   applyTheme();
-  $('#theme').onchange = ()=>{ localStorage.setItem('film_theme',$('#theme').value); applyTheme(); };
-  $('#who').onchange = loadMyList;
-  $('#refreshScores').onclick = refreshScores;
-  $('#saveAllScores').onclick = saveAllScores;
-  $('#skip').onclick = skipNext;
-  $('#saveNight').onclick = saveNight;
-  $('#loadList').onclick = loadMyList;
-  $('#saveList').onclick = saveMyList;
+  $('#theme').onchange=()=>{localStorage.setItem('film_theme',$('#theme').value);applyTheme();};
+  $('#who').onchange=loadMyList;
+  $('#refreshScores').onclick=refreshScores;
+  $('#saveAllScores').onclick=saveAllScores;
+  $('#skip').onclick=skipNext;
+  $('#saveNight').onclick=saveNight;
+  $('#loadList').onclick=loadMyList;
+  $('#saveList').onclick=saveMyList;
 }
 
 (async function(){
   bindUI();
   const p=await api('ping');
-  setStatus(!!p.ok,p.ok?'API svarar.':(p.error||'ok=false'));
+  setStatus(!!p.ok,p.ok?'API svarar.':p.error);
   await loadAll();
 })();
 </script>
