@@ -49,12 +49,45 @@
     #tops .col{ display:flex; flex-direction:column; gap:6px; }
     @media (max-width:640px){ #tops .row{ grid-template-columns:1fr; } }
 
-    /* ---- OMDb: små lookup-knappar & infodel ---- */
-    .lookup-wrap{display:flex; gap:8px; align-items:center}
-    .lookup-input{flex:1 1 auto}
-    .lookup-btn{padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--btn); color:var(--btn-text); cursor:pointer; flex:0 0 auto}
-    .omdb-info{margin:6px 0 8px; font-size:13px; color:var(--muted)}
-    .omdb-info a{color:inherit; text-decoration:underline}
+    /* ---- OMDb: smal sökknapp & affisch ---- */
+.lookup-wrap {
+  display:flex;
+  gap:6px;
+  align-items:center;
+}
+.lookup-input {
+  flex:1 1 auto;
+  padding:10px 12px;
+}
+.lookup-btn {
+  flex:0 0 auto;
+  padding:6px 8px;
+  font-size:12px;
+  line-height:1;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--btn);
+  color:var(--btn-text);
+  cursor:pointer;
+}
+.omdb-info {
+  margin:6px 0 8px;
+  font-size:13px;
+  color:var(--muted);
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+}
+.omdb-info img {
+  width:48px;
+  height:auto;
+  border-radius:6px;
+  border:1px solid var(--border);
+}
+.omdb-info a {
+  color:inherit;
+  text-decoration:underline;
+}
 
     /* ---- Poäng på en rad ---- */
     #scoresRow{display:flex; gap:8px; align-items:flex-end; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
@@ -225,16 +258,28 @@ async function omdbLookup(query){
   }catch(e){/* tyst */}
   return null;
 }
-function imdbUrlFrom(j){ return j?.imdbID ? `https://www.imdb.com/title/${j.imdbID}/` : ''; }
 function renderOmdbInfo(containerId, data, query){
   const el = document.getElementById(containerId);
   if(!el) return;
-  if(!data){ el.innerHTML = query ? `Hittade inget för “${escapeHtml(query)}”.` : ''; return; }
-  const title = escapeHtml(data.Title||''); const year = escapeHtml(data.Year||''); const rate = escapeHtml(data.imdbRating||'-');
-  const link = imdbUrlFrom(data);
-  el.innerHTML = `${title}${year?` (${year})`:''} — IMDb ${rate}` + (link?` — <a href="${link}" target="_blank" rel="noopener">Öppna på IMDb</a>`:'');
-}
+  if(!data){
+    el.innerHTML = query ? `Hittade inget för “${escapeHtml(query)}”.` : '';
+    return;
+  }
 
+  const title = escapeHtml(data.Title || '');
+  const year  = escapeHtml(data.Year || '');
+  const rate  = escapeHtml(data.imdbRating || '-');
+  const link  = imdbUrlFrom(data);
+  const poster = (data.Poster && data.Poster !== 'N/A') ? `<img src="${data.Poster}" alt="poster">` : '';
+
+  el.innerHTML = `
+    ${poster}
+    <div>
+      <strong>${title}</strong>${year ? ` (${year})` : ''}<br>
+      IMDb ${rate}
+      ${link ? ` — <a href="${link}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
+    </div>`;
+}
 /* ===== Ladda hel sida ===== */
 async function loadAll(){
   const cur = await api('getCurrent');
