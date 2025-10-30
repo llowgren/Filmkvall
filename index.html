@@ -41,23 +41,26 @@
     .flash{animation:flash 700ms ease}
     @keyframes flash{0%{box-shadow:0 0 0 0 rgba(246,194,71,0)}40%{box-shadow:0 0 0 6px rgba(246,194,71,.25)}100%{box-shadow:0 0 0 0 rgba(246,194,71,0)}}
 
-    /* “Mina kommande” i kolumn */
+    /* Mina kommande i kolumn */
     .wishlist-col input{margin-bottom:8px}
 
     /* Topplistor två kolumner (staplar på mobil) */
-    #tops .row{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:16px;
-    }
-    #tops .col{
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-    }
-    @media (max-width:640px){
-      #tops .row{ grid-template-columns:1fr; }
-    }
+    #tops .row{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    #tops .col{ display:flex; flex-direction:column; gap:6px; }
+    @media (max-width:640px){ #tops .row{ grid-template-columns:1fr; } }
+
+    /* ---- OMDb: små lookup-knappar & infodel ---- */
+    .lookup-wrap{display:flex; gap:8px; align-items:center}
+    .lookup-input{flex:1 1 auto}
+    .lookup-btn{padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--btn); color:var(--btn-text); cursor:pointer; flex:0 0 auto}
+    .omdb-info{margin:6px 0 8px; font-size:13px; color:var(--muted)}
+    .omdb-info a{color:inherit; text-decoration:underline}
+
+    /* ---- Poäng på en rad ---- */
+    #scoresRow{display:flex; gap:8px; align-items:flex-end; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
+    .score-col{min-width:120px; flex:1 1 0}
+    .score-col label{margin-bottom:4px}
+    .score-col input{padding:8px 10px; border-radius:8px; text-align:center}
   </style>
 </head>
 <body>
@@ -95,19 +98,24 @@
           <label>Nästa i tur</label>
           <input id="nextName" type="text" readonly>
         </div>
+
         <div class="col">
           <label>Film (förslag från #1 i listan)</label>
-          <input id="suggested" type="text" readonly>
+          <div class="lookup-wrap">
+            <input id="suggested" class="lookup-input" type="text" readonly>
+            <button class="lookup-btn" data-lookup="suggested">Sök</button>
+          </div>
+          <div id="suggested-info" class="omdb-info"></div>
         </div>
       </div>
 
-      <!-- Poängrad -->
-      <div class="row" id="scoresRow">
-        <div class="col"><label>Hannah</label><input id="s-Hannah" placeholder="–" inputmode="decimal"></div>
-        <div class="col"><label>Maria</label><input id="s-Maria"  placeholder="–" inputmode="decimal"></div>
-        <div class="col"><label>Tuva</label><input id="s-Tuva"   placeholder="–" inputmode="decimal"></div>
-        <div class="col"><label>Alva</label><input id="s-Alva"   placeholder="–" inputmode="decimal"></div>
-        <div class="col"><label>Lars</label><input id="s-Lars"   placeholder="–" inputmode="decimal"></div>
+      <!-- Poäng på en rad -->
+      <div id="scoresRow" class="flash">
+        <div class="score-col"><label>Hannah</label><input id="s-Hannah" placeholder="–" inputmode="decimal"></div>
+        <div class="score-col"><label>Maria</label><input  id="s-Maria"  placeholder="–" inputmode="decimal"></div>
+        <div class="score-col"><label>Tuva</label><input   id="s-Tuva"   placeholder="–" inputmode="decimal"></div>
+        <div class="score-col"><label>Alva</label><input   id="s-Alva"   placeholder="–" inputmode="decimal"></div>
+        <div class="score-col"><label>Lars</label><input   id="s-Lars"   placeholder="–" inputmode="decimal"></div>
       </div>
 
       <div class="row">
@@ -131,12 +139,21 @@
     <!-- Min lista -->
     <div class="card">
       <h3>Mina kommande (1–5)</h3>
-      <div class="wishlist-col">
-        <input id="w1" placeholder="#1 – högst upp">
-        <input id="w2" placeholder="#2">
-        <input id="w3" placeholder="#3">
-        <input id="w4" placeholder="#4">
-        <input id="w5" placeholder="#5">
+      <div class="wishlist-col" id="wishlistCol">
+        <div class="lookup-wrap"><input id="w1" class="lookup-input" placeholder="#1 – högst upp"><button class="lookup-btn" data-lookup="w1">Sök</button></div>
+        <div id="w1-info" class="omdb-info"></div>
+
+        <div class="lookup-wrap"><input id="w2" class="lookup-input" placeholder="#2"><button class="lookup-btn" data-lookup="w2">Sök</button></div>
+        <div id="w2-info" class="omdb-info"></div>
+
+        <div class="lookup-wrap"><input id="w3" class="lookup-input" placeholder="#3"><button class="lookup-btn" data-lookup="w3">Sök</button></div>
+        <div id="w3-info" class="omdb-info"></div>
+
+        <div class="lookup-wrap"><input id="w4" class="lookup-input" placeholder="#4"><button class="lookup-btn" data-lookup="w4">Sök</button></div>
+        <div id="w4-info" class="omdb-info"></div>
+
+        <div class="lookup-wrap"><input id="w5" class="lookup-input" placeholder="#5"><button class="lookup-btn" data-lookup="w5">Sök</button></div>
+        <div id="w5-info" class="omdb-info"></div>
       </div>
       <div class="row">
         <button id="loadList" class="ghost">Hämta min lista</button>
@@ -160,9 +177,13 @@
 
 <script>
 /* ===== KONFIG ===== */
-const API    = 'https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec'; // Byt vid ny web app-URL
+const API    = 'https://script.google.com/macros/s/AKfycbzoyrM9jj8lOy-pTmcR4iCWtIL3-YJ2IDLZ5pVV9wgrIMepCBJ_d_F8CARhqGZdnCoWAA/exec';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
 const PW     = 'Look4fun'; // hårdkodat lösen i frontenden
+
+// OMDb
+const OMDB_KEY = 'b6f3e48';              // din nyckel
+const OMDB_URL = 'https://www.omdbapi.com/';
 
 /* ===== Hjälpare ===== */
 const $  = (s)=>document.querySelector(s);
@@ -172,10 +193,11 @@ const api = (action, params={}) =>
   fetch(`${API}?${qs({action, pw:PW, ...params})}`, {cache:'no-store'}).then(r=>r.json());
 const round1 = (x)=>Math.round((Number(x)||0)*10)/10;
 const setStatus=(ok,msg)=>{ const el=$('#apiStatus'); el.textContent=(ok?'OK – ':'Fel – ')+msg; el.className='pill '+(ok?'ok':'err'); };
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
 
 /* ===== Tema ===== */
 function applyTheme(){
-  const sel = $('#theme').value; // 'auto' | 'light' | 'dark'
+  const sel = $('#theme').value;
   const root = document.documentElement;
   let mode = sel;
   if (sel === 'auto'){
@@ -183,23 +205,44 @@ function applyTheme(){
   }
   if (mode === 'light') root.setAttribute('data-theme', 'light');
   else root.removeAttribute('data-theme');
-
-  // Hjälp native kontroller lite
   root.style.colorScheme = (mode === 'light') ? 'light' : 'dark';
 }
-// Följ systemets färgschema i auto-läge
 const _mqlLight = window.matchMedia('(prefers-color-scheme: light)');
 const _onSchemeChange = () => { if ($('#theme')?.value === 'auto') applyTheme(); };
 _mqlLight.addEventListener?.('change', _onSchemeChange);
-_mqlLight.addListener?.(_onSchemeChange); // iOS/Safari fallback
+_mqlLight.addListener?.(_onSchemeChange);
+
+/* ===== OMDb ===== */
+async function omdbLookup(query){
+  if(!query) return null;
+  query = query.trim();
+  const tt = (query.match(/tt\d{7,}/i) || query.match(/imdb\.com\/title\/(tt\d+)/i));
+  const params = tt ? { i: (tt[1] || tt[0]).replace(/^.*(tt\d+).*$/,'$1') } : { t: query };
+  const url = `${OMDB_URL}?apikey=${OMDB_KEY}&plot=short&type=movie&${qs(params)}`;
+  try{
+    const r = await fetch(url, {cache:'no-store'}); const j = await r.json();
+    if(j && j.Response !== 'False') return j;
+  }catch(e){/* tyst */}
+  return null;
+}
+function imdbUrlFrom(j){ return j?.imdbID ? `https://www.imdb.com/title/${j.imdbID}/` : ''; }
+function renderOmdbInfo(containerId, data, query){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  if(!data){ el.innerHTML = query ? `Hittade inget för “${escapeHtml(query)}”.` : ''; return; }
+  const title = escapeHtml(data.Title||''); const year = escapeHtml(data.Year||''); const rate = escapeHtml(data.imdbRating||'-');
+  const link = imdbUrlFrom(data);
+  el.innerHTML = `${title}${year?` (${year})`:''} — IMDb ${rate}` + (link?` — <a href="${link}" target="_blank" rel="noopener">Öppna på IMDb</a>`:'');
+}
 
 /* ===== Ladda hel sida ===== */
 async function loadAll(){
-  // current + scores
   const cur = await api('getCurrent');
   if(!cur.ok) return setStatus(false,cur.error||'getCurrent');
   $('#nextName').value  = cur.next || '';
   $('#suggested').value = cur.suggestion || '';
+
+  // poäng
   if (cur.scores){
     for (const p of PEOPLE){
       const el = document.getElementById(`s-${p}`);
@@ -210,19 +253,15 @@ async function loadAll(){
   // min lista
   await loadMyList();
 
-  // topplistor (topp 5)
+  // topplistor
   const tops = await api('getTops', {limit:5});
   if (tops.ok){
     const films = (tops.bestFilms||[]).map(x=>`<div class="pill">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('') || '–';
     const pickers = (tops.bestPickers||[]).map(x=>`<div class="pill">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join('') || '–';
-    $('#tops').innerHTML = `
-      <div class="row">
-        <div class="col"><label>Bästa filmer</label>${films}</div>
-        <div class="col"><label>Bästa väljare</label>${pickers}</div>
-      </div>`;
+    $('#tops').innerHTML = `<div class="row"><div class="col"><label>Bästa filmer</label>${films}</div><div class="col"><label>Bästa väljare</label>${pickers}</div></div>`;
   }
 
-  // historik (senaste 10, inkl snitt & per person)
+  // historik
   const hist = await api('getHistory', {limit:10});
   if (hist.ok){
     const rows = (hist.rows||[]).map(r=>{
@@ -232,11 +271,13 @@ async function loadAll(){
       return `<div class="pill" style="display:block;margin:6px 0;padding:10px 12px">
         <strong>${r['Film']||'–'}</strong> — ${r['Datum']||''}
         <span class="muted"> (val: ${r['Vem valde']||'-'}, Snitt: ${avg})</span><br/>
-        <span class="muted">${per}</span>
-      </div>`;
+        <span class="muted">${per}</span></div>`;
     }).join('');
     $('#history').innerHTML = rows || 'Tomt.';
   }
+
+  // uppdatera OMDb-info för “på tur nu”
+  await updateSuggestedInfo();
 
   setStatus(true,'API svarar.');
 }
@@ -251,9 +292,7 @@ async function refreshScores(){
   }
   $('#scoresRow').classList.add('flash'); setTimeout(()=>$('#scoresRow').classList.remove('flash'),700);
 }
-
 async function saveAllScores(){
-  // samla allt som är ifyllt
   const scores = {};
   for (const p of PEOPLE){
     const v = (document.getElementById(`s-${p}`)?.value || '').toString().trim();
@@ -261,7 +300,6 @@ async function saveAllScores(){
   }
   if (!Object.keys(scores).length) return setStatus(false,'inga poäng ifyllda');
 
-  // bulk om backend har saveScores, fallback en-och-en annars
   let j = await api('saveScores', {scores: JSON.stringify(scores)});
   if (!j.ok && /unknown/i.test(j.error||'')){
     const jobs = Object.entries(scores).map(([person,score])=> api('saveScore',{person,score}));
@@ -278,13 +316,19 @@ async function loadMyList(){
   const j = await api('getWishlist', {person:who});
   if (!j.ok) return;
   $('#w1').value=j.R1||''; $('#w2').value=j.R2||''; $('#w3').value=j.R3||''; $('#w4').value=j.R4||''; $('#w5').value=j.R5||'';
+
+  // Fyll OMDb-info direkt när listan hämtas
+  for (const id of ['w1','w2','w3','w4','w5']){
+    const q = document.getElementById(id).value;
+    const data = await omdbLookup(q);
+    renderOmdbInfo(`${id}-info`, data, q);
+  }
 }
 async function saveMyList(){
   const who = $('#who').value;
   const body = {person:who, R1:$('#w1').value, R2:$('#w2').value, R3:$('#w3').value, R4:$('#w4').value, R5:$('#w5').value};
   const j = await api('saveWishlist', body);
   setStatus(j.ok, j.ok?'lista sparad':(j.error||'saveWishlist'));
-  if (j.ok){ /* visuell bekräftelse */ }
 }
 
 /* ===== Tur & kväll ===== */
@@ -302,25 +346,71 @@ async function saveNight(){
   const j = await api('saveNight', {who, film, comment});
   if (!j.ok) return setStatus(false, j.error||'saveNight');
 
-  // Nollställ poängfält och kommentar
   for (const p of PEOPLE){ const el=document.getElementById(`s-${p}`); if(el) el.value=''; }
   $('#comment').value='';
-
   setStatus(true, `Kväll sparad – ny tur: ${j.nextPerson||''}`);
   await loadAll();
 }
 
+/* ===== OMDb UI-bindningar ===== */
+function bindLookupUI(){
+  // Sök-knappar
+  document.querySelectorAll('button[data-lookup]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.getAttribute('data-lookup');
+      const input = document.getElementById(id);
+      const infoId = `${id}-info`;
+      const q = input?.value || '';
+      const data = await omdbLookup(q);
+      renderOmdbInfo(infoId, data, q);
+    });
+  });
+  // Enter i fält
+  ['w1','w2','w3','w4','w5','suggested'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('keydown', async (e)=>{
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        const q = el.value;
+        const data = await omdbLookup(q);
+        renderOmdbInfo(`${id}-info`, data, q);
+      }
+    });
+    el.addEventListener('change', async ()=>{
+      const q = el.value;
+      const data = await omdbLookup(q);
+      renderOmdbInfo(`${id}-info`, data, q);
+    });
+  });
+}
+async function updateSuggestedInfo(){
+  const q = $('#suggested').value || '';
+  const data = await omdbLookup(q);
+  renderOmdbInfo('suggested-info', data, q);
+}
+
 /* ===== Init ===== */
+function getParam(name){ return new URLSearchParams(location.search).get(name); }
 function bindUI(){
   // personer
   $('#who').innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join('');
-  // tema (auto default) och lyssnare
+
+  // default “Jag är”: URL > sparat > Lars
+  const urlWho = getParam('who');
+  const savedWho = localStorage.getItem('film_who');
+  const fallbackWho = 'Lars';
+  const initialWho = [urlWho, savedWho, fallbackWho].find(w => PEOPLE.includes(w)) || PEOPLE[0];
+  $('#who').value = initialWho;
+  if (!savedWho) localStorage.setItem('film_who', initialWho);
+
+  // tema
   $('#theme').value = localStorage.getItem('film_theme') || 'auto';
   applyTheme();
   $('#theme').onchange = ()=>{ localStorage.setItem('film_theme', $('#theme').value); applyTheme(); };
 
   // händelser
-  $('#who').onchange         = loadMyList;
+  $('#who').onchange         = ()=>{ localStorage.setItem('film_who', $('#who').value); loadMyList(); };
   $('#refreshScores').onclick= refreshScores;
   $('#saveAllScores').onclick= saveAllScores;
   $('#skip').onclick         = skipNext;
@@ -331,10 +421,13 @@ function bindUI(){
 
 (async function(){
   bindUI();
+  bindLookupUI();
+
   try{
     const p = await api('ping');
     setStatus(!!p.ok, p.ok?'API svarar.':(p.error||'ok=false'));
   }catch(e){ setStatus(false, String(e)); }
+
   await loadAll();
 })();
 </script>
