@@ -282,42 +282,67 @@ async function omdbLookup(query){
   }catch(_){}
   return null;
 }
-
-/* ===== Watchmode – bara Sverige + ingår ===== */
+/* ===== Watchmode – slå först upp Watchmode-ID från IMDb-ID ===== */
+async function wmTitleIdFromImdb(imdbID){
+  try{
+    const url = `https://api.watchmode.com/v1/search/?apiKey=${WATCHMODE_KEY}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+    const hit = (data && Array.isArray(data.title_results))
+      ? data.title_results.find(t => String(t.imdb_id) === String(imdbID))
+      : null;
+    return hit ? hit.id : null;
+  }catch(e){
+    console.error('Watchmode lookup error:', e);
+    return null;
+  }
+}
+/* ===== Streamingtjänster i Sverige där det INGÅR (subscription) ===== */
 async function getStreamingInfo(imdbID) {
   if (!imdbID) return null;
   try {
-    const url = `${WATCHMODE_URL}${imdbID}/sources/?apiKey=${WATCHMODE_KEY}&country=SE`;
+    const wmId = await wmTitleIdFromImdb(imdbID);
+    if (!wmId) return null;
+
+    // Hämta endast källor som gäller i Sverige
+    const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${WATCHMODE_KEY}&regions=SE`;
     const res = await fetch(url, { cache: 'no-store' });
     const data = await res.json();
     if (!Array.isArray(data)) return null;
 
+    // Normalisering och filtrering
     const seen = new Set();
+    const normalizeName = (s) => String(s || '')
+      .replace(/\s*\(with Ads\)$/i,'')
+      .replace(/\s+HD$/,'')
+      .trim();
+
+    // Filtrera ut tjänster där det "ingår" (type=sub) och som gäller för Sverige
     const filtered = data
       .filter(s =>
-        s.type === 'sub' &&                      // ingår i abonnemang
-        (!s.region || s.region === 'SE') &&
-        s.name
+        s.type === 'sub' &&                        // ingår i abonnemang
+        (!s.region || s.region === 'SE') &&        // svenska regionen
+        s.name                                     // måste ha namn
       )
-      .filter(s => {
-        const key = `${s.name}|${s.format||''}`;
+      .map(s => ({
+        service: normalizeName(s.name),            // t.ex. Netflix
+        quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
+        link: s.web_url || ''
+      }))
+      .filter(s => {                               // deduplikering per tjänst + kvalitet
+        const key = `${s.service}|${s.quality}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       })
-      .map(s => ({
-        service: s.name,
-        quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
-        link: s.web_url || ''
-      }));
+      .sort((a,b)=> a.service.localeCompare(b.service));
 
     return filtered.length ? filtered : null;
   } catch (e) {
-    console.error('Watchmode error:', e);
+    console.error('Watchmode sources error:', e);
     return null;
   }
 }
-
 /* ===== Rendera OMDb + streaming ===== */
 async function renderOmdbInfo(containerId, data, query) {
   const el = document.getElementById(containerId);
