@@ -77,7 +77,12 @@
     #scoresRow{display:flex; gap:8px; align-items:flex-end; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
     .score-col{min-width:100px; flex:1 1 0}
     .score-col label{margin-bottom:4px}
-    .score-col input{padding:8px 10px; border-radius:8px; text-align:center}
+  .score-col select{
+  padding:8px 10px;
+  border-radius:8px;
+  text-align:center;      /* funkar i många browsers */
+  text-align-last:center; /* centrerar det valda värdet i vissa (Chrome/Edge) */
+}
   </style>
 </head>
 <body>
@@ -173,12 +178,10 @@
     </select>
   </div>
 </div>
-      <div class="row">
-        <button id="refreshScores" class="ghost">Uppdatera poäng</button>
-        <button id="saveAllScores" class="primary">Spara poäng</button>
-        <span class="right"></span>
-        <button id="skip" class="ghost">Hoppa över</button>
-      </div>
+    <div class="row">
+  <span class="right"></span>
+  <button id="skip" class="ghost">Hoppa över</button>
+</div>
 
       <div class="row">
         <div class="col">
@@ -595,16 +598,17 @@ async function saveNight(){
 }
 // --- Bindningar för OMDb-knappar och fält ---
 function bindLookupUI(){
+  // Knapparna bredvid fälten
   document.querySelectorAll('button[data-lookup]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      const id = btn.getAttribute('data-lookup');          // t.ex. 'w1' eller 'suggested'
+      const id = btn.getAttribute('data-lookup');   // t.ex. 'w1' eller 'suggested'
       const q  = document.getElementById(id)?.value || '';
       const data = await omdbLookup(q);
       renderOmdbInfo(`${id}-info`, data, q);
     });
   });
 
-  // Enter/ändring i inmatningsfält => uppdatera infobox
+  // Enter/ändring i fälten uppdaterar infoboxen
   ['w1','w2','w3','w4','w5','suggested'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
@@ -621,7 +625,6 @@ function bindLookupUI(){
     });
   });
 }
-
 async function updateSuggestedInfo(){
   const q = document.getElementById('suggested').value || '';
   const data = await omdbLookup(q);
@@ -651,23 +654,20 @@ function bindUI(){
 
   // knappar
   document.getElementById('who').onchange         = ()=>{ localStorage.setItem('film_who', document.getElementById('who').value); loadMyList(); };
-  document.getElementById('refreshScores').onclick= refreshScores;
-  document.getElementById('saveAllScores').onclick= saveAllScores;
   document.getElementById('skip').onclick         = skipNext;
   document.getElementById('saveNight').onclick    = saveNight;
   document.getElementById('loadList').onclick     = loadMyList;
   document.getElementById('saveList').onclick     = saveMyList;
 
-  // direkt-spara poäng vid val
-  document.querySelectorAll('.score-select').forEach(sel=>{
-    sel.addEventListener('change', async ()=>{
-      const who = sel.id.replace('s-','');
-      const val = sel.value.trim();
-      if (!val) return;
-      const j = await api('saveScores', { scores: JSON.stringify({ [who]: val }) });
-      setStatus(j.ok, j.ok ? `poäng sparad för ${who}` : (j.error || 'saveScores'));
-      if (j.ok) await refreshScores();
-    });
+  // direkt-spara poäng vid val (tillåter även "–" = rensa)
+document.querySelectorAll('.score-select').forEach(sel=>{
+  sel.addEventListener('change', async ()=>{
+    const who = sel.id.replace('s-','');
+    const val = sel.value.trim();            // kan vara '' när man väljer "–"
+    const j = await api('saveScores', { scores: JSON.stringify({ [who]: val }) });
+    setStatus(j.ok, j.ok ? `poäng sparad för ${who}` : (j.error || 'saveScores'));
+    if (j.ok) await refreshScores();
+  });
   });
 }
 
