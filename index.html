@@ -126,14 +126,53 @@
       </div>
 
       <!-- Poäng -->
-      <div id="scoresRow">
-        <div class="score-col"><label>Hannah</label><input id="s-Hannah" placeholder="–" inputmode="decimal"></div>
-        <div class="score-col"><label>Maria</label><input  id="s-Maria"  placeholder="–" inputmode="decimal"></div>
-        <div class="score-col"><label>Tuva</label><input   id="s-Tuva"   placeholder="–" inputmode="decimal"></div>
-        <div class="score-col"><label>Alva</label><input   id="s-Alva"   placeholder="–" inputmode="decimal"></div>
-        <div class="score-col"><label>Lars</label><input   id="s-Lars"   placeholder="–" inputmode="decimal"></div>
-      </div>
+  <!-- Poäng -->
+<div id="scoresRow">
+  <div class="score-col">
+    <label>Hannah</label>
+    <select id="s-Hannah" class="score-select">
+      <option value="">–</option>
+      <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+      <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+    </select>
+  </div>
 
+  <div class="score-col">
+    <label>Maria</label>
+    <select id="s-Maria" class="score-select">
+      <option value="">–</option>
+      <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+      <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+    </select>
+  </div>
+
+  <div class="score-col">
+    <label>Tuva</label>
+    <select id="s-Tuva" class="score-select">
+      <option value="">–</option>
+      <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+      <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+    </select>
+  </div>
+
+  <div class="score-col">
+    <label>Alva</label>
+    <select id="s-Alva" class="score-select">
+      <option value="">–</option>
+      <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+      <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+    </select>
+  </div>
+
+  <div class="score-col">
+    <label>Lars</label>
+    <select id="s-Lars" class="score-select">
+      <option value="">–</option>
+      <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+      <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+    </select>
+  </div>
+</div>
       <div class="row">
         <button id="refreshScores" class="ghost">Uppdatera poäng</button>
         <button id="saveAllScores" class="primary">Spara poäng</button>
@@ -490,7 +529,10 @@ async function saveAllScores(){
     const v = (document.getElementById(`s-${p}`)?.value || '').trim();
     if (v !== '') scores[p] = v;
   }
-  if (!Object.keys(scores).length) return setStatus(false,'inga poäng ifyllda');
+  if (!Object.keys(scores).length) {
+  setStatus(false, 'inga nya poäng ifyllda');
+  return;
+}
   const j = await api('saveScores', { scores: JSON.stringify(scores) });
   setStatus(j.ok, j.ok ? 'poäng sparade' : (j.error || 'saveScores'));
   if (j.ok) await refreshScores();
@@ -615,6 +657,18 @@ function bindUI(){
   document.getElementById('saveNight').onclick    = saveNight;
   document.getElementById('loadList').onclick     = loadMyList;
   document.getElementById('saveList').onclick     = saveMyList;
+
+  // direkt-spara poäng vid val
+  document.querySelectorAll('.score-select').forEach(sel=>{
+    sel.addEventListener('change', async ()=>{
+      const who = sel.id.replace('s-','');
+      const val = sel.value.trim();
+      if (!val) return;
+      const j = await api('saveScores', { scores: JSON.stringify({ [who]: val }) });
+      setStatus(j.ok, j.ok ? `poäng sparad för ${who}` : (j.error || 'saveScores'));
+      if (j.ok) await refreshScores();
+    });
+  });
 }
 
 // --- Starta appen ---
