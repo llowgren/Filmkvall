@@ -238,7 +238,9 @@
 const API = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
 const PW     = 'Look4fun';
-
+// TMDb (bättre sök + svensk titel)
+const TMDB_KEY = 'e207103e8a03559e4be5970b8c899122'; // skaffa gratis på themoviedb.org
+const TMDB_URL = 'https://api.themoviedb.org/3';
 // OMDb
 const OMDB_KEY = 'b6f3e48';
 const OMDB_URL = 'https://www.omdbapi.com/';
@@ -284,7 +286,91 @@ _mqlLight.addListener?.(_onSchemeChange);
 /* ===== OMDb ===== */
 function imdbUrlFrom(j){ return j?.imdbID ? `https://www.imdb.com/title/${j.imdbID}/` : ''; }
 function norm(s){ return String(s||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,''); }
+/* ===== TMDb ===== */
+function normLite(s){
+  return String(s||'').toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g,'') // ta bort diakritik
+    .replace(/[^a-z0-9åäö\s:!?.\-]/g,'') // behåll nordiska tecken
+    .trim();
+}
 
+// Sök film på TMDb med svenskt språk, returnera bästa träff
+async function tmdbSearchMovie(query){
+  if(!TMDB_KEY || !query) return null;
+  const url = `${TMDB_URL}/search/movie?api_key=${encodeURIComponent(TMDB_KEY)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(query)}`;
+  const r = await fetch(url, {cache:'no-store'}).catch(()=>null);
+  if(!r || !r.ok) return null;
+  const j = await r.json();
+  if(!Array.isArray(j?.results) || !j.results.length) return null;
+
+  // Heuristik: ranka med exakt norm-match först, annars startswith, annars hög TMDb-popularitet
+  const qn = normLite(query);
+  const scored = j.results.map(it=>{
+    const tn = normLite(it.title || it.original_title);
+    let score = 0;
+    if(tn === qn) score = 100;
+    else if(tn.startsWith(qn)) score = 80;
+    else if(tn.includes(qn)) score = 60;
+    score += Math.min(20, (it.vote_count||0)/1000); // pyttelite bias för kända titlar
+    return {score, it};
+  }).sort((a,b)=>b.score-a.score);
+  return scored[0].it;
+}
+/* ===== Smart lookup (TMDb först, sedan OMDb) ===== */
+async function smartLookup(query){
+  // 1) IMDb-ID rakt av? – använd OMDb direkt
+  if(/\btt\d{7,}\b/i.test(query) || /imdb\.com\/title\/tt\d+/i.test(query)){
+    const om = await omdbLookup(query);
+    if(om) return om;
+  }
+
+  // 2) Försök TMDb (svenska titlar)
+  const tm = await tmdbLookup(query);
+  if(tm){
+    // Har vi fått imdbID? Bra – då kan allt annat (Watchmode) rulla vidare.
+    if(tm.imdbID) return tm;
+    // Annars kan vi försöka förbättra med OMDb nu när vi vet engelsk originaltitel + år
+    const tryOmdb = await omdbLookup(`${tm.Title} (${tm.Year||''})`);
+    return tryOmdb || tm; // ta OMDb om det gick, annars TMDb-objektet
+  }
+
+  // 3) Fallback till OMDb (engelska titlar)
+  return await omdbLookup(query);
+}
+// Hämta externa ID:n (bl.a. imdb_id) för en TMDb-film
+async function tmdbExternalIds(movieId){
+  if(!TMDB_KEY || !movieId) return null;
+  const url = `${TMDB_URL}/movie/${movieId}/external_ids?api_key=${encodeURIComponent(TMDB_KEY)}`;
+  const r = await fetch(url, {cache:'no-store'}).catch(()=>null);
+  if(!r || !r.ok) return null;
+  return await r.json();
+}
+
+// Bygg ett “OMDb-likt” objekt från TMDb + externa ID:n
+async function tmdbLookup(query){
+  const hit = await tmdbSearchMovie(query);
+  if(!hit) return null;
+
+  let imdbID = null;
+  try{
+    const ids = await tmdbExternalIds(hit.id);
+    imdbID = ids?.imdb_id || null;
+  }catch(_){}
+
+  // Poster (w92 är lagom nära dina 64px)
+  const poster = hit.poster_path ? `https://image.tmdb.org/t/p/w92${hit.poster_path}` : 'N/A';
+  const year = (hit.release_date||'').slice(0,4) || '';
+
+  return {
+    // format som din renderOmdbInfo förstår
+    Title: hit.title || hit.original_title || '',
+    Year: year,
+    Poster: poster,
+    imdbID: imdbID || '',        // kan vara tom om filmen saknar koppling
+    imdbRating: '-',             // vi har ingen IMDb-rating här
+  };
+}
 async function omdbLookup(query){
   if(!query) return null;
   let q = query.trim(), year = null;
