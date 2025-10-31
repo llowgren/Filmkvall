@@ -396,48 +396,81 @@ async function renderOmdbInfo(containerId, data, query) {
       ${streamingHtml}
     </div>`; 
 }
-/* ===== Ladda allt ===== */
+/* ===== Ladda allt ===== */ 
 async function loadAll(){
-  const cur = await api('getCurrent');
-  if(!cur.ok) return setStatus(false,cur.error||'getCurrent');
+  try {
+    const now = new Date().toLocaleTimeString('sv-SE', {hour:'2-digit', minute:'2-digit'});
+    const cur = await api('getCurrent');
+    if(!cur.ok) return setStatus(false,cur.error||'getCurrent');
 
-  $('#nextName').value  = cur.next || '';
-  $('#suggested').value = cur.suggestion || '';
+    $('#nextName').value  = cur.next || '';
+    $('#suggested').value = cur.suggestion || '';
 
-  if (cur.scores){
-    for (const p of PEOPLE){
-      const el = document.getElementById(`s-${p}`);
-      if (el) el.value = cur.scores[p] ?? '';
+    if (cur.scores){
+      for (const p of PEOPLE){
+        const el = document.getElementById(`s-${p}`);
+        if (el) el.value = cur.scores[p] ?? '';
+      }
     }
+
+    // Mina kommande
+    try {
+      await loadMyList();
+    } catch(err) {
+      console.error('Fel i loadMyList:', err);
+      setStatus(false, 'kunde inte hämta önskelistan');
+    }
+
+    // Topplistor
+    try {
+      const tops = await api('getTops', {limit:5});
+      if (tops.ok){
+        const films = (tops.bestFilms||[]).map(x=>`<div class="pill">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('') || '–';
+        const pickers = (tops.bestPickers||[]).map(x=>`<div class="pill">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join('') || '–';
+        $('#tops').innerHTML = `<div class="row"><div class="col"><label>Bästa filmer</label>${films}</div><div class="col"><label>Bästa väljare</label>${pickers}</div></div>`;
+      } else {
+        $('#tops').innerHTML = '<div class="muted">Kunde inte hämta topplistor.</div>';
+      }
+    } catch(err) {
+      console.error('Fel i topplistor:', err);
+      $('#tops').innerHTML = '<div class="muted">Kunde inte hämta topplistor.</div>';
+    }
+
+    // Historik
+    try {
+      const hist = await api('getHistory', {limit:10});
+      if (hist.ok){
+        const rows = (hist.rows||[]).map(r=>{
+          const nums = PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
+          const avg = nums.length? round1(nums.reduce((a,b)=>a+b,0)/nums.length) : '-';
+          const per = PEOPLE.map(p=>`${p}: ${r[p]||'-'}`).join(' • ');
+          return `<div class="pill" style="display:block;margin:6px 0;padding:10px 12px">
+            <strong>${r['Film']||'–'}</strong> — ${r['Datum']||''}
+            <span class="muted"> (val: ${r['Vem valde']||'-'}, Snitt: ${avg})</span><br/>
+            <span class="muted">${per}</span></div>`;
+        }).join('');
+        $('#history').innerHTML = rows || 'Tomt.';
+      } else {
+        $('#history').innerHTML = '<div class="muted">Kunde inte hämta historik.</div>';
+      }
+    } catch(err) {
+      console.error('Fel i historik:', err);
+      $('#history').innerHTML = '<div class="muted">Kunde inte hämta historik.</div>';
+    }
+
+    // OMDb för "På tur nu"
+    try {
+      await updateSuggestedInfo();
+    } catch(err) {
+      console.error('Fel i updateSuggestedInfo:', err);
+    }
+
+    setStatus(true, `API svarar – uppdaterat ${now}`);
+  } catch (err) {
+    console.error('Fel i loadAll:', err);
+    setStatus(false, 'Fel vid laddning');
   }
-
-  await loadMyList();
-
-  const tops = await api('getTops', {limit:5});
-  if (tops.ok){
-    const films = (tops.bestFilms||[]).map(x=>`<div class="pill">${x.film} — <strong>${x.avg}</strong> <span class="muted">(${x.who})</span></div>`).join('') || '–';
-    const pickers = (tops.bestPickers||[]).map(x=>`<div class="pill">${x.who} — <strong>${x.avg}</strong> <span class="muted">(${x.n} filmer)</span></div>`).join('') || '–';
-    $('#tops').innerHTML = `<div class="row"><div class="col"><label>Bästa filmer</label>${films}</div><div class="col"><label>Bästa väljare</label>${pickers}</div></div>`;
-  }
-
-  const hist = await api('getHistory', {limit:10});
-  if (hist.ok){
-    const rows = (hist.rows||[]).map(r=>{
-      const nums = PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
-      const avg = nums.length? round1(nums.reduce((a,b)=>a+b,0)/nums.length) : '-';
-      const per = PEOPLE.map(p=>`${p}: ${r[p]||'-'}`).join(' • ');
-      return `<div class="pill" style="display:block;margin:6px 0;padding:10px 12px">
-        <strong>${r['Film']||'–'}</strong> — ${r['Datum']||''}
-        <span class="muted"> (val: ${r['Vem valde']||'-'}, Snitt: ${avg})</span><br/>
-        <span class="muted">${per}</span></div>`;
-    }).join('');
-    $('#history').innerHTML = rows || 'Tomt.';
-  }
-
-  await updateSuggestedInfo();
-  setStatus(true,'API svarar.');
 }
-
 /* ===== Poäng, lista, tur ===== */
 async function refreshScores(){
   const j = await api('getScores');
