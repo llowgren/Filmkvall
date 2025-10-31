@@ -278,13 +278,8 @@ async function omdbLookup(query){
           if(year && String(o.y) === String(year)) score += 0.5;
           return {score, it:o.it};
         })
-        .sort((a,b)=>b.score-a.score);
-      const best = scored[0]?.it;
-      if(best?.imdbID){
-        const r3 = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&i=${best.imdbID}&plot=short`,{cache:'no-store'});
-        const j3 = await r3.json();
-        if(j3 && j3.Response!=='False') return j3;
-      }
+            .sort((a,b)=> b.score - a.score);
+      return scored[0]?.it ? await omdbLookup(scored[0].it.Title) : null;
     }
   }catch(_){}
   return null;
@@ -315,23 +310,25 @@ async function getStreamingInfo(imdbID) {
     const wmId = await getWmIdCached(imdbID);
     if (!wmId) return null;
 
-    const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${WATCHMODE_KEY}&regions=SE`;
+    // Hämta alla regioner (ingen regionsbegränsning)
+    const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${WATCHMODE_KEY}`;
     const res = await fetch(url, { cache: 'no-store' });
     const data = await res.json();
     if (!Array.isArray(data)) return null;
 
     const seen = new Set();
-    const normalizeName = (s) => String(s || '')
-      .replace(/\s*\(with Ads\)$/i,'')
-      .replace(/\s+HD$/,'')
+    const normalizeName = s => String(s || '')
+      .replace(/\s*\(with Ads\)$/i, '')
+      .replace(/\s+HD$/, '')
       .trim();
 
+    // Ta bara med de där filmen ingår i abonnemanget (type=sub)
     const filtered = data
       .filter(s => s.type === 'sub' && s.name)
       .map(s => ({
         service: normalizeName(s.name),
         quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
-        region: s.region || 'SE',
+        region: s.region || '',
         link: s.web_url || ''
       }))
       .filter(s => {
@@ -340,18 +337,18 @@ async function getStreamingInfo(imdbID) {
         seen.add(key);
         return true;
       })
-      .sort((a,b)=> (a.service+b.quality).localeCompare(b.service+b.quality));
+      .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
 
     return filtered.length ? filtered : null;
-  } catch(_){
+  } catch (e) {
+    console.error('Watchmode sources error:', e);
     return null;
   }
-} 
-    
+}
 /* ===== Rendera OMDb + streaming ===== */
 async function renderOmdbInfo(containerId, data, query) {
   const el = document.getElementById(containerId);
-  if(!el){ return; }
+  if(!el) return;
 
   if(!data){
     el.innerHTML = `<div style="color:var(--muted)">Hittade inget för: ${escapeHtml(query||'')}</div>`;
@@ -362,7 +359,9 @@ async function renderOmdbInfo(containerId, data, query) {
   const year   = escapeHtml(data.Year || '');
   const rating = escapeHtml(data.imdbRating || '-');
   const link   = imdbUrlFrom(data);
-  const poster = (data.Poster && data.Poster !== 'N/A') ? `<img src="${data.Poster}" alt="poster">` : '';
+  const poster = (data.Poster && data.Poster !== 'N/A')
+    ? `<img src="${data.Poster}" alt="poster">`
+    : '';
 
   let streamingHtml = '';
   if (data.imdbID) {
@@ -372,14 +371,20 @@ async function renderOmdbInfo(containerId, data, query) {
         const label = [
           opt.service,
           opt.quality ? ` ${opt.quality}` : '',
-          opt.region && opt.region !== 'SE' ? ` · ${opt.region}` : ''
+          opt.region ? ` · ${opt.region}` : ''
         ].join('');
-        const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
+        const href = opt.link
+          ? `href="${opt.link}" target="_blank" rel="noopener"`
+          : '';
         return `<a ${href} class="pill" style="margin:2px; text-decoration:none">${label} (ingår)</a>`;
       }).join('');
-      streamingHtml = `<div style="margin-top:8px"><strong>Streamas i Sverige:</strong><br>${pills}</div>`;
+      streamingHtml = `<div style="margin-top:8px">
+        <strong>Tillgängligt i abonnemang (globalt):</strong><br>${pills}
+      </div>`;
     } else {
-      streamingHtml = '<div style="margin-top:6px; color:var(--muted); font-size:12px">Ingen svensk tjänst där det ingår just nu.</div>';
+      streamingHtml = `<div style="margin-top:6px; color:var(--muted); font-size:12px">
+        Inget abonnemang hittades just nu.
+      </div>`;
     }
   }
 
@@ -389,9 +394,8 @@ async function renderOmdbInfo(containerId, data, query) {
       <strong>${title}</strong>${year ? ` (${year})` : ''}<br>
       IMDb ${rating}${link ? ` — <a href="${link}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
       ${streamingHtml}
-    </div>`;
+    </div>`; 
 }
-
 /* ===== Ladda allt ===== */
 async function loadAll(){
   const cur = await api('getCurrent');
