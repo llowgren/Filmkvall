@@ -123,7 +123,7 @@
         <div class="col">
           <label>Film (förslag från #1 i listan)</label>
           <div class="lookup-wrap">
-            <input id="suggested" class="lookup-input" type="text" readonly>
+<input id="suggested" class="lookup-input" type="text" readonly placeholder="Skriv film här om listan är tom…">
             <button class="lookup-btn" data-lookup="suggested">Sök</button>
           </div>
           <div id="suggested-info" class="omdb-info"></div>
@@ -260,6 +260,12 @@ const Cache = {
   }
 };
 
+function setSuggestedEditable(isEditable){
+  const el = document.getElementById('suggested');
+  if(!el) return;
+  el.readOnly = !isEditable;
+  el.placeholder = isEditable ? 'Skriv film här om listan är tom…' : '';
+}
 // SWR: returnera cache direkt, refresh i bakgrunden och kalla onFresh vid förändring
 async function fetchJsonSWR({ key, url, maxAgeMs=30_000, onFresh }){
   const cached = Cache.get(key);
@@ -727,7 +733,21 @@ function applyCurrent(cur, {quiet=false}={}){
     return;
   }
   $('#nextName').value  = cur.next || '';
-  $('#suggested').value = cur.suggestion || '';
+  const suggestedEl = document.getElementById('suggested');
+const serverSuggestion = (cur.suggestion || '').trim();
+
+// Om användaren redan har börjat skriva (fältet är upplåst), skriv inte över
+const userTyped =
+  suggestedEl &&
+  !suggestedEl.readOnly &&
+  (suggestedEl.value || '').trim().length > 0;
+
+if (!userTyped) {
+  suggestedEl.value = serverSuggestion;
+  setSuggestedEditable(serverSuggestion.length === 0); // tomt => skrivbart
+} else {
+  setSuggestedEditable(true); // behåll skrivbart om användaren skriver
+}
 
   if (cur.scores){
     for (const p of PEOPLE){
