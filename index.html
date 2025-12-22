@@ -51,7 +51,26 @@
     #tops .row{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
     #tops .col{ display:flex; flex-direction:column; gap:6px; }
     @media (max-width:640px){ #tops .row{ grid-template-columns:1fr; } }
-
+/* Autocomplete */
+.ac-wrap{ position:relative; }
+.ac-list{
+  position:absolute; left:0; right:0; top:100%;
+  z-index:50;
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:10px;
+  margin-top:6px;
+  overflow:hidden;
+}
+.ac-item{
+  padding:10px 12px;
+  cursor:pointer;
+  border-top:1px solid var(--border);
+  font-size:14px;
+}
+.ac-item:first-child{ border-top:none; }
+.ac-item:hover{ filter:brightness(1.08); }
+.ac-muted{ color:var(--muted); font-size:12px; }
     /* OMDb-sök rader */
     .lookup-wrap{display:flex; gap:6px; align-items:center; flex-wrap:nowrap}
     .lookup-input{flex:1 1 auto; min-width:0; padding:10px 12px}
@@ -88,8 +107,9 @@
 <body>
   <div class="wrap">
     <h1>Filmkväll – tur & poäng</h1>
-    <p class="muted">Välj vem du är, uppdatera din lista och sätt poäng. Allt sparas i arket.</p>
-
+    <p class="muted">
+      När kvällen sparas för den som är på tur flyttas #2–#5 upp (och #1 tas bort).
+    </p>
     <!-- Inställningar -->
     <div class="card">
       <div class="row">
@@ -113,112 +133,152 @@
     </div>
 
     <!-- På tur nu -->
-    <div class="card" id="nowCard">
-      <h3>På tur nu</h3>
-      <div class="row">
-        <div class="col">
-          <label>Nästa i tur</label>
-          <input id="nextName" type="text" readonly>
-        </div>
-        <div class="col">
-          <label>Film (förslag från #1 i listan)</label>
-          <div class="lookup-wrap">
-<input id="suggested" class="lookup-input" type="text" readonly placeholder="Skriv film här om listan är tom…">
-            <button class="lookup-btn" data-lookup="suggested">Sök</button>
-          </div>
-          <div id="suggested-info" class="omdb-info"></div>
-        </div>
-      </div>
+<div class="card" id="nowCard">
+  <h3>På tur nu</h3>
 
-      <!-- Poäng -->
-      <div id="scoresRow">
-        <div class="score-col">
-          <label>Hannah</label>
-          <select id="s-Hannah" class="score-select">
-            <option value="">–</option>
-            <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
-            <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
-          </select>
-        </div>
-
-        <div class="score-col">
-          <label>Maria</label>
-          <select id="s-Maria" class="score-select">
-            <option value="">–</option>
-            <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
-            <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
-          </select>
-        </div>
-
-        <div class="score-col">
-          <label>Tuva</label>
-          <select id="s-Tuva" class="score-select">
-            <option value="">–</option>
-            <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
-            <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
-          </select>
-        </div>
-
-        <div class="score-col">
-          <label>Alva</label>
-          <select id="s-Alva" class="score-select">
-            <option value="">–</option>
-            <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
-            <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
-          </select>
-        </div>
-
-        <div class="score-col">
-          <label>Lars</label>
-          <select id="s-Lars" class="score-select">
-            <option value="">–</option>
-            <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
-            <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row">
-        <span class="right"></span>
-        <button id="skip" class="ghost">Hoppa över</button>
-      </div>
-
-      <div class="row">
-        <div class="col">
-          <label>Kommentar</label>
-          <input id="comment" placeholder="valfritt">
-        </div>
-        <div class="col" style="align-self:end">
-          <button id="saveNight" class="primary">Spara kväll</button>
-        </div>
-      </div>
+  <div class="row">
+    <div class="col">
+      <label>Nästa i tur</label>
+      <input id="nextName" type="text" readonly>
     </div>
+
+    <div class="col">
+      <label>Film (förslag från #1 i listan)</label>
+
+      <div class="lookup-wrap ac-wrap">
+        <input
+          id="suggested"
+          class="lookup-input"
+          type="text"
+          readonly
+          placeholder="Skriv film här om listan är tom…"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+        >
+        <button class="lookup-btn" data-lookup="suggested">Sök</button>
+        <div class="ac-list" id="ac-suggested" style="display:none"></div>
+      </div>
+
+      <div id="suggested-info" class="omdb-info"></div>
+    </div>
+  </div>
+
+  <!-- Poäng -->
+  <div id="scoresRow">
+    <div class="score-col">
+      <label>Hannah</label>
+      <select id="s-Hannah" class="score-select">
+        <option value="">–</option>
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+      </select>
+    </div>
+
+    <div class="score-col">
+      <label>Maria</label>
+      <select id="s-Maria" class="score-select">
+        <option value="">–</option>
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+      </select>
+    </div>
+
+    <div class="score-col">
+      <label>Tuva</label>
+      <select id="s-Tuva" class="score-select">
+        <option value="">–</option>
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+      </select>
+    </div>
+
+    <div class="score-col">
+      <label>Alva</label>
+      <select id="s-Alva" class="score-select">
+        <option value="">–</option>
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+      </select>
+    </div>
+
+    <div class="score-col">
+      <label>Lars</label>
+      <select id="s-Lars" class="score-select">
+        <option value="">–</option>
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row">
+    <span class="right"></span>
+    <button id="skip" class="ghost">Hoppa över</button>
+  </div>
+
+  <div class="row">
+    <div class="col">
+      <label>Kommentar</label>
+      <input id="comment" placeholder="valfritt">
+    </div>
+    <div class="col" style="align-self:end">
+      <button id="saveNight" class="primary">Spara kväll</button>
+    </div>
+  </div>
+</div>
 
     <!-- Min lista -->
     <div class="card">
-      <h3>Mina kommande (1–5)</h3>
-      <div class="wishlist-col" id="wishlistCol">
-        <div class="lookup-wrap"><input id="w1" class="lookup-input" placeholder="#1 – högst upp"><button class="lookup-btn" data-lookup="w1">Sök</button></div>
-        <div id="w1-info" class="omdb-info"></div>
+<h3>Mina kommande (1–5)</h3>
+<div class="wishlist-col" id="wishlistCol">
 
-        <div class="lookup-wrap"><input id="w2" class="lookup-input" placeholder="#2"><button class="lookup-btn" data-lookup="w2">Sök</button></div>
-        <div id="w2-info" class="omdb-info"></div>
+  <div class="lookup-wrap ac-wrap">
+    <input id="w1" class="lookup-input" placeholder="#1 – högst upp" autocomplete="off">
+    <button class="lookup-btn" data-lookup="w1">Sök</button>
+    <div class="ac-list" id="ac-w1" style="display:none"></div>
+  </div>
+  <div id="w1-info" class="omdb-info"></div>
 
-        <div class="lookup-wrap"><input id="w3" class="lookup-input" placeholder="#3"><button class="lookup-btn" data-lookup="w3">Sök</button></div>
-        <div id="w3-info" class="omdb-info"></div>
+  <div class="lookup-wrap ac-wrap">
+    <input id="w2" class="lookup-input" placeholder="#2" autocomplete="off">
+    <button class="lookup-btn" data-lookup="w2">Sök</button>
+    <div class="ac-list" id="ac-w2" style="display:none"></div>
+  </div>
+  <div id="w2-info" class="omdb-info"></div>
 
-        <div class="lookup-wrap"><input id="w4" class="lookup-input" placeholder="#4"><button class="lookup-btn" data-lookup="w4">Sök</button></div>
-        <div id="w4-info" class="omdb-info"></div>
+  <div class="lookup-wrap ac-wrap">
+    <input id="w3" class="lookup-input" placeholder="#3" autocomplete="off">
+    <button class="lookup-btn" data-lookup="w3">Sök</button>
+    <div class="ac-list" id="ac-w3" style="display:none"></div>
+  </div>
+  <div id="w3-info" class="omdb-info"></div>
 
-        <div class="lookup-wrap"><input id="w5" class="lookup-input" placeholder="#5"><button class="lookup-btn" data-lookup="w5">Sök</button></div>
-        <div id="w5-info" class="omdb-info"></div>
-      </div>
-      <div class="row">
-        <button id="loadList" class="ghost">Hämta min lista</button>
-        <button id="saveList" class="primary">Spara min lista</button>
-      </div>
-      <p class="muted">När kvällen sparas för den som är på tur flyttas #2–#5 upp (och #1 tas bort).</p>
-    </div>
+  <div class="lookup-wrap ac-wrap">
+    <input id="w4" class="lookup-input" placeholder="#4" autocomplete="off">
+    <button class="lookup-btn" data-lookup="w4">Sök</button>
+    <div class="ac-list" id="ac-w4" style="display:none"></div>
+  </div>
+  <div id="w4-info" class="omdb-info"></div>
+
+  <div class="lookup-wrap ac-wrap">
+    <input id="w5" class="lookup-input" placeholder="#5" autocomplete="off">
+    <button class="lookup-btn" data-lookup="w5">Sök</button>
+    <div class="ac-list" id="ac-w5" style="display:none"></div>
+  </div>
+  <div id="w5-info" class="omdb-info"></div>
+
+</div>
+
+<div class="row">
+  <button id="loadList" class="ghost">Hämta min lista</button>
+  <button id="saveList" class="primary">Spara min lista</button>
+</div>
+
+<p class="muted">
+  När kvällen sparas för den som är på tur flyttas #2–#5 upp (och #1 tas bort).
+</p>
+</div>
 
     <!-- Topplistor -->
     <div class="card">
@@ -718,7 +778,7 @@ async function loadAll({useCache=true}={}){
     }
 
     // 5) OMDb för suggested (smartLookup + cache)
-    updateSuggestedInfo();
+    await updateSuggestedInfo();
 
     setStatus(true, `API svarar – uppdaterat ${now}`);
   }catch(err){
@@ -732,22 +792,24 @@ function applyCurrent(cur, {quiet=false}={}){
     if(!quiet) setStatus(false, cur?.error || 'getCurrent');
     return;
   }
-  $('#nextName').value  = cur.next || '';
+
+  $('#nextName').value = cur.next || '';
+
   const suggestedEl = document.getElementById('suggested');
-const serverSuggestion = (cur.suggestion || '').trim();
+  if (suggestedEl) {
+    const serverSuggestion = (cur.suggestion || '').trim();
 
-// Om användaren redan har börjat skriva (fältet är upplåst), skriv inte över
-const userTyped =
-  suggestedEl &&
-  !suggestedEl.readOnly &&
-  (suggestedEl.value || '').trim().length > 0;
+    const userTyped =
+      !suggestedEl.readOnly &&
+      (suggestedEl.value || '').trim().length > 0;
 
-if (!userTyped) {
-  suggestedEl.value = serverSuggestion;
-  setSuggestedEditable(serverSuggestion.length === 0); // tomt => skrivbart
-} else {
-  setSuggestedEditable(true); // behåll skrivbart om användaren skriver
-}
+    if (!userTyped) {
+      suggestedEl.value = serverSuggestion;
+      setSuggestedEditable(serverSuggestion.length === 0); // tomt => skrivbart
+    } else {
+      setSuggestedEditable(true); // behåll skrivbart om användaren skriver
+    }
+  }
 
   if (cur.scores){
     for (const p of PEOPLE){
@@ -756,7 +818,6 @@ if (!userTyped) {
     }
   }
 }
-
 function renderTops(tops){
   try{
     if (tops?.ok){
