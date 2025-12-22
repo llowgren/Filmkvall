@@ -948,6 +948,7 @@ async function saveNight(){
 
 // --- Bindningar för lookup ---
 function bindLookupUI(){
+   
   document.querySelectorAll('button[data-lookup]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const id = btn.getAttribute('data-lookup');
@@ -970,8 +971,9 @@ function bindLookupUI(){
     el.addEventListener('change', async ()=>{
       const data = await smartLookup(el.value);
       renderOmdbInfo(`${id}-info`, data, el.value);
-    });
+        });
   });
+  
 }
 
 async function updateSuggestedInfo(){
@@ -1039,7 +1041,9 @@ function bindUI(){
 (async function(){
   bindUI();
   bindLookupUI();
-
+// Autocomplete på fälten
+  ['w1','w2','w3','w4','w5','suggested'].forEach(bindAutocomplete);
+   
   try{
     const p = await api('ping');
     setStatus(!!p.ok, p.ok ? 'API svarar.' : (p.error || 'ok=false'));
@@ -1049,6 +1053,85 @@ function bindUI(){
 
   await loadAll({useCache:true});
 })();
+// ===== Autocomplete (TMDb) =====
+function debounce(fn, ms=250){
+  let t;
+  return (...args)=>{
+    clearTimeout(t);
+    t = setTimeout(()=>fn(...args), ms);
+  };
+}
+
+async function tmdbSearchMovies(query, limit=8){
+  if(!TMDB_KEY || !query) return [];
+  const url = `${TMDB_URL}/search/movie?api_key=${encodeURIComponent(TMDB_KEY)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(query)}`;
+  const r = await fetch(url, {cache:'no-store'}).catch(()=>null);
+  if(!r || !r.ok) return [];
+  const j = await r.json();
+  const res = Array.isArray(j?.results) ? j.results : [];
+  return res.slice(0, limit).map(it=>({
+    title: it.title || it.original_title || '',
+    year: (it.release_date||'').slice(0,4) || '',
+  }));
+}
+
+function hideAc(id){
+  const box = document.getElementById(`ac-${id}`);
+  if(box){ box.style.display = 'none'; box.innerHTML = ''; }
+}
+function showAc(id, items, onPick){
+  const box = document.getElementById(`ac-${id}`);
+  if(!box) return;
+
+  if(!items.length){
+    hideAc(id);
+    return;
+  }
+
+  box.innerHTML = items.map((x,i)=>`
+    <div class="ac-item" data-i="${i}">
+      <div><strong>${escapeHtml(x.title)}</strong> <span class="ac-muted">${escapeHtml(x.year)}</span></div>
+    </div>
+  `).join('');
+  box.style.display = 'block';
+
+  box.querySelectorAll('.ac-item').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const i = Number(el.getAttribute('data-i'));
+      onPick(items[i]);
+      hideAc(id);
+    });
+  });
+}
+
+function bindAutocomplete(id){
+  const input = document.getElementById(id);
+  const box = document.getElementById(`ac-${id}`);
+  if(!input || !box) return;
+
+  const doSearch = debounce(async ()=>{
+
+    const q = (input.value || '').trim();
+    if(q.length < 2){ hideAc(id); return; }
+
+    const hits = await tmdbSearchMovies(q, 8);
+    showAc(id, hits, (pick)=>{
+      // Sätt värdet som "Titel (År)" – funkar bra för dina lookups
+      input.value = pick.year ? `${pick.title} (${pick.year})` : pick.title;
+      // trigga din befintliga lookup-render på change
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    });
+  }, 220);
+
+  input.addEventListener('input', doSearch);
+
+  // Stäng listan när man klickar utanför
+  document.addEventListener('click', (e)=>{
+    if(e.target === input) return;
+    if(box.contains(e.target)) return;
+    hideAc(id);
+  });
+}
 </script>
 </body>
 </html>
