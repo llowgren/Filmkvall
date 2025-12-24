@@ -102,6 +102,14 @@
       text-align:center;
       text-align-last:center;
     }
+    button:disabled{
+  opacity:.55;
+  cursor:not-allowed;
+  filter:saturate(.6);
+}
+button.primary:disabled{
+  opacity:.55;
+}
   </style>
 </head>
 <body>
@@ -294,6 +302,97 @@
   </div>
 
 <script>
+/* ===== Spara-kväll skydd (front-end) ===== */
+const NightSaveGuard = {
+  storageKey: 'filmkvall_lastNightSave_v1',
+  state: { locked:false, reason:'' },
+
+  getLocalDateISO(){
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  },
+
+  normFilm(s){
+    return String(s||'')
+      .trim()
+      .toLowerCase()
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/\s+/g,' ');
+  },
+
+  getScoresObj(){
+    const scores = {};
+    for(const p of PEOPLE){
+      scores[p] = (document.getElementById(`s-${p}`)?.value || '').trim();
+    }
+    return scores;
+  },
+
+  snapshot(){
+    const who = (document.getElementById('nextName')?.value || '').trim();
+    const film = (document.getElementById('suggested')?.value || '').trim();
+    const comment = (document.getElementById('comment')?.value || '').trim();
+
+    const dateISO = this.getLocalDateISO();
+    const key = `${dateISO}::${who}::${this.normFilm(film)}`;
+
+    const scoresHash = JSON.stringify(this.getScoresObj());
+    const commentHash = comment; // enkel, räcker
+
+    return { dateISO, who, film, comment, key, scoresHash, commentHash };
+  },
+
+  read(){
+    try{ return JSON.parse(localStorage.getItem(this.storageKey) || 'null'); }
+    catch{ return null; }
+  },
+
+  write(obj){
+    try{ localStorage.setItem(this.storageKey, JSON.stringify(obj)); } catch {}
+  },
+
+  shouldBlockSave(){
+    const snap = this.snapshot();
+    const last = this.read();
+    if(!last) return { block:false, snap };
+
+    const sameKey = last.key === snap.key;
+    const sameScores = last.scoresHash === snap.scoresHash;
+    const sameComment = (last.commentHash || '') === (snap.commentHash || '');
+
+    // Blockera bara om det är “exakt samma kväll” OCH inget har ändrats
+    if(sameKey && sameScores && sameComment){
+      return { block:true, snap };
+    }
+    return { block:false, snap };
+  },
+
+  lockButton(msg){
+    const btn = document.getElementById('saveNight');
+    if(!btn) return;
+    btn.disabled = true;
+    btn.textContent = msg || 'Kväll sparad';
+  },
+
+  unlockButton(){
+    const btn = document.getElementById('saveNight');
+    if(!btn) return;
+    btn.disabled = false;
+    btn.textContent = 'Spara kväll';
+  },
+
+  markSaved(snap){
+    this.write({
+      key: snap.key,
+      scoresHash: snap.scoresHash,
+      commentHash: snap.commentHash,
+      savedAt: Date.now()
+    });
+  }
+};
 /* ===== KONFIG ===== */
 const API = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
@@ -327,7 +426,7 @@ function setSuggestedEditable(isEditable){
   el.placeholder = isEditable ? 'Skriv film här om listan är tom…' : '';
 }
 // SWR: returnera cache direkt, refresh i bakgrunden och kalla onFresh vid förändring
-async function fetchJsonSWR({ key, url, maxAgeMs=30_000, onFresh }){
+async function fetchJsonSWR({ key, url, maxAgeMs=30_000, onFresh, fingerprint }){
   const cached = Cache.get(key);
   const now = Date.now();
 
@@ -337,19 +436,54 @@ async function fetchJsonSWR({ key, url, maxAgeMs=30_000, onFresh }){
   }
 
   const data = await fetch(url, {cache:'no-store'}).then(r=>r.json());
-  Cache.set(key, {savedAt: Date.now(), data});
+  const fp0 = safeFp(data);
+  Cache.set(key, {savedAt: Date.now(), data, fp: fp0});
   return data;
+
+  function safeFp(x){
+    try{
+      if (typeof fingerprint === 'function') return String(fingerprint(x));
+    }catch(_){ }
+
+    // billig standard-fingerprint (undviker JSON.stringify på hela objekt)
+    try{
+      if (x == null) return 'null';
+      if (typeof x !== 'object') return String(x);
+      if ('updatedAt' in x) return 'u:' + String(x.updatedAt);
+      if ('ts' in x) return 't:' + String(x.ts);
+      if (Array.isArray(x)) return 'a:' + x.length;
+      if ('rows' in x && Array.isArray(x.rows)){
+        const r = x.rows;
+        const last = r[0] || r[r.length-1] || {};
+        return `rows:${r.length}:${last['Datum']||''}:${last['Film']||''}`;
+      }
+      if ('bestFilms' in x || 'bestPickers' in x){
+        const bf = Array.isArray(x.bestFilms) ? x.bestFilms[0] : null;
+        const bp = Array.isArray(x.bestPickers) ? x.bestPickers[0] : null;
+        return `tops:${x.ok?'1':'0'}:${bf?.film||''}:${bf?.avg||''}:${bp?.who||''}:${bp?.avg||''}`;
+      }
+      if ('R1' in x || 'R2' in x || 'R3' in x || 'R4' in x || 'R5' in x){
+        return `wl:${x.ok?'1':'0'}:${x.R1||''}:${x.R2||''}:${x.R3||''}:${x.R4||''}:${x.R5||''}`;
+      }
+      return 'o:' + Object.keys(x).length;
+    }catch(_){
+      return 'x';
+    }
+  }
 
   async function refresh(){
     try{
       const fresh = await fetch(url, {cache:'no-store'}).then(r=>r.json());
-      Cache.set(key, {savedAt: Date.now(), data: fresh});
-      const oldStr = JSON.stringify(cached?.data ?? null);
-      const newStr = JSON.stringify(fresh);
-      if (oldStr !== newStr) onFresh?.(fresh);
-    }catch(_){}
+      const fpNew = safeFp(fresh);
+      const fpOld = cached?.fp ?? safeFp(cached?.data);
+
+      Cache.set(key, {savedAt: Date.now(), data: fresh, fp: fpNew});
+
+      if (fpOld !== fpNew) onFresh?.(fresh);
+    }catch(_){ }
   }
 }
+
 
 /* ===== Lokal spara-kö (optimistisk) ===== */
 const SaveQueue = {
@@ -391,7 +525,7 @@ function scheduleFlush(flusher, delayMs=700){
       await SaveQueue.flush(flusher);
       // när vi lyckas: uppdatera “server-data” i bakgrunden
       scheduleSoftReload();
-    }catch(_){}
+    }catch(_){ }
   }, delayMs);
 }
 window.addEventListener("online", ()=>scheduleFlush(sendJobToServer, 200));
@@ -510,7 +644,7 @@ async function tmdbLookup(query){
   try{
     const ids = await tmdbExternalIds(hit.id);
     imdbID = ids?.imdb_id || null;
-  }catch(_){}
+  }catch(_){ }
 
   const poster = hit.poster_path ? `https://image.tmdb.org/t/p/w92${hit.poster_path}` : 'N/A';
   const year = (hit.release_date||'').slice(0,4) || '';
@@ -543,7 +677,7 @@ async function omdbLookup(query){
     const r1 = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&t=${encodeURIComponent(q)}${year?`&y=${year}`:''}&type=movie&plot=short`,{cache:'no-store'});
     const j1 = await r1.json();
     if(j1 && j1.Response!=='False') return j1;
-  }catch(_){}
+  }catch(_){ }
   try{
     const r2 = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&s=${encodeURIComponent(q)}&type=movie`,{cache:'no-store'});
     const j2 = await r2.json();
@@ -562,7 +696,7 @@ async function omdbLookup(query){
         .sort((a,b)=> b.score - a.score);
       return scored[0]?.it ? await omdbLookup(scored[0].it.Title) : null;
     }
-  }catch(_){}
+  }catch(_){ }
   return null;
 }
 
@@ -613,7 +747,7 @@ async function wmTitleIdFromImdb(imdbID){
       const hit = Array.isArray(j?.title_results) ? j.title_results.find(t => String(t.imdb_id) === String(imdbID)) : null;
       if(hit?.id) return hit.id;
     }
-  }catch(_){}
+  }catch(_){ }
   return null;
 }
 
@@ -662,7 +796,8 @@ async function getStreamingInfo(imdbID) {
 }
 
 /* ===== Rendera info ===== */
-async function renderOmdbInfo(containerId, data, query) {
+async function renderOmdbInfo(containerId, data, query, opts = {}) {
+  const withStreaming = (opts.withStreaming !== false);
   const el = document.getElementById(containerId);
   if(!el) return;
 
@@ -680,7 +815,7 @@ async function renderOmdbInfo(containerId, data, query) {
     : '';
 
   let streamingHtml = '';
-  if (data.imdbID) {
+  if (withStreaming && data.imdbID) {
     // Rendera direkt från cache om det finns, och uppdatera i bakgrunden
     const cacheKey = `wm_sources_${data.imdbID}`;
     const cached = Cache.get(cacheKey)?.data || null;
@@ -729,9 +864,9 @@ async function renderOmdbInfo(containerId, data, query) {
 }
 
 /* ===== API wrappers med SWR-cache ===== */
-function apiSWR(action, params, {cacheKey, maxAgeMs, onFresh}){
+function apiSWR(action, params, {cacheKey, maxAgeMs, onFresh, fingerprint}){
   const url = apiUrl(action, params);
-  return fetchJsonSWR({ key: cacheKey, url, maxAgeMs, onFresh });
+  return fetchJsonSWR({ key: cacheKey, url, maxAgeMs, onFresh, fingerprint });
 }
 
 /* ===== Ladda allt (med cache först) ===== */
@@ -744,6 +879,7 @@ async function loadAll({useCache=true}={}){
       ? await apiSWR('getCurrent', {}, {
           cacheKey:'api_getCurrent_v1',
           maxAgeMs: 20_000,
+          fingerprint: (j)=> `${j?.ok?'1':'0'}|${j?.next||''}|${j?.suggestion||''}|${PEOPLE.map(p=>j?.scores?.[p]??'').join(',')}`,
           onFresh: (fresh)=>applyCurrent(fresh, {quiet:true})
         })
       : await api('getCurrent');
@@ -758,6 +894,11 @@ async function loadAll({useCache=true}={}){
       const tops = await apiSWR('getTops', {limit:5}, {
         cacheKey:'api_getTops_v1_5',
         maxAgeMs: 5*60_000,
+        fingerprint: (j)=>{
+          const bf = (j?.bestFilms||[]).map(x=>`${x.film}:${x.avg}:${x.who}`).join('|');
+          const bp = (j?.bestPickers||[]).map(x=>`${x.who}:${x.avg}:${x.n}`).join('|');
+          return `${j?.ok?'1':'0'}|${bf}|${bp}`;
+        },
         onFresh: (fresh)=>renderTops(fresh)
       });
       renderTops(tops);
@@ -770,6 +911,11 @@ async function loadAll({useCache=true}={}){
       const hist = await apiSWR('getHistory', {limit:10}, {
         cacheKey:'api_getHistory_v1_10',
         maxAgeMs: 60_000,
+        fingerprint: (j)=>{
+          const r = j?.rows || [];
+          const last = r[0] || r[r.length-1] || {};
+          return `${j?.ok?'1':'0'}|${r.length}|${last['Datum']||''}|${last['Film']||''}`;
+        },
         onFresh: (fresh)=>renderHistory(fresh)
       });
       renderHistory(hist);
@@ -827,7 +973,7 @@ function renderTops(tops){
     } else {
       $('#tops').innerHTML = '<div class="muted">Kunde inte hämta topplistor.</div>';
     }
-  }catch(_){}
+  }catch(_){ }
 }
 
 function renderHistory(hist){
@@ -846,7 +992,7 @@ function renderHistory(hist){
     } else {
       $('#history').innerHTML = '<div class="muted">Kunde inte hämta historik.</div>';
     }
-  }catch(_){}
+  }catch(_){ }
 }
 
 /* ===== Önskelista (min) med cache + bakgrund ===== */
@@ -860,14 +1006,19 @@ async function loadMyList({useCache=true}={}){
     document.getElementById('w3').value = j.R3 || '';
     document.getElementById('w4').value = j.R4 || '';
     document.getElementById('w5').value = j.R5 || '';
-
-    // För att sidan ska kännas snabb: visa cached meta direkt, och uppdatera i bakgrunden
+    // För att sidan ska kännas snabb: hämta metadata parallellt.
+    const tasks = [];
     for (let i=1;i<=5;i++){
       const q = document.getElementById(`w${i}`).value;
-      if(!q){ document.getElementById(`w${i}-info`).innerHTML=''; continue; }
-      const data = await smartLookup(q);
-      renderOmdbInfo(`w${i}-info`, data, q);
+      const infoEl = document.getElementById(`w${i}-info`);
+      if(!q){ if(infoEl) infoEl.innerHTML=''; continue; }
+      tasks.push((async ()=>{
+        const data = await smartLookup(q);
+        // Streaming för wishlist kan vara tungt: hoppa över här (du har IMDb-länk ändå)
+        renderOmdbInfo(`w${i}-info`, data, q, {withStreaming:false});
+      })());
     }
+    await Promise.allSettled(tasks);
   };
 
   let j;
@@ -875,6 +1026,7 @@ async function loadMyList({useCache=true}={}){
     j = await apiSWR('getWishlist', {person: who}, {
       cacheKey: `api_getWishlist_v1_${who}`,
       maxAgeMs: 30_000,
+      fingerprint: (j)=> `${j?.ok?'1':'0'}|${j?.R1||''}|${j?.R2||''}|${j?.R3||''}|${j?.R4||''}|${j?.R5||''}`,
       onFresh: (fresh)=>apply(fresh)
     });
   }else{
@@ -935,15 +1087,34 @@ async function skipNext(){
 }
 
 async function saveNight(){
-  const who = (document.getElementById('nextName').value || '').trim();
-  const film = (document.getElementById('suggested').value || '').trim();
-  const comment = (document.getElementById('comment').value || '').trim();
-  if (!who || !film) return setStatus(false,'saknar “Nästa i tur” eller film');
+  const { block, snap } = NightSaveGuard.shouldBlockSave();
+
+  // Saknas obligatoriskt?
+  if (!snap.who || !snap.film){
+    NightSaveGuard.unlockButton();
+    return setStatus(false,'saknar “Nästa i tur” eller film');
+  }
+
+  // Om exakt samma kväll redan är sparad och inget ändrats -> blocka
+  if(block){
+    NightSaveGuard.lockButton('Kväll redan sparad');
+    return setStatus(true, 'Redan sparad (ändra poäng/kommentar/film för att spara igen).');
+  }
+
+  // Lås direkt så dubbelklick inte kan hända
+  NightSaveGuard.lockButton('Sparar…');
 
   setStatus(true, 'sparar kväll (synkar)…');
-  enqueueAndSync('saveNight', { who, film, comment });
+  enqueueAndSync('saveNight', { who: snap.who, film: snap.film, comment: snap.comment });
+
+  // Markera lokalt som sparad (så blockering funkar även vid refresh)
+  NightSaveGuard.markSaved(snap);
+
   document.getElementById('comment').value = '';
   scheduleSoftReload();
+
+  // Efter en kort stund: visa “sparad”
+  setTimeout(()=>NightSaveGuard.lockButton('Kväll sparad'), 400);
 }
 
 // --- Bindningar för lookup ---
@@ -954,7 +1125,7 @@ function bindLookupUI(){
       const id = btn.getAttribute('data-lookup');
       const q  = document.getElementById(id)?.value || '';
       const data = await smartLookup(q);
-      renderOmdbInfo(`${id}-info`, data, q);
+      renderOmdbInfo(`${id}-info`, data, q, {withStreaming: id === 'suggested'});
     });
   });
 
@@ -965,7 +1136,7 @@ function bindLookupUI(){
       if(e.key === 'Enter'){
         e.preventDefault();
         const data = await smartLookup(el.value);
-        renderOmdbInfo(`${id}-info`, data, el.value);
+        renderOmdbInfo(`${id}-info`, data, el.value, {withStreaming: id === 'suggested'});
       }
     });
     el.addEventListener('change', async ()=>{
@@ -979,7 +1150,7 @@ function bindLookupUI(){
 async function updateSuggestedInfo(){
   const q = document.getElementById('suggested').value || '';
   const data = await smartLookup(q);
-  renderOmdbInfo('suggested-info', data, q);
+  renderOmdbInfo('suggested-info', data, q, {withStreaming:true});
 }
 
 /* ===== UI-bindningar, tema och start ===== */
@@ -1009,6 +1180,12 @@ function bindUI(){
   document.getElementById('saveNight').onclick = saveNight;
   document.getElementById('loadList').onclick = ()=>loadMyList({useCache:true});
   document.getElementById('saveList').onclick = saveMyList;
+
+  // Lås upp “Spara kväll” om användaren ändrar något relevant (bind EN gång)
+  const unlockOnChange = ()=>NightSaveGuard.unlockButton();
+  document.getElementById('comment')?.addEventListener('input', unlockOnChange);
+  document.getElementById('suggested')?.addEventListener('change', unlockOnChange);
+  document.querySelectorAll('.score-select').forEach(sel=>sel.addEventListener('change', unlockOnChange));
 
   // Direkt-spara poäng: lokalt först, synka sen
   document.querySelectorAll('.score-select').forEach(sel=>{
@@ -1124,14 +1301,13 @@ function bindAutocomplete(id){
   }, 220);
 
   input.addEventListener('input', doSearch);
-
-  // Stäng listan när man klickar utanför
-  document.addEventListener('click', (e)=>{
-    if(e.target === input) return;
-    if(box.contains(e.target)) return;
-    hideAc(id);
-  });
 }
+
+// Stäng autocomplete-listor när man klickar utanför alla .ac-wrap (bind EN gång)
+document.addEventListener('click', (e)=>{
+  if (e.target?.closest?.('.ac-wrap')) return;
+  ['w1','w2','w3','w4','w5','suggested'].forEach(hideAc);
+});
 </script>
 </body>
 </html>
