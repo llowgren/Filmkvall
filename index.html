@@ -1243,7 +1243,8 @@ async function saveMyList(){
 /* ===== Auto-spara önskelista ===== */
 const WishlistAutoSave = {
   timer: null,
-  delayMs: 900,
+  // Lite lugnare autosave så sidan inte känns “nervös”
+  delayMs: 1600,
   applying: false,
   lastSigByPerson: Object.create(null),
 
@@ -1283,7 +1284,11 @@ const WishlistAutoSave = {
     };
 
     Cache.set(`api_getWishlist_v1_${person}`, {savedAt: Date.now(), data: {ok:true, ...body}});
-    setStatus(true, reason ? `lista autosparad (${reason}), synkar…` : 'lista autosparad, synkar…');
+
+    // Visa status mer sparsamt (inte varje tangenttryck)
+    if(reason && reason !== 'skriver'){
+      setStatus(true, `lista autosparad (${reason}), synkar…`);
+    }
     enqueueAndSync('saveWishlist', body);
   }
 };
@@ -1458,10 +1463,22 @@ function bindUI(){
     WishlistAutoSave.schedule('ordning');
   }
 
-  // Klick på pilar
+  // Klick på pilar (med kort cooldown så UI inte känns nervöst)
+  const wishlistMoveCooldown = {
+    last: 0,
+    delayMs: 450
+  };
+
   document.addEventListener('click', (e)=>{
     const btn = e.target?.closest?.('[data-move][data-i]');
     if(!btn) return;
+
+    const now = Date.now();
+    if(now - wishlistMoveCooldown.last < wishlistMoveCooldown.delayMs){
+      return; // ignorera snabba upprepade klick
+    }
+    wishlistMoveCooldown.last = now;
+
     const i = Number(btn.getAttribute('data-i'));
     const dir = btn.getAttribute('data-move');
     if(dir === 'up' && i > 1) swapWishlist(i, i-1);
@@ -1607,11 +1624,21 @@ function showAc(id, items, onPick){
   box.style.display = 'block';
 
   box.querySelectorAll('.ac-item').forEach(el=>{
-    el.addEventListener('click', ()=>{
+    const pickHandler = (ev)=>{
+      ev?.preventDefault?.();
+      ev?.stopPropagation?.();
       const i = Number(el.getAttribute('data-i'));
       onPick(items[i]);
       hideAc(id);
-    });
+      // Stäng tangentbordet på mobil efter val
+      try{ document.getElementById(id)?.blur?.(); }catch(_){ }
+    };
+
+    // iOS/Safari kan vara kinkig med click på overlay – kör pointer/touch också
+    el.addEventListener('pointerdown', pickHandler, {passive:false});
+    el.addEventListener('touchstart', pickHandler, {passive:false});
+    el.addEventListener('click', pickHandler);
+  });
   });
 }
 
@@ -1629,7 +1656,10 @@ function bindAutocomplete(id){
     showAc(id, hits, (pick)=>{
       // Sätt värdet som "Titel (År)" – funkar bra för dina lookups
       input.value = pick.year ? `${pick.title} (${pick.year})` : pick.title;
-      // trigga din befintliga lookup-render på change
+      // Viktigt: trigga både input och change
+      // - input: gör att autosave och ev. UI som lyssnar på input hänger med
+      // - change: gör att din befintliga lookup/render kör
+      input.dispatchEvent(new Event('input', {bubbles:true}));
       input.dispatchEvent(new Event('change', {bubbles:true}));
     });
   }, 220);
