@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Filmkväll – tur & poäng</title>
+  <title>Filmkväll</title>
   <style>
     /* Wishlist reorder */
     .wishlist-item{display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center}
@@ -139,29 +139,17 @@ button.primary:disabled{
 </head>
 <body>
   <div class="wrap">
-    <h1>Filmkväll – tur & poäng</h1>
-    <p class="muted">
-      När kvällen sparas för den som är på tur flyttas #2–#5 upp (och #1 tas bort).
-    </p>
-    <!-- Inställningar -->
+    <h1>Filmkväll</h1>
+    <div class="muted" style="font-size:12px; margin-bottom:8px">Kodversion: <span id="appVersion">–</span></div>
+    <!-- Inställningar (endast användare här uppe) -->
     <div class="card">
       <div class="row">
         <div class="col">
           <label>Jag är</label>
           <select id="who"></select>
         </div>
-        <div class="col">
-          <label>Tema</label>
-          <select id="theme">
-            <option value="auto" selected>Auto</option>
-            <option value="dark">Mörkt</option>
-            <option value="light">Ljust</option>
-          </select>
-        </div>
-        <div class="col">
-          <label>Status</label>
-          <div id="apiStatus" class="pill">Init…</div>
-        </div>
+      </div>
+    </div>
       </div>
     </div>
 
@@ -349,12 +337,25 @@ button.primary:disabled{
 <div class="row">
   <button id="loadList" class="ghost">Hämta min lista</button>
   <button id="saveList" class="primary">Spara min lista</button>
-</div>
+</div></div>
 
-<p class="muted">
-  När kvällen sparas för den som är på tur flyttas #2–#5 upp (och #1 tas bort).
-</p>
-</div>
+    <!-- Tema + Status (längst ner) -->
+    <div class="card">
+      <div class="row">
+        <div class="col">
+          <label>Tema</label>
+          <select id="theme">
+            <option value="auto" selected>Auto</option>
+            <option value="dark">Mörkt</option>
+            <option value="light">Ljust</option>
+          </select>
+        </div>
+        <div class="col">
+          <label>Status</label>
+          <div id="apiStatus" class="pill">Init…</div>
+        </div>
+      </div>
+    </div>
 
     <!-- Topplistor -->
     <div class="card">
@@ -462,6 +463,7 @@ const NightSaveGuard = {
   }
 };
 /* ===== KONFIG ===== */
+const APP_VERSION = '2025-12-24.1';
 const API = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
 const PW     = 'Look4fun';
@@ -1658,6 +1660,10 @@ function bindUI(){
 
 /* ===== Start ===== */
 (async function(){
+  // Visa kodversion
+  const verEl = document.getElementById('appVersion');
+  if(verEl) verEl.textContent = APP_VERSION;
+
   bindUI();
   bindLookupUI();
   // Autocomplete på fälten
