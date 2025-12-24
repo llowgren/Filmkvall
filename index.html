@@ -5,7 +5,18 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Filmkväll – tur & poäng</title>
   <style>
-    :root{
+    /* Wishlist reorder */
+    .wishlist-item{display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center}
+    .wishlist-move{display:flex; gap:8px; justify-content:flex-end}
+    .wishlist-move button{
+      width:42px; height:42px; padding:0;
+      border-radius:12px;
+      font-size:18px; line-height:1;
+      display:flex; align-items:center; justify-content:center;
+      touch-action:manipulation;
+    }
+
+:root{
       --bg:#0f1116; --panel:#161a22; --text:#e6e8ee; --muted:#9aa3b2;
       --accent:#f6c247; --accent-weak:#ffe399; --ok:#2ea86b; --err:#e5534b;
       --input:#0f1116; --border:#2a3140; --btn:#1f2533; --btn-text:#e6e8ee;
@@ -81,6 +92,20 @@
     .omdb-info{
       margin:6px 0 8px; font-size:13px; color:var(--muted);
       display:flex; align-items:flex-start; gap:8px;
+    }
+    .streaming-wrap{margin-top:8px}
+    .streaming-row{display:flex; flex-wrap:wrap; gap:4px}
+    /* Visar i praktiken ungefär första raden av “pills” – resten finns bakom “…” */
+    .streaming-row.collapsed{max-height:34px; overflow:hidden}
+    .streaming-toggle{
+      margin-top:4px;
+      font-size:12px;
+      padding:0;
+      border:none;
+      background:transparent;
+      text-decoration:underline;
+      cursor:pointer;
+      color:var(--muted);
     }
     .omdb-info img{
       width:64px; height:auto; border-radius:6px; border:1px solid var(--border);
@@ -254,38 +279,68 @@ button.primary:disabled{
 <h3>Mina kommande (1–5)</h3>
 <div class="wishlist-col" id="wishlistCol">
 
-  <div class="lookup-wrap ac-wrap">
-    <input id="w1" class="lookup-input" placeholder="#1 – högst upp" autocomplete="off">
-    <button class="lookup-btn" data-lookup="w1">Sök</button>
-    <div class="ac-list" id="ac-w1" style="display:none"></div>
+  <div class="wishlist-item">
+    <div class="lookup-wrap ac-wrap">
+      <input id="w1" class="lookup-input" placeholder="#1 – högst upp" autocomplete="off">
+      <button class="lookup-btn" data-lookup="w1">Sök</button>
+      <div class="ac-list" id="ac-w1" style="display:none"></div>
+    </div>
+    <div class="wishlist-move" aria-label="Flytta önskan">
+      <button type="button" class="ghost" data-move="up" data-i="1" aria-label="Flytta upp" disabled>▲</button>
+      <button type="button" class="ghost" data-move="down" data-i="1" aria-label="Flytta ner">▼</button>
+    </div>
   </div>
   <div id="w1-info" class="omdb-info"></div>
 
-  <div class="lookup-wrap ac-wrap">
-    <input id="w2" class="lookup-input" placeholder="#2" autocomplete="off">
-    <button class="lookup-btn" data-lookup="w2">Sök</button>
-    <div class="ac-list" id="ac-w2" style="display:none"></div>
+  <div class="wishlist-item">
+    <div class="lookup-wrap ac-wrap">
+      <input id="w2" class="lookup-input" placeholder="#2" autocomplete="off">
+      <button class="lookup-btn" data-lookup="w2">Sök</button>
+      <div class="ac-list" id="ac-w2" style="display:none"></div>
+    </div>
+    <div class="wishlist-move" aria-label="Flytta önskan">
+      <button type="button" class="ghost" data-move="up" data-i="2" aria-label="Flytta upp">▲</button>
+      <button type="button" class="ghost" data-move="down" data-i="2" aria-label="Flytta ner">▼</button>
+    </div>
   </div>
   <div id="w2-info" class="omdb-info"></div>
 
-  <div class="lookup-wrap ac-wrap">
-    <input id="w3" class="lookup-input" placeholder="#3" autocomplete="off">
-    <button class="lookup-btn" data-lookup="w3">Sök</button>
-    <div class="ac-list" id="ac-w3" style="display:none"></div>
+  <div class="wishlist-item">
+    <div class="lookup-wrap ac-wrap">
+      <input id="w3" class="lookup-input" placeholder="#3" autocomplete="off">
+      <button class="lookup-btn" data-lookup="w3">Sök</button>
+      <div class="ac-list" id="ac-w3" style="display:none"></div>
+    </div>
+    <div class="wishlist-move" aria-label="Flytta önskan">
+      <button type="button" class="ghost" data-move="up" data-i="3" aria-label="Flytta upp">▲</button>
+      <button type="button" class="ghost" data-move="down" data-i="3" aria-label="Flytta ner">▼</button>
+    </div>
   </div>
   <div id="w3-info" class="omdb-info"></div>
 
-  <div class="lookup-wrap ac-wrap">
-    <input id="w4" class="lookup-input" placeholder="#4" autocomplete="off">
-    <button class="lookup-btn" data-lookup="w4">Sök</button>
-    <div class="ac-list" id="ac-w4" style="display:none"></div>
+  <div class="wishlist-item">
+    <div class="lookup-wrap ac-wrap">
+      <input id="w4" class="lookup-input" placeholder="#4" autocomplete="off">
+      <button class="lookup-btn" data-lookup="w4">Sök</button>
+      <div class="ac-list" id="ac-w4" style="display:none"></div>
+    </div>
+    <div class="wishlist-move" aria-label="Flytta önskan">
+      <button type="button" class="ghost" data-move="up" data-i="4" aria-label="Flytta upp">▲</button>
+      <button type="button" class="ghost" data-move="down" data-i="4" aria-label="Flytta ner">▼</button>
+    </div>
   </div>
   <div id="w4-info" class="omdb-info"></div>
 
-  <div class="lookup-wrap ac-wrap">
-    <input id="w5" class="lookup-input" placeholder="#5" autocomplete="off">
-    <button class="lookup-btn" data-lookup="w5">Sök</button>
-    <div class="ac-list" id="ac-w5" style="display:none"></div>
+  <div class="wishlist-item">
+    <div class="lookup-wrap ac-wrap">
+      <input id="w5" class="lookup-input" placeholder="#5" autocomplete="off">
+      <button class="lookup-btn" data-lookup="w5">Sök</button>
+      <div class="ac-list" id="ac-w5" style="display:none"></div>
+    </div>
+    <div class="wishlist-move" aria-label="Flytta önskan">
+      <button type="button" class="ghost" data-move="up" data-i="5" aria-label="Flytta upp">▲</button>
+      <button type="button" class="ghost" data-move="down" data-i="5" aria-label="Flytta ner" disabled>▼</button>
+    </div>
   </div>
   <div id="w5-info" class="omdb-info"></div>
 
@@ -812,10 +867,11 @@ async function getStreamingInfo(imdbID) {
 async function renderOmdbInfo(containerId, data, query, opts = {}) {
   const withStreaming = (opts.withStreaming !== false);
   const el = document.getElementById(containerId);
-  if(!el) return;
+  if (!el) return;
 
-  if(!data){
-    el.innerHTML = `<div style="color:var(--muted)">Hittade inget för: ${escapeHtml(query||'')}</div>`;
+  // Ingen träff
+  if (!data) {
+    el.innerHTML = `<div style="color:var(--muted)">Hittade inget för: ${escapeHtml(query || '')}</div>`;
     return;
   }
 
@@ -824,46 +880,51 @@ async function renderOmdbInfo(containerId, data, query, opts = {}) {
   const rating = escapeHtml(data.imdbRating || '-');
   const link   = imdbUrlFrom(data);
   const poster = (data.Poster && data.Poster !== 'N/A')
-    ? `<img src="${data.Poster}" alt="poster">`
+    ? `<img src="${data.Poster}" alt="poster" loading="lazy" decoding="async">`
     : '';
 
+  // ===== Streaming (Watchmode) – lazy load =====
+  // Mål: snabba upp första rendern genom att INTE göra Watchmode-nätverk direkt.
+  // - Om cache finns: visa pills direkt (kollapsad) utan nätverk.
+  // - Om cache saknas: visa en liten "…"-knapp som hämtar vid klick.
   let streamingHtml = '';
   if (withStreaming && data.imdbID) {
-    // Rendera direkt från cache om det finns, och uppdatera i bakgrunden
     const cacheKey = `wm_sources_${data.imdbID}`;
     const cached = Cache.get(cacheKey)?.data || null;
 
-    if(cached && cached.length){
-      const pills = cached.map(opt=>{
-        const label = [opt.service, opt.quality ? ` ${opt.quality}` : '', opt.region ? ` · ${opt.region}` : ''].join('');
-        const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
-        return `<a ${href} class="pill" style="margin:2px; text-decoration:none">${label} (ingår)</a>`;
-      }).join('');
-      streamingHtml = `<div style="margin-top:8px"><strong>Tillgängligt i abonnemang (globalt):</strong><br>${pills}</div>`;
-      // kicka bakgrundsuppdatering
-      getStreamingInfo(data.imdbID).then(fresh=>{
-        if(!fresh) return;
-        const oldStr = JSON.stringify(cached);
-        const newStr = JSON.stringify(fresh);
-        if(oldStr !== newStr){
-          // re-render bara den här rutan
-          renderOmdbInfo(containerId, data, query);
-        }
-      });
-    }else{
-      streamingHtml = `<div style="margin-top:6px; color:var(--muted); font-size:12px">Hämtar streaming…</div>`;
-      // hämta
-      const options = await getStreamingInfo(data.imdbID);
-      if (options && options.length > 0) {
-        const pills = options.map(opt => {
-          const label = [opt.service, opt.quality ? ` ${opt.quality}` : '', opt.region ? ` · ${opt.region}` : ''].join('');
-          const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
-          return `<a ${href} class="pill" style="margin:2px; text-decoration:none">${label} (ingår)</a>`;
-        }).join('');
-        streamingHtml = `<div style="margin-top:8px"><strong>Tillgängligt i abonnemang (globalt):</strong><br>${pills}</div>`;
-      } else {
-        streamingHtml = `<div style="margin-top:6px; color:var(--muted); font-size:12px">Inget abonnemang hittades just nu.</div>`;
+    const buildPills = (options) => {
+      if (!options || !options.length) {
+        return `<div style="margin-top:6px; color:var(--muted); font-size:12px">Inget abonnemang hittades just nu.</div>`;
       }
+      const pills = options.map(opt => {
+        const label = [
+          opt.service,
+          opt.quality ? ` ${opt.quality}` : '',
+          opt.region ? ` · ${opt.region}` : ''
+        ].join('');
+        const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
+        return `<a ${href} class="pill" style="text-decoration:none">${escapeHtml(label)} (ingår)</a>`;
+      }).join('');
+
+      return `
+        <div class="streaming-wrap" data-imdb="${escapeHtml(data.imdbID)}">
+          <strong>Tillgängligt i abonnemang (globalt):</strong>
+          <div class="streaming-row collapsed">${pills}</div>
+          <button type="button" class="streaming-toggle" style="display:none">…</button>
+        </div>`;
+    };
+
+    if (cached) {
+      // Cached: render direkt, utan nätverk.
+      streamingHtml = buildPills(cached);
+    } else {
+      // Ingen cache: rendera en "…"-knapp som hämtar vid klick.
+      streamingHtml = `
+        <div class="streaming-wrap" data-imdb="${escapeHtml(data.imdbID)}">
+          <strong>Tillgängligt i abonnemang (globalt):</strong>
+          <div style="margin-top:6px; color:var(--muted); font-size:12px">(klicka för att hämta)</div>
+          <button type="button" class="streaming-toggle" style="display:inline-block">…</button>
+        </div>`;
     }
   }
 
@@ -874,6 +935,81 @@ async function renderOmdbInfo(containerId, data, query, opts = {}) {
       IMDb ${rating}${link ? ` — <a href="${link}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
       ${streamingHtml}
     </div>`;
+
+  // ===== Toggle + lazy fetch =====
+  const wrap = el.querySelector('.streaming-wrap');
+  const row = el.querySelector('.streaming-row');
+  const toggle = el.querySelector('.streaming-toggle');
+
+  if (wrap && toggle) {
+    const imdbID = wrap.getAttribute('data-imdb') || '';
+
+    const ensureToggleVisibility = () => {
+      if (!row) return;
+      requestAnimationFrame(() => {
+        const needsToggle = row.scrollHeight > row.clientHeight + 2;
+        toggle.style.display = needsToggle ? 'inline-block' : 'none';
+        toggle.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
+      });
+    };
+
+    // Har vi pills redan? (cache)
+    if (row) {
+      ensureToggleVisibility();
+      toggle.addEventListener('click', () => {
+        const collapsed = row.classList.toggle('collapsed');
+        toggle.textContent = collapsed ? '…' : 'visa färre';
+      });
+      return;
+    }
+
+    // Ingen row => vi är i "klicka för att hämta"-läge
+    toggle.addEventListener('click', async () => {
+      if (!imdbID) return;
+      toggle.disabled = true;
+      toggle.textContent = 'hämtar…';
+      const options = await getStreamingInfo(imdbID);
+
+      // Bygg in pills utan att re-rendera hela kortet
+      const html = (options && options.length)
+        ? (() => {
+            const pills = options.map(opt => {
+              const label = [
+                opt.service,
+                opt.quality ? ` ${opt.quality}` : '',
+                opt.region ? ` · ${opt.region}` : ''
+              ].join('');
+              const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
+              return `<a ${href} class="pill" style="text-decoration:none">${escapeHtml(label)} (ingår)</a>`;
+            }).join('');
+            return `<div class="streaming-row collapsed">${pills}</div>`;
+          })()
+        : `<div style="margin-top:6px; color:var(--muted); font-size:12px">Inget abonnemang hittades just nu.</div>`;
+
+      // Ersätt hint-text + knapp med row + knapp
+      const hint = wrap.querySelector('div[style*="klicka för att hämta"]');
+      hint?.remove();
+      wrap.insertAdjacentHTML('beforeend', html);
+
+      const newRow = wrap.querySelector('.streaming-row');
+      if (!newRow) {
+        toggle.remove();
+        return;
+      }
+
+      // Nu ska knappen fungera som expand/collapse
+      toggle.disabled = false;
+      toggle.textContent = '…';
+      requestAnimationFrame(() => {
+        const needsToggle = newRow.scrollHeight > newRow.clientHeight + 2;
+        toggle.style.display = needsToggle ? 'inline-block' : 'none';
+      });
+      toggle.onclick = () => {
+        const collapsed = newRow.classList.toggle('collapsed');
+        toggle.textContent = collapsed ? '…' : 'visa färre';
+      };
+    });
+  }
 }
 
 /* ===== API wrappers med SWR-cache ===== */
@@ -1017,11 +1153,19 @@ async function loadMyList({useCache=true}={}){
 
   const apply = async (j)=>{
     if(!j || !j.ok){ return; }
+
+    // Undvik att auto-save triggas när vi fyller i fälten från server/cache
+    WishlistAutoSave.applying = true;
     document.getElementById('w1').value = j.R1 || '';
     document.getElementById('w2').value = j.R2 || '';
     document.getElementById('w3').value = j.R3 || '';
     document.getElementById('w4').value = j.R4 || '';
     document.getElementById('w5').value = j.R5 || '';
+    WishlistAutoSave.applying = false;
+
+    // Uppdatera “senast sparad”-signatur så vi inte autosparar direkt efter load
+    WishlistAutoSave.lastSigByPerson[who] = WishlistAutoSave.sig(who);
+
     // För att sidan ska kännas snabb: hämta metadata parallellt.
     const tasks = [];
     for (let i=1;i<=5;i++){
@@ -1095,6 +1239,54 @@ async function saveMyList(){
   box?.classList.add('flash');
   setTimeout(()=>box?.classList.remove('flash'), 700);
 }
+
+/* ===== Auto-spara önskelista ===== */
+const WishlistAutoSave = {
+  timer: null,
+  delayMs: 900,
+  applying: false,
+  lastSigByPerson: Object.create(null),
+
+  sig(person){
+    const v = (id)=> (document.getElementById(id)?.value || '').trim();
+    return [person, v('w1'), v('w2'), v('w3'), v('w4'), v('w5')].join('␟');
+  },
+
+  schedule(reason=''){
+    if(this.applying) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(()=>this.commit(reason), this.delayMs);
+  },
+
+  commit(reason=''){
+    if(this.applying) return;
+    const person = document.getElementById('who')?.value || '';
+    if(!person) return;
+
+    const sig = this.sig(person);
+    if(this.lastSigByPerson[person] === sig) return; // inget ändrat
+
+    // Spara endast om det faktiskt finns något (undvik tom-synk varje gång)
+    const hasAny = sig.split('␟').slice(1).some(x=>x && x.length);
+    if(!hasAny) return;
+
+    this.lastSigByPerson[person] = sig;
+
+    // Kör samma som manuell “Spara min lista”, men utan flash/spam
+    const body = {
+      person,
+      R1: document.getElementById('w1').value,
+      R2: document.getElementById('w2').value,
+      R3: document.getElementById('w3').value,
+      R4: document.getElementById('w4').value,
+      R5: document.getElementById('w5').value,
+    };
+
+    Cache.set(`api_getWishlist_v1_${person}`, {savedAt: Date.now(), data: {ok:true, ...body}});
+    setStatus(true, reason ? `lista autosparad (${reason}), synkar…` : 'lista autosparad, synkar…');
+    enqueueAndSync('saveWishlist', body);
+  }
+};
 
 async function skipNext(){
   setStatus(true, 'hoppar över (synkar)…');
@@ -1200,13 +1392,15 @@ function bindLookupUI(){
       if(e.key === 'Enter'){
         e.preventDefault();
         const data = await smartLookup(el.value);
+        // Watchmode bara för “suggested” (snabbare för wishlist)
         renderOmdbInfo(`${id}-info`, data, el.value, {withStreaming: id === 'suggested'});
       }
     });
     el.addEventListener('change', async ()=>{
       const data = await smartLookup(el.value);
-      renderOmdbInfo(`${id}-info`, data, el.value);
-        });
+      // Watchmode bara för “suggested” (snabbare för wishlist)
+      renderOmdbInfo(`${id}-info`, data, el.value, {withStreaming: id === 'suggested'});
+    });
   });
   
 }
@@ -1221,6 +1415,61 @@ async function updateSuggestedInfo(){
 function getParam(name){ return new URLSearchParams(location.search).get(name); }
 
 function bindUI(){
+  // Wishlist: flytta rader upp/ner
+  function updateWishlistMoveButtons(){
+    document.querySelectorAll('[data-move][data-i]').forEach(btn=>{
+      const i = Number(btn.getAttribute('data-i'));
+      const dir = btn.getAttribute('data-move');
+      btn.disabled = (dir === 'up' && i === 1) || (dir === 'down' && i === 5);
+    });
+  }
+
+  async function refreshWishlistMetas(indices){
+    const tasks = [];
+    for (const i of indices){
+      const q = (document.getElementById(`w${i}`)?.value || '').trim();
+      const infoId = `w${i}-info`;
+      const infoEl = document.getElementById(infoId);
+      if(!q){ if(infoEl) infoEl.innerHTML = ''; continue; }
+      tasks.push((async ()=>{
+        const data = await smartLookup(q);
+        renderOmdbInfo(infoId, data, q, {withStreaming:false});
+      })());
+    }
+    await Promise.allSettled(tasks);
+  }
+
+  function swapWishlist(i, j){
+    if(i === j) return;
+    const a = document.getElementById(`w${i}`);
+    const b = document.getElementById(`w${j}`);
+    if(!a || !b) return;
+
+    WishlistAutoSave.applying = true;
+    const tmp = a.value;
+    a.value = b.value;
+    b.value = tmp;
+    WishlistAutoSave.applying = false;
+
+    // Uppdatera metadata för båda rader
+    refreshWishlistMetas([i,j]);
+
+    // Autospara när ordningen ändras
+    WishlistAutoSave.schedule('ordning');
+  }
+
+  // Klick på pilar
+  document.addEventListener('click', (e)=>{
+    const btn = e.target?.closest?.('[data-move][data-i]');
+    if(!btn) return;
+    const i = Number(btn.getAttribute('data-i'));
+    const dir = btn.getAttribute('data-move');
+    if(dir === 'up' && i > 1) swapWishlist(i, i-1);
+    if(dir === 'down' && i < 5) swapWishlist(i, i+1);
+  });
+  updateWishlistMoveButtons();
+
+
   document.getElementById('who').innerHTML = PEOPLE.map(p=>`<option>${p}</option>`).join('');
   const urlWho = getParam('who');
   const savedWho = localStorage.getItem('film_who');
@@ -1243,6 +1492,14 @@ function bindUI(){
     document.getElementById('saveNight').onclick = saveNight;
   document.getElementById('loadList').onclick = ()=>loadMyList({useCache:true});
   document.getElementById('saveList').onclick = saveMyList;
+
+  // Auto-spara wishlist: när man skriver och när man lämnar fältet
+  ['w1','w2','w3','w4','w5'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('input', ()=>WishlistAutoSave.schedule('skriver'));
+    el.addEventListener('blur',  ()=>WishlistAutoSave.commit('klar'));
+  });
 
   // Avancerat: visa/dölj
   document.getElementById('toggleAdvanced').onclick = ()=>{
@@ -1299,15 +1556,11 @@ function bindUI(){
 (async function(){
   bindUI();
   bindLookupUI();
-// Autocomplete på fälten
+  // Autocomplete på fälten
   ['w1','w2','w3','w4','w5','suggested'].forEach(bindAutocomplete);
-   
-  try{
-    const p = await api('ping');
-    setStatus(!!p.ok, p.ok ? 'API svarar.' : (p.error || 'ok=false'));
-  }catch(e){
-    setStatus(false, String(e));
-  }
+
+  // Snabbt första-intryck: visa att vi laddar, men gör inte extra nätverks-call (ping)
+  setStatus(true, 'Laddar…');
 
   await loadAll({useCache:true});
 })();
