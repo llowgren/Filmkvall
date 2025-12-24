@@ -1630,9 +1630,7 @@ function showAc(id, items, onPick){
       const i = Number(el.getAttribute('data-i'));
       onPick(items[i]);
       hideAc(id);
-      // Stäng tangentbordet på mobil efter val
-      try{ document.getElementById(id)?.blur?.(); }catch(_){ }
-    };
+      };
 
     // iOS/Safari kan vara kinkig med click på overlay – kör pointer/touch också
     el.addEventListener('pointerdown', pickHandler, {passive:false});
@@ -1646,24 +1644,45 @@ function bindAutocomplete(id){
   const box = document.getElementById(`ac-${id}`);
   if(!input || !box) return;
 
+  // Gör autocomplete mindre “nervös”:
+  // - visa bara när fältet faktiskt är fokuserat
+  // - vänta lite längre innan sök
+  // - ignorera IME/komposition
+  let composing = false;
+  input.addEventListener('compositionstart', ()=>{ composing = true; });
+  input.addEventListener('compositionend', ()=>{ composing = false; });
+
   const doSearch = debounce(async ()=>{
+    if(composing) return;
+    if(document.activeElement !== input) return;
 
     const q = (input.value || '').trim();
-    if(q.length < 2){ hideAc(id); return; }
+    if(q.length < 3){ hideAc(id); return; }
 
     const hits = await tmdbSearchMovies(q, 8);
+    // Om fokus hann flytta sig medan vi väntade på nätet: visa inte
+    if(document.activeElement !== input) return;
+
     showAc(id, hits, (pick)=>{
       // Sätt värdet som "Titel (År)" – funkar bra för dina lookups
       input.value = pick.year ? `${pick.title} (${pick.year})` : pick.title;
-      // Viktigt: trigga både input och change
-      // - input: gör att autosave och ev. UI som lyssnar på input hänger med
-      // - change: gör att din befintliga lookup/render kör
+      // Trigga både input och change så autosave + render hänger med
       input.dispatchEvent(new Event('input', {bubbles:true}));
       input.dispatchEvent(new Event('change', {bubbles:true}));
     });
-  }, 220);
+  }, 380);
 
   input.addEventListener('input', doSearch);
+
+  // Stäng på Escape
+  input.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape') hideAc(id);
+  });
+
+  // Stäng när man lämnar fältet (liten delay så klick på listan hinner registreras)
+  input.addEventListener('blur', ()=>{
+    setTimeout(()=>hideAc(id), 150);
+  });
 }
 
 // Stäng autocomplete-listor när man klickar utanför alla .ac-wrap (bind EN gång)
