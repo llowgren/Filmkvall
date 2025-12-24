@@ -222,8 +222,7 @@ button.primary:disabled{
 
   <div class="row">
     <span class="right"></span>
-    <button id="skip" class="ghost">Hoppa över</button>
-    <button id="toggleAdvanced" class="ghost" style="margin-left:6px">Avancerat…</button>
+    <button id="toggleAdvanced" class="ghost" style="margin-left:6px">Hoppa över</button>
   </div>
 
   <div class="row" id="advancedRow" style="display:none; gap:8px; align-items:flex-end">
@@ -1241,8 +1240,7 @@ function bindUI(){
     localStorage.setItem('film_who', document.getElementById('who').value);
     loadMyList({useCache:true});
   };
-  document.getElementById('skip').onclick = skipNext;
-  document.getElementById('saveNight').onclick = saveNight;
+    document.getElementById('saveNight').onclick = saveNight;
   document.getElementById('loadList').onclick = ()=>loadMyList({useCache:true});
   document.getElementById('saveList').onclick = saveMyList;
 
