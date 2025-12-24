@@ -4,6 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Filmkväll</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <meta property="og:title" content="Filmkväll">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="logo.png">
   <style>
     /* Wishlist reorder */
     .wishlist-item{display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center}
@@ -139,17 +143,22 @@ button.primary:disabled{
 </head>
 <body>
   <div class="wrap">
-    <h1>Filmkväll</h1>
+    <div class="row" style="align-items:center; justify-content:space-between; gap:16px">
+  <h1 style="margin:0">Filmkväll</h1>
+  <img src="logo.png" alt="Filmkväll logotyp" style="height:56px; width:auto; display:block" />
+</div>
+</div>
     <div class="muted" style="font-size:12px; margin-bottom:8px">Kodversion: <span id="appVersion">–</span></div>
     <!-- Inställningar (endast användare här uppe) -->
     <div class="card">
-      <div class="row">
-        <div class="col">
-          <label>Jag är</label>
-          <select id="who"></select>
-        </div>
-      </div>
+  <div class="row" style="align-items:center">
+    <div class="col" style="max-width:320px">
+      <label>Jag är</label>
+      <select id="who"></select>
     </div>
+    <div class="muted" style="font-size:12px; margin-left:auto">Inloggad användare</div>
+  </div>
+</div>
       </div>
     </div>
 
@@ -463,7 +472,21 @@ const NightSaveGuard = {
   }
 };
 /* ===== KONFIG ===== */
-const APP_VERSION = '2025-12-24.1';
+// Kodversion baserad på filens senaste ändring (GitHub Pages = commit-tid)
+const APP_VERSION = (()=>{
+  try{
+    const d = new Date(document.lastModified);
+    if(isNaN(d)) return 'okänd';
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    return `${y}-${m}-${day} ${hh}:${mm}`;
+  }catch{
+    return 'okänd';
+  }
+})();
 const API = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
 const PW     = 'Look4fun';
