@@ -223,6 +223,20 @@ button.primary:disabled{
   <div class="row">
     <span class="right"></span>
     <button id="skip" class="ghost">Hoppa över</button>
+    <button id="toggleAdvanced" class="ghost" style="margin-left:6px">Avancerat…</button>
+  </div>
+
+  <div class="row" id="advancedRow" style="display:none; gap:8px; align-items:flex-end">
+    <div class="col" style="min-width:220px; flex:0 0 260px">
+      <label>Hoppa till (nästa i tur överst)</label>
+      <select id="jumpTo"></select>
+    </div>
+    <div class="col" style="align-self:end; flex:0 0 auto">
+      <button id="doJump" class="ghost" disabled>Byt tur</button>
+    </div>
+    <div class="col" style="align-self:end; flex:1 1 auto">
+      <div class="muted" style="font-size:12px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
+    </div>
   </div>
 
   <div class="row">
@@ -963,6 +977,9 @@ function applyCurrent(cur, {quiet=false}={}){
       if (el) el.value = cur.scores[p] ?? '';
     }
   }
+
+  // Håll “Hoppa till”-listan i fas med aktuell tur
+  updateJumpOptions();
 }
 function renderTops(tops){
   try{
@@ -1086,6 +1103,54 @@ async function skipNext(){
   scheduleSoftReload();
 }
 
+function orderedTurnList(){
+  const cur = (document.getElementById('nextName')?.value || '').trim();
+  const n = PEOPLE.length;
+  const idx = Math.max(0, PEOPLE.indexOf(cur));
+  const order = [];
+  for(let k=0;k<n;k++) order.push(PEOPLE[(idx+k)%n]);
+  return order;
+}
+
+function updateJumpOptions(){
+  const sel = document.getElementById('jumpTo');
+  const btn = document.getElementById('doJump');
+  if(!sel || !btn) return;
+
+  const order = orderedTurnList();
+  sel.innerHTML = order.map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+
+  // Default: “nästa i tur” (överst). Knapp av tills man väljer någon annan.
+  sel.value = order[0] || '';
+  btn.disabled = true;
+}
+
+function stepsToPerson(target){
+  const cur = (document.getElementById('nextName')?.value || '').trim();
+  const a = PEOPLE.indexOf(cur);
+  const b = PEOPLE.indexOf(target);
+  if(a < 0 || b < 0) return 0;
+  const n = PEOPLE.length;
+  return (b - a + n) % n; // 0 => redan nästa
+}
+
+async function jumpToSelected(){
+  const target = (document.getElementById('jumpTo')?.value || '').trim();
+  if(!target) return;
+
+  const steps = stepsToPerson(target);
+  if(steps === 0){
+    setStatus(true, 'redan på tur.');
+    return;
+  }
+
+  setStatus(true, `byter tur → ${target} (synkar ${steps} steg)…`);
+
+  // Klient-side “jump” utan serverändring: enqueue:a skipNext N gånger
+  for(let i=0;i<steps;i++) enqueueAndSync('skipNext', {});
+  scheduleSoftReload();
+}
+
 async function saveNight(){
   const { block, snap } = NightSaveGuard.shouldBlockSave();
 
@@ -1181,6 +1246,22 @@ function bindUI(){
   document.getElementById('loadList').onclick = ()=>loadMyList({useCache:true});
   document.getElementById('saveList').onclick = saveMyList;
 
+  // Avancerat: visa/dölj
+  document.getElementById('toggleAdvanced').onclick = ()=>{
+    const row = document.getElementById('advancedRow');
+    if(!row) return;
+    const on = row.style.display !== 'none';
+    row.style.display = on ? 'none' : 'flex';
+    if(!on) updateJumpOptions();
+  };
+
+  // Avancerat: hoppa till
+  document.getElementById('jumpTo').onchange = ()=>{
+    const target = document.getElementById('jumpTo')?.value || '';
+    document.getElementById('doJump').disabled = (stepsToPerson(target) === 0);
+  };
+  document.getElementById('doJump').onclick = jumpToSelected;
+
   // Lås upp “Spara kväll” om användaren ändrar något relevant (bind EN gång)
   const unlockOnChange = ()=>NightSaveGuard.unlockButton();
   document.getElementById('comment')?.addEventListener('input', unlockOnChange);
@@ -1199,14 +1280,16 @@ function bindUI(){
       if(cached?.ok){
         cached.scores = cached.scores || {};
         cached.scores[who] = val;
-        Cache.set(curKey, {savedAt: Date.now(), data: cached});
+        Cache.set(curKey, {savedAt: Date.now(), data: cached, fp: Cache.get(curKey)?.fp});
       }
 
       setStatus(true, `poäng sparad för ${who} (synkar)…`);
       enqueueAndSync('saveScores', { scores: JSON.stringify({ [who]: val }) });
-      // vi behöver inte refresh direkt, men du får en mjuk reload efter flush
     });
   });
+
+  // Initiera avancerad dropdown direkt
+  updateJumpOptions();
 
   // Försök flush direkt vid start om det ligger saker i kö
   if(pendingCount() > 0){
