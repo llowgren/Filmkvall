@@ -1113,8 +1113,10 @@ function applyCurrent(cur, {quiet=false}={}){
     }
   }
 
-  // Håll “Hoppa till”-listan i fas med aktuell tur
-  updateJumpOptions();
+  // Håll “Hoppa till”-listan i fas med aktuell tur,
+  // men stör inte användarens val om Advanced-raden är öppen.
+  const advOpen = (document.getElementById('advancedRow')?.style.display !== 'none');
+  updateJumpOptions({preserveSelection: advOpen, forceDefault: false});
 }
 function renderTops(tops){
   try{
@@ -1308,17 +1310,23 @@ function orderedTurnList(){
   return order;
 }
 
-function updateJumpOptions(){
+function updateJumpOptions({preserveSelection=true, forceDefault=false} = {}){
   const sel = document.getElementById('jumpTo');
   const btn = document.getElementById('doJump');
   if(!sel || !btn) return;
 
   const order = orderedTurnList();
+  const prev = (sel.value || '').trim();
+
   sel.innerHTML = order.map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
 
-  // Default: “nästa i tur” (överst). Knapp av tills man väljer någon annan.
-  sel.value = order[0] || '';
-  btn.disabled = true;
+  // Behåll användarens val om möjligt (så SWR-refresh inte “hoppar tillbaka”)
+  let nextVal = order[0] || '';
+  if(!forceDefault && preserveSelection && prev && order.includes(prev)) nextVal = prev;
+  sel.value = nextVal;
+
+  // Knappen aktiv bara om man valt något som inte redan är “nästa”
+  btn.disabled = (stepsToPerson(sel.value) === 0);
 }
 
 function stepsToPerson(target){
@@ -1342,8 +1350,35 @@ async function jumpToSelected(){
 
   setStatus(true, `byter tur → ${target} (synkar ${steps} steg)…`);
 
-  // Klient-side “jump” utan serverändring: enqueue:a skipNext N gånger
+  // Optimistiskt: uppdatera UI direkt så det inte känns “konstigt”
+  const nextNameEl = document.getElementById('nextName');
+  if(nextNameEl) nextNameEl.value = target;
+
+  const suggestedEl = document.getElementById('suggested');
+  if(suggestedEl){
+    suggestedEl.value = '';
+    setSuggestedEditable(true);
+  }
+  const sugInfo = document.getElementById('suggested-info');
+  if(sugInfo) sugInfo.innerHTML = '';
+
+  // Uppdatera cache för getCurrent så SWR inte hoppar tillbaka
+  try{
+    const curKey = 'api_getCurrent_v1';
+    const cached = Cache.get(curKey);
+    if(cached?.data?.ok){
+      cached.data.next = target;
+      cached.data.suggestion = '';
+      Cache.set(curKey, {savedAt: Date.now(), data: cached.data, fp: cached.fp});
+    }
+  }catch(_){ }
+
+  // Klient-side “jump”: enqueue:a skipNext N gånger
   for(let i=0;i<steps;i++) enqueueAndSync('skipNext', {});
+
+  // Håll dropdown i sync utan att resetta användarens val
+  updateJumpOptions({preserveSelection:true, forceDefault:false});
+
   scheduleSoftReload();
 }
 
@@ -1558,7 +1593,10 @@ function bindUI(){
     if(!row) return;
     const on = row.style.display !== 'none';
     row.style.display = on ? 'none' : 'flex';
-    if(!on) updateJumpOptions();
+    if(!on){
+      // När man öppnar: visa standard (nästa i tur) men låt det vara stabilt tills man ändrar
+      updateJumpOptions({preserveSelection:false, forceDefault:true});
+    }
   };
 
   // Avancerat: hoppa till
@@ -1566,7 +1604,22 @@ function bindUI(){
     const target = document.getElementById('jumpTo')?.value || '';
     document.getElementById('doJump').disabled = (stepsToPerson(target) === 0);
   };
-  document.getElementById('doJump').onclick = jumpToSelected;
+  document.getElementById('doJump').onclick = async ()=>{
+    const btn = document.getElementById('doJump');
+    if(!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Byter…';
+    try{
+      await jumpToSelected();
+    }finally{
+      // låt bakgrundssync ske; knappen aktiveras igen när dropdown ändras eller reload
+      setTimeout(()=>{
+        btn.textContent = 'Byt tur';
+        // disabled sätts korrekt i updateJumpOptions / onchange
+        updateJumpOptions({preserveSelection:true, forceDefault:false});
+      }, 800);
+    }
+  };
 
   // Lås upp “Spara kväll” om användaren ändrar något relevant (bind EN gång)
   const unlockOnChange = ()=>NightSaveGuard.unlockButton();
