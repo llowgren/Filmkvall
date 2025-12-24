@@ -38,10 +38,32 @@
     body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
     .wrap{max-width:980px; margin:24px auto; padding:0 16px;}
     h1{font-size:26px; margin:0}
-    .topbar{display:flex; align-items:center; justify-content:space-between; gap:16px; margin:0 0 12px}
-    .topbar-left{display:flex; flex-direction:column; gap:6px}
-    .topbar-logo{height:56px; width:auto; display:block}
-    @media (max-width:520px){.topbar-logo{height:44px}}
+    /* Hero header */
+.hero{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+  gap:12px;
+  margin:12px 0 24px;
+}
+.hero-logo{
+  width:33%;
+  max-width:280px;
+  min-width:160px;
+  height:auto;
+}
+.hero-title{
+  font-size:32px;
+  margin:0;
+}
+.hero-version{
+  font-size:12px;
+}
+@media (max-width:520px){
+  .hero-logo{width:60%;}
+  .hero-title{font-size:26px;}
+}
     h3{margin:0 0 10px}
     .muted{color:var(--muted)}
     .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0}
@@ -150,13 +172,11 @@ button.primary:disabled{
 </head>
 <body>
   <div class="wrap">
-    <header class="topbar">
-      <div class="topbar-left">
-        <h1>Filmkväll</h1>
-        <div class="muted" style="font-size:12px">Kodversion: <span id="appVersion">–</span></div>
-      </div>
-      <img id="logoImg" src="Logo.PNG" alt="Filmkväll logotyp" class="topbar-logo" />
-    </header>
+    <header class="hero">
+  <img id="logoImg" src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
+  <h1 class="hero-title">Filmkväll</h1>
+  <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
+</header>
 
     <!-- Inställningar (endast användare här uppe) -->
     <div class="card">
