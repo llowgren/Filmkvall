@@ -1371,7 +1371,41 @@ async function saveNight(){
   // Markera lokalt som sparad (så blockering funkar även vid refresh)
   NightSaveGuard.markSaved(snap);
 
+  // ===== Optimistisk UI-uppdatering =====
+  // Poängen: sidan ska kännas "klar" direkt även om nätverket/queue tar någon sekund.
+  const nextIdx = PEOPLE.indexOf(snap.who);
+  const optimisticNext = (nextIdx >= 0) ? PEOPLE[(nextIdx + 1) % PEOPLE.length] : '';
+
+  // Uppdatera fält direkt
+  const nextNameEl = document.getElementById('nextName');
+  if(nextNameEl) nextNameEl.value = optimisticNext;
+
+  const suggestedEl = document.getElementById('suggested');
+  if(suggestedEl){
+    // Vi vet inte säkert nästa persons #1 utan server-call, så visa tomt tills reload
+    suggestedEl.value = '';
+    setSuggestedEditable(true);
+  }
+  const sugInfo = document.getElementById('suggested-info');
+  if(sugInfo) sugInfo.innerHTML = '';
+
+  // Rensa kommentar
   document.getElementById('comment').value = '';
+
+  // Håll avancerade listan i fas
+  updateJumpOptions();
+
+  // Uppdatera cache för getCurrent så "snabb" reload inte hoppar tillbaka
+  try{
+    const curKey = 'api_getCurrent_v1';
+    const cached = Cache.get(curKey);
+    if(cached?.data?.ok){
+      cached.data.next = optimisticNext;
+      cached.data.suggestion = '';
+      Cache.set(curKey, {savedAt: Date.now(), data: cached.data, fp: cached.fp});
+    }
+  }catch(_){ }
+
   scheduleSoftReload();
 
   // Efter en kort stund: visa “sparad”
