@@ -36,7 +36,7 @@
     }
     *{box-sizing:border-box}
     body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
-    .wrap{max-width:980px; margin:24px auto; padding:0 16px;}
+    .wrap{max-width:1100px; margin:24px auto; padding:0 16px;}
     h1{font-size:26px; margin:0}
     /* Hero header */
 .hero{
@@ -44,24 +44,27 @@
   flex-direction:column;
   align-items:center;
   text-align:center;
-  gap:12px;
-  margin:12px 0 24px;
+  gap:8px;
+  margin:8px 0 20px;
 }
 .hero-logo{
-  width:33%;
-  max-width:280px;
-  min-width:160px;
+  width:14%;
+  max-width:180px;
+  min-width:96px;
   height:auto;
 }
 .hero-title{
-  font-size:32px;
+  font-size:34px;
   margin:0;
+  letter-spacing:.08em;
 }
 .hero-version{
   font-size:12px;
 }
 @media (max-width:520px){
-  .hero-logo{width:60%;}
+  .hero-logo{width:28%;}
+  .hero-title{font-size:26px;}
+}
   .hero-title{font-size:26px;}
 }
     h3{margin:0 0 10px}
@@ -179,16 +182,18 @@ button.primary:disabled{
 </header>
 
     <!-- Inställningar (endast användare här uppe) -->
-    <div class="card">
-  <div class="row" style="align-items:center">
-    <div class="col" style="max-width:320px">
-      <label>Jag är</label>
-      <select id="who"></select>
+    <div class="card" id="userCard" style="padding:10px 14px">
+      <div class="row" style="align-items:center; gap:10px">
+        <div class="col" style="max-width:260px">
+          <label style="margin-bottom:4px">Jag är</label>
+          <select id="who"></select>
+        </div>
+        <div class="muted" style="font-size:11px; margin-left:auto">Inloggad användare</div>
+      </div>
     </div>
-    <div class="muted" style="font-size:12px; margin-left:auto">Inloggad användare</div>
-  
+    </div>
 
-    <!-- På tur nu -->
+<!-- På tur nu -->
 <div class="card" id="nowCard">
   <h3>På tur nu</h3>
 
@@ -407,23 +412,7 @@ button.primary:disabled{
 
 <script>
 /* ===== Spara-kväll skydd (front-end) ===== */
-const LOGO_FALLBACK_128 = "data:image/png;base64,"+b64_128+"";
-const LOGO_FALLBACK_256 = "data:image/png;base64,"+b64_256+"";
-
-// Sätt logga/favikon även om logo.png saknas (t.ex. innan du hunnit lägga filen i repo)
-(function initLogoFallback(){
-  const img = document.getElementById('logoImg');
-  if(img){
-    img.addEventListener('error', ()=>{ img.src = LOGO_FALLBACK_256; }, {once:true});
-  }
-  const fav = document.getElementById('favicon');
-  if(fav){
-    // Om logo.png inte kan laddas (404), byt till inline
-    fetch(fav.getAttribute('href'), {method:'HEAD'}).then(r=>{
-      if(!r.ok) fav.setAttribute('href', LOGO_FALLBACK_128);
-    }).catch(()=> fav.setAttribute('href', LOGO_FALLBACK_128));
-  }
-})();
+// Logo-fallback bortplockad (du har Logo.PNG i repot nu).
 
 const NightSaveGuard = {
   storageKey: 'filmkvall_lastNightSave_v1',
