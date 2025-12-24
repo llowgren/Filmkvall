@@ -4,10 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Filmkväll</title>
-  <link rel="icon" type="image/png" href="logo.png">
+  <!-- Logo (lägg gärna en fil som heter logo.png i samma mapp som index.html) -->
+  <link id="favicon" rel="icon" type="image/png" href="Logo.PNG">
   <meta property="og:title" content="Filmkväll">
   <meta property="og:type" content="website">
-  <meta property="og:image" content="logo.png">
+  <meta property="og:image" content="Logo.PNG">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:image" content="Logo.PNG">
   <style>
     /* Wishlist reorder */
     .wishlist-item{display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center}
@@ -34,7 +37,11 @@
     *{box-sizing:border-box}
     body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
     .wrap{max-width:980px; margin:24px auto; padding:0 16px;}
-    h1{font-size:26px; margin:0 0 8px}
+    h1{font-size:26px; margin:0}
+    .topbar{display:flex; align-items:center; justify-content:space-between; gap:16px; margin:0 0 12px}
+    .topbar-left{display:flex; flex-direction:column; gap:6px}
+    .topbar-logo{height:56px; width:auto; display:block}
+    @media (max-width:520px){.topbar-logo{height:44px}}
     h3{margin:0 0 10px}
     .muted{color:var(--muted)}
     .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0}
@@ -143,12 +150,14 @@ button.primary:disabled{
 </head>
 <body>
   <div class="wrap">
-    <div class="row" style="align-items:center; justify-content:space-between; gap:16px">
-  <h1 style="margin:0">Filmkväll</h1>
-  <img src="logo.png" alt="Filmkväll logotyp" style="height:56px; width:auto; display:block" />
-</div>
-</div>
-    <div class="muted" style="font-size:12px; margin-bottom:8px">Kodversion: <span id="appVersion">–</span></div>
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1>Filmkväll</h1>
+        <div class="muted" style="font-size:12px">Kodversion: <span id="appVersion">–</span></div>
+      </div>
+      <img id="logoImg" src="Logo.PNG" alt="Filmkväll logotyp" class="topbar-logo" />
+    </header>
+
     <!-- Inställningar (endast användare här uppe) -->
     <div class="card">
   <div class="row" style="align-items:center">
@@ -157,10 +166,7 @@ button.primary:disabled{
       <select id="who"></select>
     </div>
     <div class="muted" style="font-size:12px; margin-left:auto">Inloggad användare</div>
-  </div>
-</div>
-      </div>
-    </div>
+  
 
     <!-- På tur nu -->
 <div class="card" id="nowCard">
@@ -381,6 +387,24 @@ button.primary:disabled{
 
 <script>
 /* ===== Spara-kväll skydd (front-end) ===== */
+const LOGO_FALLBACK_128 = "data:image/png;base64,"+b64_128+"";
+const LOGO_FALLBACK_256 = "data:image/png;base64,"+b64_256+"";
+
+// Sätt logga/favikon även om logo.png saknas (t.ex. innan du hunnit lägga filen i repo)
+(function initLogoFallback(){
+  const img = document.getElementById('logoImg');
+  if(img){
+    img.addEventListener('error', ()=>{ img.src = LOGO_FALLBACK_256; }, {once:true});
+  }
+  const fav = document.getElementById('favicon');
+  if(fav){
+    // Om logo.png inte kan laddas (404), byt till inline
+    fetch(fav.getAttribute('href'), {method:'HEAD'}).then(r=>{
+      if(!r.ok) fav.setAttribute('href', LOGO_FALLBACK_128);
+    }).catch(()=> fav.setAttribute('href', LOGO_FALLBACK_128));
+  }
+})();
+
 const NightSaveGuard = {
   storageKey: 'filmkvall_lastNightSave_v1',
   state: { locked:false, reason:'' },
