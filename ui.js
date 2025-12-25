@@ -142,3 +142,85 @@ function applyTheme(){
   if (mode === 'light') root.setAttribute('data-theme','light');
   else root.removeAttribute('data-theme');
 }
+// ===== Filmkväll: inbyggd felsökning (iPad-friendly) =====
+(function initDebugPanel(){
+  function safeJson(x){
+    try { return JSON.stringify(x, null, 2); } catch { return String(x); }
+  }
+
+  function ensurePanel(){
+    const statusEl = document.getElementById('apiStatus');
+    if(!statusEl) return null;
+
+    // Lägg panelen i samma "Status"-kort (under pillen)
+    const card = statusEl.closest('.card') || statusEl.parentElement;
+    if(!card) return null;
+
+    if(document.getElementById('debugPanel')) return document.getElementById('debugPanel');
+
+    const wrap = document.createElement('details');
+    wrap.id = 'debugPanel';
+    wrap.style.marginTop = '10px';
+
+    const sum = document.createElement('summary');
+    sum.textContent = 'Felsök (visa teknisk info)';
+    sum.className = 'muted';
+    wrap.appendChild(sum);
+
+    const pre = document.createElement('pre');
+    pre.id = 'debugPre';
+    pre.style.whiteSpace = 'pre-wrap';
+    pre.style.wordBreak = 'break-word';
+    pre.style.margin = '10px 0 0';
+    pre.style.padding = '10px';
+    pre.style.border = '1px solid var(--border)';
+    pre.style.borderRadius = '10px';
+    pre.style.background = 'var(--input)';
+    pre.textContent = 'Ingen debug-data ännu.';
+    wrap.appendChild(pre);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ghost';
+    btn.textContent = 'Kopiera felsökning';
+    btn.style.marginTop = '8px';
+    btn.addEventListener('click', async ()=>{
+      const txt = pre.textContent || '';
+      try{
+        await navigator.clipboard.writeText(txt);
+        statusEl.classList.add('flash');
+        setTimeout(()=>statusEl.classList.remove('flash'), 800);
+      }catch{
+        // fallback: markera text
+        const r = document.createRange();
+        r.selectNodeContents(pre);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    });
+    wrap.appendChild(btn);
+
+    card.appendChild(wrap);
+    return wrap;
+  }
+
+  function render(){
+    const panel = ensurePanel();
+    if(!panel) return;
+    const pre = document.getElementById('debugPre');
+    if(!pre) return;
+
+    const d = window.__FILMKVALL_DEBUG__;
+    if(!d){
+      pre.textContent = 'Ingen debug-data ännu.\n(Om detta står kvar efter "Load failed" så har api.js inte hunnit skicka debug-info ännu.)';
+      return;
+    }
+    pre.textContent = safeJson(d);
+  }
+
+  // Uppdatera vid load + när api.js triggar event
+  window.addEventListener('filmkvall:debug', render);
+  window.addEventListener('load', render);
+  setTimeout(render, 500);
+})();
