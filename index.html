@@ -22,7 +22,7 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Inställningar (lokalt, inget committas) -->
+    <!-- Inställningar (lokalt) -->
     <div class="card" id="userCard">
       <h3>Inställningar</h3>
       <div class="row" style="align-items:flex-end">
@@ -30,33 +30,10 @@
           <label for="who">Användare</label>
           <select id="who" aria-label="Användare"></select>
         </div>
-        <div class="col" style="max-width:520px">
-          <div class="muted" style="font-size:12px; margin-top:22px">
-            Lösenord/Token hanteras automatiskt (inget du behöver fylla i).
-          </div>
-        </div>
       </div>
-
-      <details style="margin-top:12px">
-        <summary class="muted">Valfritt: API-nycklar (TMDb / OMDb / Watchmode)</summary>
-        <div class="row" style="margin-top:10px">
-          <div class="col">
-            <label for="tmdbKeyInput">TMDb key</label>
-            <input id="tmdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
-          </div>
-          <div class="col">
-            <label for="omdbKeyInput">OMDb key</label>
-            <input id="omdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
-          </div>
-          <div class="col">
-            <label for="watchmodeKeyInput">Watchmode key</label>
-            <input id="watchmodeKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
-          </div>
-        </div>
-        <div class="muted" style="font-size:12px; margin-top:6px">
-          Tips: Dessa behövs bara för sök/metadata. Grundfunktionerna (tur, listor, poäng, historik) funkar utan.
-        </div>
-      </details>
+      <div class="muted" style="font-size:12px; margin-top:6px">
+        Tips: Den här sidan visar aldrig API-token. Den ligger i koden (api.js).
+      </div>
     </div>
 
     <!-- På tur nu -->
@@ -80,7 +57,7 @@
         </div>
       </div>
 
-      <!-- Poäng -->
+      <!-- Poäng (renderas av ui.js) -->
       <div id="scoresRow"></div>
 
       <div class="row">
@@ -153,7 +130,7 @@
     </div>
   </div>
 
-  <!-- EN entrypoint som ES-module (import/export fungerar). -->
+  <!-- ES modules: en entrypoint som importerar resten -->
   <script type="module" src="app.js"></script>
 </body>
 </html>
