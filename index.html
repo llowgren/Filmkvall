@@ -22,7 +22,7 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Inställningar (lokalt) -->
+    <!-- Inställningar (lokalt, inget committas) -->
     <div class="card" id="userCard">
       <h3>Inställningar</h3>
       <div class="row" style="align-items:flex-end">
@@ -30,10 +30,33 @@
           <label for="who">Användare</label>
           <select id="who" aria-label="Användare"></select>
         </div>
+        <div class="col" style="max-width:260px">
+          <label for="pwInput">Lösenord</label>
+          <input id="pwInput" type="password" autocomplete="current-password" placeholder="ange lösenord" />
+          <div class="muted" style="font-size:12px; margin-top:4px">Sparas bara lokalt i webbläsaren.</div>
+        </div>
       </div>
-      <div class="muted" style="font-size:12px; margin-top:6px">
-        Tips: Den här sidan visar aldrig API-token. Den ligger i koden (api.js).
-      </div>
+
+      <details style="margin-top:12px">
+        <summary class="muted">Valfritt: API-nycklar (TMDb / OMDb / Watchmode)</summary>
+        <div class="row" style="margin-top:10px">
+          <div class="col">
+            <label for="tmdbKeyInput">TMDb key</label>
+            <input id="tmdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
+          </div>
+          <div class="col">
+            <label for="omdbKeyInput">OMDb key</label>
+            <input id="omdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
+          </div>
+          <div class="col">
+            <label for="watchmodeKeyInput">Watchmode key</label>
+            <input id="watchmodeKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
+          </div>
+        </div>
+        <div class="muted" style="font-size:12px; margin-top:6px">
+          Tips: Dessa behövs bara för sök/metadata. Grundfunktionerna (tur, listor, poäng, historik) funkar utan.
+        </div>
+      </details>
     </div>
 
     <!-- På tur nu -->
@@ -57,7 +80,7 @@
         </div>
       </div>
 
-      <!-- Poäng (renderas av ui.js) -->
+      <!-- Poäng -->
       <div id="scoresRow"></div>
 
       <div class="row">
@@ -130,7 +153,8 @@
     </div>
   </div>
 
-  <!-- ES modules: en entrypoint som importerar resten -->
-  <script type="module" src="app.js"></script>
+  <!-- Viktigt: vi använder ES-moduler (export/import). Därför MÅSTE scripts vara type="module". -->
+  <!-- Ladda EN entrypoint som i sin tur importerar state/api/lookup. -->
+  <script type="module" src="ui.js"></script>
 </body>
 </html>
