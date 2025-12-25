@@ -22,7 +22,7 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Inställningar -->
+    <!-- Inställningar (sparas lokalt i webbläsaren) -->
     <div class="card" id="userCard">
       <h3>Inställningar</h3>
       <div class="row" style="align-items:flex-end">
@@ -30,10 +30,33 @@
           <label for="who">Användare</label>
           <select id="who" aria-label="Användare"></select>
         </div>
+        <div class="col" style="max-width:260px">
+          <label for="pwInput">API-token / lösenord</label>
+          <input id="pwInput" type="password" autocomplete="current-password" placeholder="ange token" />
+          <div class="muted" style="font-size:12px; margin-top:4px">Sparas bara lokalt i webbläsaren.</div>
+        </div>
       </div>
-      <div class="muted" style="font-size:12px; margin-top:8px">
-        Lösenord och API-nycklar hanteras lokalt i webbläsaren.
-      </div>
+
+      <details style="margin-top:12px">
+        <summary class="muted">Valfritt: API-nycklar (TMDb / OMDb / Watchmode)</summary>
+        <div class="row" style="margin-top:10px">
+          <div class="col">
+            <label for="tmdbKeyInput">TMDb key</label>
+            <input id="tmdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
+          </div>
+          <div class="col">
+            <label for="omdbKeyInput">OMDb key</label>
+            <input id="omdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
+          </div>
+          <div class="col">
+            <label for="watchmodeKeyInput">Watchmode key</label>
+            <input id="watchmodeKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
+          </div>
+        </div>
+        <div class="muted" style="font-size:12px; margin-top:6px">
+          Tips: Dessa behövs bara för sök/metadata. Grundfunktionerna (tur, listor, poäng, historik) funkar utan.
+        </div>
+      </details>
     </div>
 
     <!-- På tur nu -->
