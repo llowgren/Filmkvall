@@ -1,5 +1,6 @@
 /** =======================
  *  Filmkväll – Google Apps Script API (code.gs)
+ *  Uppdaterad från Github
  *  Blad:
  *   - Config   : Key | Value              (nextIndex, people)
  *   - Wishlists: Person | R1..R5
