@@ -1,0 +1,19 @@
+# Ignore frontend (GitHub Pages)
+index.html
+styles.css
+Logo.PNG
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.svg
+
+# Ignore all browser JS modules
+*.js
+
+# (Valfritt) men behåll inte GAS-filer du inte vill pusha:
+# api.gs
+# app.gs
+# ui.gs
+# lookup.gs
