@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Filmkväll</title>
 
-  <link id="favicon" rel="icon" type="image/png" href="Logo.PNG">
+  <link rel="icon" type="image/png" href="Logo.PNG">
   <meta property="og:title" content="Filmkväll">
   <meta property="og:type" content="website">
   <meta property="og:image" content="Logo.PNG">
@@ -17,12 +17,12 @@
 <body>
   <div class="wrap">
     <header class="hero">
-      <img id="logoImg" src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
+      <img src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
       <h1 class="hero-title">Filmkväll</h1>
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Inställningar (lokalt, inget committas) -->
+    <!-- Inställningar -->
     <div class="card" id="userCard">
       <h3>Inställningar</h3>
       <div class="row" style="align-items:flex-end">
@@ -30,33 +30,10 @@
           <label for="who">Användare</label>
           <select id="who" aria-label="Användare"></select>
         </div>
-        <div class="col" style="max-width:260px">
-          <label for="pwInput">Lösenord</label>
-          <input id="pwInput" type="password" autocomplete="current-password" placeholder="ange lösenord" />
-          <div class="muted" style="font-size:12px; margin-top:4px">Sparas bara lokalt i webbläsaren.</div>
-        </div>
       </div>
-
-      <details style="margin-top:12px">
-        <summary class="muted">Valfritt: API-nycklar (TMDb / OMDb / Watchmode)</summary>
-        <div class="row" style="margin-top:10px">
-          <div class="col">
-            <label for="tmdbKeyInput">TMDb key</label>
-            <input id="tmdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
-          </div>
-          <div class="col">
-            <label for="omdbKeyInput">OMDb key</label>
-            <input id="omdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
-          </div>
-          <div class="col">
-            <label for="watchmodeKeyInput">Watchmode key</label>
-            <input id="watchmodeKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
-          </div>
-        </div>
-        <div class="muted" style="font-size:12px; margin-top:6px">
-          Tips: Dessa behövs bara för sök/metadata. Grundfunktionerna (tur, listor, poäng, historik) funkar utan.
-        </div>
-      </details>
+      <div class="muted" style="font-size:12px; margin-top:8px">
+        Lösenord och API-nycklar hanteras lokalt i webbläsaren.
+      </div>
     </div>
 
     <!-- På tur nu -->
@@ -72,7 +49,9 @@
         <div class="col">
           <label for="suggested">Film (förslag från #1 i listan)</label>
           <div class="lookup-wrap ac-wrap">
-            <input id="suggested" class="lookup-input" type="text" readonly placeholder="Skriv film här om listan är tom…" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <input id="suggested" class="lookup-input" type="text" readonly
+                   placeholder="Skriv film här om listan är tom…"
+                   autocomplete="off" autocapitalize="off" spellcheck="false">
             <button class="lookup-btn" data-lookup="suggested">Sök</button>
             <div class="ac-list" id="ac-suggested" style="display:none"></div>
           </div>
@@ -80,12 +59,11 @@
         </div>
       </div>
 
-      <!-- Poäng -->
       <div id="scoresRow"></div>
 
       <div class="row">
         <span class="right"></span>
-        <button id="toggleAdvanced" class="ghost" style="margin-left:6px">Hoppa över</button>
+        <button id="toggleAdvanced" class="ghost">Hoppa över</button>
       </div>
 
       <div class="row" id="advancedRow" style="display:none; gap:8px; align-items:flex-end">
@@ -97,7 +75,7 @@
           <button id="doJump" class="ghost" disabled>Byt tur</button>
         </div>
         <div class="col" style="align-self:end; flex:1 1 auto">
-          <div class="muted" style="font-size:12px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
+          <div class="muted" style="font-size:12px">Används bara vid undantag.</div>
         </div>
       </div>
 
@@ -153,10 +131,7 @@
     </div>
   </div>
 
-  <!-- Laddas som separata filer (lättare att granska/underhålla) -->
-  <script src="state.js" defer></script>
-  <script src="api.js" defer></script>
-  <script src="lookup.js" defer></script>
-  <script src="ui.js" defer></script>
+  <!-- Entrypoint -->
+  <script type="module" src="app.js"></script>
 </body>
 </html>
