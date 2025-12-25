@@ -3,104 +3,75 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Filmkväll</title>
+  <title>Filmkväll (single file test)</title>
 
-  <link id="favicon" rel="icon" type="image/png" href="Logo.PNG">
-  <meta property="og:title" content="Filmkväll">
-  <meta property="og:type" content="website">
-  <meta property="og:image" content="Logo.PNG">
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:image" content="Logo.PNG">
+  <link rel="icon" type="image/png" href="Logo.PNG">
 
-  <link rel="stylesheet" href="styles.css" />
+  <style>
+    :root{
+      --bg:#0f1116; --panel:#161a22; --text:#e6e8ee; --muted:#9aa3b2;
+      --accent:#f6c247; --ok:#2ea86b; --err:#e5534b;
+      --input:#0f1116; --border:#2a3140; --btn:#1f2533; --btn-text:#e6e8ee;
+      --pill-bg:#1f2533;
+    }
+    [data-theme="light"]{
+      --bg:#f6f7fb; --panel:#ffffff; --text:#151823; --muted:#5b6475;
+      --input:#ffffff; --border:#dfe3ee; --btn:#eef0f6; --btn-text:#111826;
+      --pill-bg:#f1f3f8;
+    }
+    *{box-sizing:border-box}
+    body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
+    .wrap{max-width:1100px; margin:24px auto; padding:0 16px;}
+    .hero{display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px; margin:8px 0 20px}
+    .hero-logo{width:14%; max-width:180px; min-width:96px; height:auto}
+    .hero-title{font-size:34px; margin:0; letter-spacing:.08em}
+    .hero-version{font-size:12px}
+    @media (max-width:520px){ .hero-logo{width:28%} .hero-title{font-size:26px} }
+    .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0}
+    .row{display:flex; gap:12px; flex-wrap:wrap}
+    .col{flex:1 1 220px; min-width:220px}
+    .right{margin-left:auto}
+    label{display:block; font-size:13px; color:var(--muted); margin:0 0 6px}
+    input,select,textarea{
+      width:100%; padding:10px 12px; border-radius:10px;
+      border:1px solid var(--border); background:var(--input); color:var(--text);
+      outline:none;
+    }
+    button{
+      background:var(--btn); color:var(--btn-text); cursor:pointer;
+      border:1px solid var(--border); padding:8px 12px; border-radius:9px; font-size:14px;
+    }
+    button:disabled{opacity:.55; cursor:not-allowed; filter:saturate(.6)}
+    .primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a}
+    .ghost{background:transparent}
+    .muted{color:var(--muted)}
+    .pill{display:inline-block; padding:8px 12px; border-radius:999px; font-size:13px; background:var(--pill-bg); border:1px solid var(--border)}
+    .ok{color:var(--ok)}
+    .err{color:var(--err)}
+    #history .pill{margin:4px 6px 0 0}
+    .wishlist-col input{margin-bottom:8px}
+    #scoresRow{display:flex; gap:8px; align-items:flex-end; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
+    .score-col{min-width:120px; flex:1 1 0}
+    .score-col label{margin-bottom:4px}
+    .score-col select{padding:8px 10px; border-radius:8px; text-align:center; text-align-last:center}
+  </style>
 </head>
+
 <body>
   <div class="wrap">
     <header class="hero">
       <img id="logoImg" src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
       <h1 class="hero-title">Filmkväll</h1>
-      <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
+      <div class="muted hero-version">Kodversion: <span id="appVersion">single-file</span></div>
     </header>
 
-    <!-- Användare (sparas lokalt i webbläsaren) -->
-    <div class="card" id="userCard" style="padding:12px 16px">
-      <div class="row" style="align-items:flex-end">
+    <div class="card" id="settingsCard">
+      <div class="row">
         <div class="col" style="max-width:260px">
           <label for="who">Användare</label>
           <select id="who" aria-label="Användare"></select>
         </div>
-      </div>
-    </div>
-
-    <!-- På tur nu -->
-    <div class="card" id="nowCard">
-      <h3>På tur nu</h3>
-
-      <div class="row">
-        <div class="col">
-          <label for="nextName">Nästa i tur</label>
-          <input id="nextName" type="text" readonly>
-        </div>
-
-        <div class="col">
-          <label for="suggested">Film (förslag från #1 i listan)</label>
-          <div class="lookup-wrap ac-wrap">
-            <input id="suggested" class="lookup-input" type="text" readonly
-                   placeholder="Skriv film här om listan är tom…"
-                   autocomplete="off" autocapitalize="off" spellcheck="false">
-            <button class="lookup-btn" data-lookup="suggested">Sök</button>
-            <div class="ac-list" id="ac-suggested" style="display:none"></div>
-          </div>
-          <div id="suggested-info" class="omdb-info"></div>
-        </div>
-      </div>
-
-      <!-- Poäng (renderas av ui.js) -->
-      <div id="scoresRow"></div>
-
-      <div class="row">
-        <span class="right"></span>
-        <button id="toggleAdvanced" class="ghost" style="margin-left:6px">Hoppa över</button>
-      </div>
-
-      <div class="row" id="advancedRow" style="display:none; gap:8px; align-items:flex-end">
-        <div class="col" style="min-width:220px; flex:0 0 260px">
-          <label for="jumpTo">Hoppa till (nästa i tur överst)</label>
-          <select id="jumpTo"></select>
-        </div>
-        <div class="col" style="align-self:end; flex:0 0 auto">
-          <button id="doJump" class="ghost" disabled>Byt tur</button>
-        </div>
-        <div class="col" style="align-self:end; flex:1 1 auto">
-          <div class="muted" style="font-size:12px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="col">
-          <label for="comment">Kommentar</label>
-          <input id="comment" placeholder="valfritt">
-        </div>
-        <div class="col" style="align-self:end">
-          <button id="saveNight" class="primary">Spara kväll</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Min lista -->
-    <div class="card">
-      <h3>Mina kommande (1–5)</h3>
-      <div class="wishlist-col" id="wishlistCol"></div>
-      <div class="row">
-        <button id="loadList" class="ghost">Hämta min lista</button>
-        <button id="saveList" class="primary">Spara min lista</button>
-      </div>
-    </div>
-
-    <!-- Tema + Status -->
-    <div class="card">
-      <div class="row">
-        <div class="col">
+        <div class="col" style="max-width:260px">
           <label for="theme">Tema</label>
           <select id="theme">
             <option value="auto" selected>Auto</option>
@@ -113,25 +84,292 @@
           <div id="apiStatus" class="pill">Init…</div>
         </div>
       </div>
+
+      <details style="margin-top:12px">
+        <summary class="muted">Felsök (visa teknisk info)</summary>
+        <pre id="debugPre" style="white-space:pre-wrap; word-break:break-word; margin:10px 0 0; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--input);">Ingen debug-data ännu.</pre>
+        <button id="copyDebug" type="button" class="ghost" style="margin-top:8px">Kopiera felsökning</button>
+      </details>
     </div>
 
-    <!-- Topplistor -->
+    <div class="card" id="nowCard">
+      <h3>På tur nu</h3>
+
+      <div class="row">
+        <div class="col">
+          <label for="nextName">Nästa i tur</label>
+          <input id="nextName" type="text" readonly>
+        </div>
+
+        <div class="col">
+          <label for="suggested">Film (förslag från #1 i listan)</label>
+          <input id="suggested" type="text" placeholder="Skriv film här om listan är tom…">
+        </div>
+      </div>
+
+      <div id="scoresRow"></div>
+
+      <div class="row">
+        <div class="col">
+          <label for="comment">Kommentar</label>
+          <input id="comment" placeholder="valfritt">
+        </div>
+        <div class="col" style="align-self:end">
+          <button id="saveNight" class="primary">Spara kväll</button>
+          <button id="skipNext" class="ghost" style="margin-left:8px">Hoppa över</button>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
-      <h3>Topplistor (topp 5)</h3>
-      <div id="tops"></div>
+      <h3>Mina kommande (1–5)</h3>
+      <div class="wishlist-col" id="wishlistCol"></div>
+      <div class="row">
+        <button id="loadList" class="ghost">Hämta min lista</button>
+        <button id="saveList" class="primary">Spara min lista</button>
+      </div>
     </div>
 
-    <!-- Historik -->
     <div class="card">
       <h3>Historik (senaste 10)</h3>
       <div id="history"></div>
     </div>
   </div>
 
-  <!-- ES modules: ui.js importerar api.js/state.js/lookup.js -->
-  <script type="module">
-    import { initUI } from './ui.js';
-    initUI();
+  <script>
+    /********************************************************************
+     *  Filmkväll – SINGLE FILE TEST
+     *  Inga moduler. Allt här. Fokus: få backendkontakt att fungera.
+     ********************************************************************/
+
+    // ====== KONFIG (hårdkodat – användaren ska inte se token) ======
+    const API_URL = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
+    const API_TOKEN = 'filmkvall_v1_9f3d2a7c_2b1e_47d2_bcf2_4c8b1d3e6a91';
+    const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
+
+    // ===== Debug buffer =====
+    const DBG = (window.__FILMKVALL_DEBUG__ = window.__FILMKVALL_DEBUG__ || []);
+    function dbgPush(obj){
+      try{
+        DBG.push({ t: new Date().toISOString(), ...obj });
+        if(DBG.length > 200) DBG.splice(0, DBG.length - 200);
+        renderDebug();
+      }catch{}
+    }
+    function renderDebug(){
+      const pre = document.getElementById('debugPre');
+      if(!pre) return;
+      try{ pre.textContent = JSON.stringify(DBG, null, 2); }
+      catch{ pre.textContent = String(DBG); }
+    }
+
+    // ===== Helpers =====
+    function setStatus(ok, msg){
+      const el = document.getElementById('apiStatus');
+      el.textContent = msg;
+      el.className = 'pill ' + (ok ? 'ok' : 'err');
+    }
+
+    function applyTheme(){
+      const sel = document.getElementById('theme').value;
+      const root = document.documentElement;
+      let mode = sel;
+      if (sel === 'auto'){
+        mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+      if (mode === 'light') root.setAttribute('data-theme','light');
+      else root.removeAttribute('data-theme');
+    }
+
+    // ===== API (form-urlencoded för att undvika preflight) =====
+    async function apiCall(action, payload = {}){
+      const bodyObj = { action, token: API_TOKEN, ...payload };
+      const params = new URLSearchParams();
+      for(const [k,v] of Object.entries(bodyObj)){
+        if(v === undefined) continue;
+        if(v && typeof v === 'object') params.set(k, JSON.stringify(v));
+        else params.set(k, String(v));
+      }
+
+      dbgPush({ kind:'request', action, url: API_URL, payload: bodyObj });
+
+      let res, text = '';
+      try{
+        res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8' },
+          cache: 'no-store',
+          body: params.toString(),
+        });
+        text = await res.text().catch(()=>'');
+
+        let data = null;
+        try{ data = text ? JSON.parse(text) : null; }catch{}
+
+        dbgPush({ kind:'response', action, status: res.status, ok: res.ok, data, raw: data ? undefined : text.slice(0,2000) });
+
+        if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        if(!data || typeof data !== 'object') throw new Error('Bad JSON from backend');
+        if(data.ok !== true) throw new Error(data.error || 'API error');
+
+        return data;
+      }catch(err){
+        dbgPush({ kind:'error', action, message: String(err), status: res && res.status, raw: text.slice(0,2000) });
+        throw err;
+      }
+    }
+
+    // ===== UI logic =====
+    function initStatic(){
+      const whoSel = document.getElementById('who');
+      whoSel.innerHTML = PEOPLE.map(p=>`<option value="${p}">${p}</option>`).join('');
+
+      const savedWho = localStorage.getItem('film_who');
+      if(savedWho && PEOPLE.includes(savedWho)) whoSel.value = savedWho;
+
+      document.getElementById('theme').value = localStorage.getItem('film_theme') || 'auto';
+      applyTheme();
+
+      // scores selects
+      const scoresRow = document.getElementById('scoresRow');
+      scoresRow.innerHTML = '';
+      for(const p of PEOPLE){
+        const col = document.createElement('div');
+        col.className = 'score-col';
+        const lab = document.createElement('label');
+        lab.textContent = p;
+        const sel = document.createElement('select');
+        sel.dataset.person = p;
+        sel.innerHTML = `<option value="">-</option>` + Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}">${n}</option>`).join('');
+        col.appendChild(lab);
+        col.appendChild(sel);
+        scoresRow.appendChild(col);
+      }
+    }
+
+    async function loadCurrent(){
+      const j = await apiCall('getCurrent');
+      document.getElementById('nextName').value = j.next || '';
+      document.getElementById('suggested').value = j.suggestion || '';
+      // scores (om backend skickar)
+      const scores = (j.scores || {});
+      for(const sel of document.querySelectorAll('#scoresRow select')){
+        const p = sel.dataset.person;
+        sel.value = (scores[p] == null ? '' : String(scores[p]));
+      }
+    }
+
+    async function loadWishlist(){
+      const who = document.getElementById('who').value;
+      const j = await apiCall('getWishlist', { person: who });
+
+      const col = document.getElementById('wishlistCol');
+      col.innerHTML = '';
+      ['R1','R2','R3','R4','R5'].forEach((k,i)=>{
+        const inp = document.createElement('input');
+        inp.value = j[k] || '';
+        inp.placeholder = `#${i+1}`;
+        col.appendChild(inp);
+      });
+    }
+
+    async function saveWishlist(){
+      const who = document.getElementById('who').value;
+      const vals = Array.from(document.querySelectorAll('#wishlistCol input')).map(i=>i.value);
+      await apiCall('saveWishlist', { person: who, R1: vals[0], R2: vals[1], R3: vals[2], R4: vals[3], R5: vals[4] });
+    }
+
+    async function saveNight(){
+      const who = document.getElementById('nextName').value.trim();
+      const film = document.getElementById('suggested').value.trim();
+      const comment = document.getElementById('comment').value.trim();
+
+      if(!who || !film){
+        setStatus(false, 'Saknar vem eller film');
+        return;
+      }
+
+      const scores = {};
+      for(const sel of document.querySelectorAll('#scoresRow select')){
+        scores[sel.dataset.person] = sel.value;
+      }
+
+      await apiCall('saveNight', { who, film, comment, scores });
+      document.getElementById('comment').value = '';
+      await loadCurrent();
+    }
+
+    async function skipNext(){
+      await apiCall('skipNext');
+      await loadCurrent();
+    }
+
+    async function loadHistory(){
+      const j = await apiCall('getHistory', { limit: 10 });
+      const box = document.getElementById('history');
+      const rows = Array.isArray(j.rows) ? j.rows : [];
+      box.innerHTML = rows.map(r => `<div class="pill"><strong>${escapeHtml(r.Film||'')}</strong> – ${escapeHtml(r.Datum||'')}</div>`).join('');
+    }
+
+    function escapeHtml(s){
+      return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    async function boot(){
+      initStatic();
+      setStatus(true, 'Laddar…');
+
+      try{
+        // snabb ping först (tydligare fel)
+        await apiCall('ping');
+        await loadCurrent();
+        await loadWishlist();
+        await loadHistory();
+        setStatus(true, 'Redo');
+      }catch(e){
+        setStatus(false, e && e.message ? e.message : 'Load failed');
+      }
+    }
+
+    // ===== Bind events =====
+    document.getElementById('who').addEventListener('change', async (e)=>{
+      localStorage.setItem('film_who', e.target.value);
+      try{ await loadWishlist(); setStatus(true,'Redo'); }catch(err){ setStatus(false, err.message); }
+    });
+
+    document.getElementById('theme').addEventListener('change', (e)=>{
+      localStorage.setItem('film_theme', e.target.value);
+      applyTheme();
+    });
+
+    document.getElementById('loadList').addEventListener('click', async ()=>{
+      setStatus(true,'Laddar…');
+      try{ await loadWishlist(); setStatus(true,'Redo'); }catch(e){ setStatus(false,e.message); }
+    });
+
+    document.getElementById('saveList').addEventListener('click', async ()=>{
+      setStatus(true,'Sparar…');
+      try{ await saveWishlist(); setStatus(true,'Lista sparad'); }catch(e){ setStatus(false,e.message); }
+    });
+
+    document.getElementById('saveNight').addEventListener('click', async ()=>{
+      setStatus(true,'Sparar…');
+      try{ await saveNight(); await loadHistory(); setStatus(true,'Kväll sparad'); }catch(e){ setStatus(false,e.message); }
+    });
+
+    document.getElementById('skipNext').addEventListener('click', async ()=>{
+      setStatus(true,'Byter tur…');
+      try{ await skipNext(); setStatus(true,'Redo'); }catch(e){ setStatus(false,e.message); }
+    });
+
+    document.getElementById('copyDebug').addEventListener('click', async ()=>{
+      const txt = document.getElementById('debugPre').textContent || '';
+      try{ await navigator.clipboard.writeText(txt); setStatus(true,'Felsökning kopierad'); }
+      catch{ setStatus(false,'Kunde inte kopiera (markera texten manuellt)'); }
+    });
+
+    // start
+    boot();
   </script>
 </body>
 </html>
