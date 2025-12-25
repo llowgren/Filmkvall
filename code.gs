@@ -5,18 +5,44 @@
  *   - Wishlists: Person | R1..R5
  *   - Scores   : Hannah | Maria | Tuva | Alva | Lars
  *   - History  : Datum | Film | Vem valde | Kommentar | Hannah | Maria | Tuva | Alva | Lars
- *  ======================= 
+ *  =======================
  */
-const PW = '__USE_SCRIPT_PROPERTIES_ONLY__'; // Password must be stored in Script Properties (key: PW).
+
+/**
+ * OBS:
+ *  - Inga hemligheter ska committas i koden.
+ *  - Sätt Script Properties (Apps Script → Project Settings):
+ *      API_TOKEN    = <din token>
+ *      ENFORCE_POST = 1   (rekommenderas)
+ *    Valfritt:
+ *      DEBUG_TOKEN  = <extra token för debug>
+ *      DEBUG_ENABLED = 0  (stäng debug helt)
+ *      PW           = <legacy lösenord om du vill tillåta pw-fallback en period>
+ */
+
+const PW = '__USE_SCRIPT_PROPERTIES_ONLY__'; // Legacy-fallback (bör inte användas).
+const PEOPLE_DEFAULT = ['Hannah','Maria','Tuva','Alva','Lars'];
+const TZ = 'Europe/Stockholm';
+
+/** ===== HTTP entry ===== */
+function doGet(e){ return handle_(e); }
+function doPost(e){ return handle_(e); }
 
 /** ===== Security helpers ===== */
 function getPw_(){
-  // Password must live in Script Properties.
-  // Key: PW
+  // Legacy: endast om du vill stödja pw-fallback under övergång.
   const v = PropertiesService.getScriptProperties().getProperty('PW');
   const pw = (v && String(v).trim()) ? String(v) : '';
   if (!pw) throw new Error('PW not configured (set Script Property PW)');
   return pw;
+}
+
+function getApiToken_(){
+  // Primär auth secret.
+  const v = PropertiesService.getScriptProperties().getProperty('API_TOKEN');
+  const t = (v && String(v).trim()) ? String(v) : '';
+  if (!t) throw new Error('API_TOKEN not configured (set Script Property API_TOKEN)');
+  return t;
 }
 
 function secureEq_(a,b){
@@ -34,56 +60,43 @@ function secureEq_(a,b){
 }
 
 function getDebugToken_(){
-  // Optional: if set, debug requires this token.
-  // Key: DEBUG_TOKEN
+  // Optional: om satt kräver debug både auth + debugToken.
   return PropertiesService.getScriptProperties().getProperty('DEBUG_TOKEN') || '';
 }
 
-function getApiToken_(){
-  // Primary auth secret.
-  // Key: API_TOKEN
-  const v = PropertiesService.getScriptProperties().getProperty('API_TOKEN');
-  const t = (v && String(v).trim()) ? String(v) : '';
-  if (!t) throw new Error('API_TOKEN not configured (set Script Property API_TOKEN)');
-  return t;
-}
-
 function redactSecrets_(obj){
-  // Avoid reflecting secrets back to client.
+  // Undvik att råka ekoa hemligheter tillbaka till klienten.
   const out = {};
   Object.keys(obj || {}).forEach(k => {
-    if (k === 'pw' || k === 'token' || k === 'debugToken') return; // ✅ include debugToken
+    if (k === 'pw' || k === 'token' || k === 'debugToken') return;
     out[k] = obj[k];
   });
   return out;
 }
 
 function isDebugEnabled_(){
-  // Optional kill-switch for debug without removing the action.
-  // Set Script Property DEBUG_ENABLED = '0' to disable.
+  // Optional kill-switch för debug.
+  // Sätt Script Property DEBUG_ENABLED = '0' för att stänga.
   const v = PropertiesService.getScriptProperties().getProperty('DEBUG_ENABLED');
   return String(v == null ? '1' : v) !== '0';
 }
 
 function shouldEnforcePost_(){
-  // Optional hardening: set Script Property ENFORCE_POST = '1' to require POST for mutating actions.
+  // Sätt ENFORCE_POST = '1' för att kräva POST för skrivande actions.
   const v = PropertiesService.getScriptProperties().getProperty('ENFORCE_POST');
   return String(v || '') === '1';
 }
 
 function isWriteAction_(action){
-  // Actions that mutate sheets.
   return ['saveScores','saveWishlist','skipNext','saveNight'].indexOf(action) >= 0;
 }
 
 function isPost_(e){
-  // For doPost, e.postData is present; for doGet, it is not.
   return !!(e && e.postData && typeof e.postData.contents === 'string');
 }
 
 function tooManyBadPw_(){
-  // Light global rate-limit for bad auth attempts (per minute).
-  // Robust against corrupt BAD_AUTH_MINUTE value.
+  // Robust rate-limit för dåliga auth-försök per minut.
   const props = PropertiesService.getScriptProperties();
   const key = 'BAD_AUTH_MINUTE';
   const nowMin = Math.floor(Date.now() / 60000);
@@ -99,20 +112,14 @@ function tooManyBadPw_(){
   if (state.min !== nowMin) state = { min: nowMin, n: 0 };
   state.n++;
   props.setProperty(key, JSON.stringify(state));
-  return state.n > 20; // allow up to 20 bad attempts per minute
+  return state.n > 20;
 }
 
-const PEOPLE_DEFAULT = ['Hannah','Maria','Tuva','Alva','Lars'];
-const TZ = 'Europe/Stockholm';
-
-/** ===== HTTP entry ===== */
-function doGet(e){ return handle_(e); }
-function doPost(e){ return handle_(e); }
-
+/** ===== Params (query + JSON body) ===== */
 function getParams_(e){
-  // Support both query params and POST body without changing the API contract.
-  // - For form-encoded POST, Apps Script populates e.parameter.
-  // - For JSON POST, parse e.postData.contents.
+  // Stöd både query params och POST-body utan att ändra API-kontrakt.
+  // - För form-encoded POST: Apps Script fyller e.parameter.
+  // - För JSON POST: parse e.postData.contents.
   const base = (e && e.parameter) ? e.parameter : {};
   const out = {};
   Object.keys(base || {}).forEach(k => out[k] = base[k]);
@@ -124,26 +131,24 @@ function getParams_(e){
         const obj = JSON.parse(e.postData.contents);
         if (obj && typeof obj === 'object') {
           Object.keys(obj).forEach(k => {
-            // Do not overwrite explicit query params if present
             if (!(k in out)) out[k] = obj[k];
           });
         }
       } catch (_) {
-        // Ignore invalid JSON to preserve current behavior.
+        // Ignorera ogiltig JSON för att inte krascha.
       }
     }
   }
   return out;
 }
 
+/** ===== Main handler ===== */
 function handle_(e) {
   try {
     const p = getParams_(e);
     const action = String(p.action || '').trim();
 
-    if (!action) {
-      return json_({ ok:false, error:'action required' });
-    }
+    if (!action) return json_({ ok:false, error:'action required' });
 
     const allowedActions = {
       ping:1, debug:1,
@@ -152,20 +157,18 @@ function handle_(e) {
       getTops:1, getHistory:1,
       skipNext:1, saveNight:1
     };
-    if (!allowedActions[action]) {
-      return json_({ ok:false, error:'unknown action', got:action });
-    }
+    if (!allowedActions[action]) return json_({ ok:false, error:'unknown action', got:action });
 
-    // Optional: require POST for mutating calls
+    // Rekommenderat: kräva POST för muterande actions.
     if (shouldEnforcePost_() && isWriteAction_(action) && !isPost_(e)) {
       return json_({ ok:false, error:'POST required' });
     }
 
-    // Auth: allow ping without auth
+    // Auth: tillåt ping utan auth
     if (action !== 'ping') {
       const tokenOk = secureEq_(p.token || '', getApiToken_());
 
-      // Optional transition support: allow pw as fallback ONLY if provided.
+      // Valfri övergång: tillåt pw om skickat (annars ignoreras).
       const pwOk = (p.pw != null && p.pw !== '') ? secureEq_(p.pw || '', getPw_()) : false;
 
       if (!(tokenOk || pwOk)) {
@@ -177,12 +180,15 @@ function handle_(e) {
     ensureSheets_();
 
     switch (action) {
-      case 'ping':         return json_({ ok:true, time:new Date().toISOString() });
+      case 'ping':
+        return json_({ ok:true, time:new Date().toISOString() });
+
       case 'debug':
         if (!isDebugEnabled_()) return json_({ ok:false, error:'debug disabled' });
         const dbg = getDebugToken_();
         if (dbg && !secureEq_(p.debugToken || '', dbg)) return json_({ ok:false, error:'bad debug token' });
         return json_({ ok:true, received: redactSecrets_(p) });
+
       case 'getCurrent':   return json_(getCurrent_());
       case 'getScores':    return json_(getScores_());
       case 'saveScores':   return json_(saveScores_(p));
@@ -192,7 +198,9 @@ function handle_(e) {
       case 'getHistory':   return json_(getHistory_(p));
       case 'skipNext':     return json_(skipNext_());
       case 'saveNight':    return json_(saveNight_(p));
-      default:             return json_({ ok:false, error:'unknown action', got:action });
+
+      default:
+        return json_({ ok:false, error:'unknown action', got:action });
     }
   } catch (err) {
     return json_({ ok:false, error:String(err) });
@@ -531,6 +539,7 @@ function saveNight_(p){
       }
     }
 
+    // Advance turn deterministically from who
     const whoIdx = PEOPLE.indexOf(who);
     const nextIdx = whoIdx >= 0
       ? (whoIdx+1)%PEOPLE.length
