@@ -183,7 +183,7 @@
 
     // ===== API (form-urlencoded för att undvika preflight) =====
     async function apiCall(action, payload = {}){
-      const bodyObj = { action, token: API_TOKEN, ...payload };
+      const bodyObj = { action, token: API_TOKEN, pw: API_TOKEN, ...payload };
       const params = new URLSearchParams();
       for(const [k,v] of Object.entries(bodyObj)){
         if(v === undefined) continue;
