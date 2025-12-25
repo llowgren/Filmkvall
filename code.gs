@@ -5,7 +5,8 @@
  *   - Wishlists: Person | R1..R5
  *   - Scores   : Hannah | Maria | Tuva | Alva | Lars
  *   - History  : Datum | Film | Vem valde | Kommentar | Hannah | Maria | Tuva | Alva | Lars
- *  ======================= */
+ *  ======================= 
+deploy test*/
 const PW = 'Look4fun';
 const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
 const TZ = 'Europe/Stockholm';
