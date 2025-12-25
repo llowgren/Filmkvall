@@ -22,42 +22,14 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Användarval + valfria API-nycklar (sparas lokalt i webbläsaren) -->
-    <div class="card" id="userCard">
+    <!-- Användare (sparas lokalt i webbläsaren) -->
+    <div class="card" id="userCard" style="padding:12px 16px">
       <div class="row" style="align-items:flex-end">
         <div class="col" style="max-width:260px">
           <label for="who">Användare</label>
           <select id="who" aria-label="Användare"></select>
         </div>
-
-        <!--
-          Tidigare lösenordsfält:
-          Behålls som dold input (för bakåtkompatibilitet i JS) men visas aldrig.
-          Nästa steg är att ta bort beroendet i ui.js helt.
-        -->
-        <input id="pwInput" type="password" autocomplete="current-password" style="display:none" aria-hidden="true" tabindex="-1" />
       </div>
-
-      <details style="margin-top:12px">
-        <summary class="muted">Valfritt: API-nycklar (TMDb / OMDb / Watchmode)</summary>
-        <div class="row" style="margin-top:10px">
-          <div class="col">
-            <label for="tmdbKeyInput">TMDb key</label>
-            <input id="tmdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
-          </div>
-          <div class="col">
-            <label for="omdbKeyInput">OMDb key</label>
-            <input id="omdbKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
-          </div>
-          <div class="col">
-            <label for="watchmodeKeyInput">Watchmode key</label>
-            <input id="watchmodeKeyInput" type="password" autocomplete="off" placeholder="(valfritt)" />
-          </div>
-        </div>
-        <div class="muted" style="font-size:12px; margin-top:6px">
-          Tips: Dessa behövs bara för sök/metadata. Grundfunktionerna (tur, listor, poäng, historik) funkar utan.
-        </div>
-      </details>
     </div>
 
     <!-- På tur nu -->
@@ -73,7 +45,9 @@
         <div class="col">
           <label for="suggested">Film (förslag från #1 i listan)</label>
           <div class="lookup-wrap ac-wrap">
-            <input id="suggested" class="lookup-input" type="text" readonly placeholder="Skriv film här om listan är tom…" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <input id="suggested" class="lookup-input" type="text" readonly
+                   placeholder="Skriv film här om listan är tom…"
+                   autocomplete="off" autocapitalize="off" spellcheck="false">
             <button class="lookup-btn" data-lookup="suggested">Sök</button>
             <div class="ac-list" id="ac-suggested" style="display:none"></div>
           </div>
@@ -81,7 +55,7 @@
         </div>
       </div>
 
-      <!-- Poäng -->
+      <!-- Poäng (renderas av ui.js) -->
       <div id="scoresRow"></div>
 
       <div class="row">
@@ -154,10 +128,10 @@
     </div>
   </div>
 
-  <!-- Laddas som separata filer (lättare att granska/underhålla) -->
-  <script src="state.js" defer></script>
-  <script src="api.js" defer></script>
-  <script src="lookup.js" defer></script>
-  <script src="ui.js" defer></script>
+  <!-- ES modules: ui.js importerar api.js/state.js/lookup.js -->
+  <script type="module">
+    import { initUI } from './ui.js';
+    initUI();
+  </script>
 </body>
 </html>
