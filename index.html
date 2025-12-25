@@ -3,9 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Filmkväll (single file test)</title>
+  <title>Filmkväll</title>
 
-  <link rel="icon" type="image/png" href="Logo.PNG">
+  <link id="favicon" rel="icon" type="image/png" href="Logo.PNG">
+  <meta property="og:title" content="Filmkväll">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="Logo.PNG">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:image" content="Logo.PNG">
 
   <style>
     :root{
@@ -19,18 +24,24 @@
       --input:#ffffff; --border:#dfe3ee; --btn:#eef0f6; --btn-text:#111826;
       --pill-bg:#f1f3f8;
     }
+
     *{box-sizing:border-box}
     body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
     .wrap{max-width:1100px; margin:24px auto; padding:0 16px;}
+    h3{margin:0 0 10px}
+    .muted{color:var(--muted)}
     .hero{display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px; margin:8px 0 20px}
     .hero-logo{width:14%; max-width:180px; min-width:96px; height:auto}
     .hero-title{font-size:34px; margin:0; letter-spacing:.08em}
     .hero-version{font-size:12px}
-    @media (max-width:520px){ .hero-logo{width:28%} .hero-title{font-size:26px} }
+    @media (max-width:520px){
+      .hero-logo{width:28%}
+      .hero-title{font-size:26px}
+    }
+
     .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0}
     .row{display:flex; gap:12px; flex-wrap:wrap}
     .col{flex:1 1 220px; min-width:220px}
-    .right{margin-left:auto}
     label{display:block; font-size:13px; color:var(--muted); margin:0 0 6px}
     input,select,textarea{
       width:100%; padding:10px 12px; border-radius:10px;
@@ -44,7 +55,6 @@
     button:disabled{opacity:.55; cursor:not-allowed; filter:saturate(.6)}
     .primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a}
     .ghost{background:transparent}
-    .muted{color:var(--muted)}
     .pill{display:inline-block; padding:8px 12px; border-radius:999px; font-size:13px; background:var(--pill-bg); border:1px solid var(--border)}
     .ok{color:var(--ok)}
     .err{color:var(--err)}
@@ -54,6 +64,11 @@
     .score-col{min-width:120px; flex:1 1 0}
     .score-col label{margin-bottom:4px}
     .score-col select{padding:8px 10px; border-radius:8px; text-align:center; text-align-last:center}
+
+    /* Lösenordsrad */
+    .pw-wrap{display:flex; gap:8px; align-items:center}
+    .pw-wrap input{flex:1 1 auto; min-width:0}
+    .pw-wrap button{flex:0 0 auto; padding:8px 10px}
   </style>
 </head>
 
@@ -65,12 +80,22 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">single-file</span></div>
     </header>
 
+    <!-- Inställningar (utan “löjlig text” och utan rubriken “Inställningar”) -->
     <div class="card" id="settingsCard">
-      <div class="row">
+      <div class="row" style="align-items:flex-end">
         <div class="col" style="max-width:260px">
           <label for="who">Användare</label>
           <select id="who" aria-label="Användare"></select>
         </div>
+
+        <div class="col" style="max-width:320px">
+          <label for="pw">Lösenord</label>
+          <div class="pw-wrap">
+            <input id="pw" type="password" autocomplete="current-password" placeholder="lösenord">
+            <button id="togglePw" type="button" class="ghost" aria-label="Visa lösenord">Visa</button>
+          </div>
+        </div>
+
         <div class="col" style="max-width:260px">
           <label for="theme">Tema</label>
           <select id="theme">
@@ -79,6 +104,7 @@
             <option value="light">Ljust</option>
           </select>
         </div>
+
         <div class="col">
           <label>Status</label>
           <div id="apiStatus" class="pill">Init…</div>
@@ -138,11 +164,10 @@
 
   <script>
     /********************************************************************
-     *  Filmkväll – SINGLE FILE TEST
-     *  Inga moduler. Allt här. Fokus: få backendkontakt att fungera.
+     *  Filmkväll – single file (stabil testvariant)
      ********************************************************************/
 
-    // ====== KONFIG (hårdkodat – användaren ska inte se token) ======
+    // ====== KONFIG ======
     const API_URL = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
     const API_TOKEN = 'filmkvall_v1_9f3d2a7c_2b1e_47d2_bcf2_4c8b1d3e6a91';
     const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
@@ -181,9 +206,13 @@
       else root.removeAttribute('data-theme');
     }
 
+    function getPw(){
+      return (document.getElementById('pw')?.value || '').trim();
+    }
+
     // ===== API (form-urlencoded för att undvika preflight) =====
     async function apiCall(action, payload = {}){
-      const bodyObj = { action, token: API_TOKEN, pw: API_TOKEN, ...payload };
+      const bodyObj = { action, token: API_TOKEN, pw: getPw(), ...payload };
       const params = new URLSearchParams();
       for(const [k,v] of Object.entries(bodyObj)){
         if(v === undefined) continue;
@@ -191,7 +220,12 @@
         else params.set(k, String(v));
       }
 
-      dbgPush({ kind:'request', action, url: API_URL, payload: bodyObj });
+      // logga INTE lösenord i debug
+      const dbgBody = { ...bodyObj };
+      if ('pw' in dbgBody) dbgBody.pw = '***';
+      if ('token' in dbgBody) dbgBody.token = '***';
+
+      dbgPush({ kind:'request', action, url: API_URL, payload: dbgBody });
 
       let res, text = '';
       try{
@@ -227,8 +261,27 @@
       const savedWho = localStorage.getItem('film_who');
       if(savedWho && PEOPLE.includes(savedWho)) whoSel.value = savedWho;
 
+      // theme
       document.getElementById('theme').value = localStorage.getItem('film_theme') || 'auto';
       applyTheme();
+
+      // password (sparas lokalt)
+      const pwInput = document.getElementById('pw');
+      const savedPw = localStorage.getItem('film_pw') || '';
+      if(savedPw) pwInput.value = savedPw;
+
+      pwInput.addEventListener('change', (e)=>{
+        localStorage.setItem('film_pw', e.target.value || '');
+      });
+
+      // show/hide
+      const toggleBtn = document.getElementById('togglePw');
+      toggleBtn.addEventListener('click', ()=>{
+        const isPw = pwInput.type === 'password';
+        pwInput.type = isPw ? 'text' : 'password';
+        toggleBtn.textContent = isPw ? 'Dölj' : 'Visa';
+        toggleBtn.setAttribute('aria-label', isPw ? 'Dölj lösenord' : 'Visa lösenord');
+      });
 
       // scores selects
       const scoresRow = document.getElementById('scoresRow');
@@ -240,7 +293,9 @@
         lab.textContent = p;
         const sel = document.createElement('select');
         sel.dataset.person = p;
-        sel.innerHTML = `<option value="">-</option>` + Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}">${n}</option>`).join('');
+        sel.innerHTML =
+          `<option value="">-</option>` +
+          Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}">${n}</option>`).join('');
         col.appendChild(lab);
         col.appendChild(sel);
         scoresRow.appendChild(col);
@@ -251,7 +306,6 @@
       const j = await apiCall('getCurrent');
       document.getElementById('nextName').value = j.next || '';
       document.getElementById('suggested').value = j.suggestion || '';
-      // scores (om backend skickar)
       const scores = (j.scores || {});
       for(const sel of document.querySelectorAll('#scoresRow select')){
         const p = sel.dataset.person;
@@ -320,7 +374,6 @@
       setStatus(true, 'Laddar…');
 
       try{
-        // snabb ping först (tydligare fel)
         await apiCall('ping');
         await loadCurrent();
         await loadWishlist();
