@@ -54,7 +54,8 @@ export async function tmdbSearchMovies(query, limit=8){
   return res.slice(0, limit).map(it=>({
     title: it.title || it.original_title || '',
     year: (it.release_date||'').slice(0,4) || '',
-    tmdbId: it.id
+    tmdbId: it.id,
+    posterPath: it.poster_path || ''
   }));
 }
 
@@ -69,6 +70,9 @@ async function tmdbSearchMovieBest(query){
     if(tn === qn) score = 100;
     else if(tn.startsWith(qn)) score = 80;
     else if(tn.includes(qn)) score = 60;
+    // Svag bonus om vi har år i query och träffens år matchar
+    const m = String(query).match(/\((\d{4})\)\s*$/);
+    if(m && it.year && it.year === m[1]) score += 10;
     return { score, it };
   }).sort((a,b)=>b.score-a.score);
 
@@ -95,7 +99,7 @@ async function tmdbLookup(query){
   }catch{}
 
   // TMDb poster w92
-  const poster = hit.poster_path ? `https://image.tmdb.org/t/p/w92${hit.poster_path}` : 'N/A';
+  const poster = hit.posterPath ? `https://image.tmdb.org/t/p/w92${hit.posterPath}` : 'N/A';
 
   return {
     Title: hit.title || '',
