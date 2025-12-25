@@ -1,0 +1,170 @@
+🎬 Filmkväll
+
+Filmkväll är en enkel, familjevänlig webbapp för att hålla ordning på vems tur det är att välja film, personliga önskelistor, poängsättning och historik – utan konton, utan molndatabaser och utan krångel.
+
+Projektet är uppdelat i:
+	•	Frontend (statisk webb, GitHub Pages)
+	•	Backend (Google Apps Script + Google Sheets som datalager)
+
+Målet har varit:
+	•	maximal enkelhet för användaren
+	•	tydlig kodstruktur
+	•	rimlig säkerhet utan att bli överkomplicerad
+
+⸻
+
+🧱 Arkitektur – översikt
+
+Browser (index.html + JS)
+   ↓  (POST, JSON)
+Google Apps Script (code.gs)
+   ↓
+Google Sheets (Config, Wishlists, Scores, History)
+
+	•	Frontend körs helt statiskt via GitHub Pages
+	•	Backend är ett Apps Script Web App-API
+	•	All beständig data lagras i Google Sheets
+
+⸻
+
+📁 Repo-struktur
+
+/
+├─ index.html        # Huvudsidan (ingen hemlig data)
+├─ styles.css        # All styling
+├─ state.js          # Lokal state, cache, offline-kö, guards
+├─ api.js            # All kommunikation med backend (fetch)
+├─ ui.js             # DOM, events, rendering
+├─ app.js            # App-init & samordning
+├─ lookup.js         # Film-sök (TMDb / OMDb / Watchmode)
+├─ autocomplete.js   # Autocomplete-hjälp
+├─ Logo.PNG
+├─ code.gs           # Google Apps Script backend
+├─ appsscript.json   # Apps Script-konfiguration
+├─ .clasp.json       # clasp-koppling
+└─ README.md
+
+Ansvarsprincip
+	•	state.js: ingen DOM, inga API-anrop
+	•	api.js: inga DOM-anrop, bara nätverk
+	•	ui.js: inga hemligheter, bara UI
+	•	code.gs: all auktoritet och dataskrivning
+
+⸻
+
+🔐 Säkerhetsmodell (praktisk, inte enterprise)
+
+Backend (Apps Script)
+	•	🔑 API_TOKEN
+	•	lagras i Script Properties
+	•	skickas endast i POST-body (JSON)
+	•	aldrig i URL
+	•	⛔ Rate-limit för felaktig auth (per minut)
+	•	🔒 Konstant-tids-jämförelse av hemligheter
+	•	🧪 Debug-endpoint skyddad och maskar alla hemligheter
+
+Frontend
+	•	❌ Inga token eller lösenord hårdkodade
+	•	💾 Token lagras lokalt i localStorage
+	•	👤 Slutanvändaren behöver inte förstå token alls
+
+Dataskydd
+	•	Inga personuppgifter utöver förnamn
+	•	Ingen tredjepartsspårning
+	•	Ingen analytics
+
+⸻
+
+🎥 Filmdata (valfritt)
+
+Appen fungerar utan externa API:er, men kan förbättras med:
+	•	TMDb – sök och posters
+	•	OMDb – detaljer, IMDb-länk
+	•	Watchmode – streamingtjänster
+
+API-nycklar:
+	•	sparas lokalt i webbläsaren
+	•	skickas aldrig till backend
+	•	är helt frivilliga
+
+⸻
+
+🗂 Google Sheets – struktur
+
+Config
+
+Key	Value
+people	Hannah,Maria,Tuva,Alva,Lars
+nextIndex	0
+
+Wishlists
+
+| Person | R1 | R2 | R3 | R4 | R5 |
+
+Scores
+
+| Hannah | Maria | Tuva | Alva | Lars |
+
+History
+
+| Datum | Film | Vem valde | Kommentar | Hannah | Maria | Tuva | Alva | Lars |
+
+⸻
+
+🧠 Affärslogik (kort)
+	•	Turordning styrs av nextIndex
+	•	När en kväll sparas:
+	•	historikrad skapas
+	•	poäng nollställs
+	•	väljarens önskelista skiftas upp
+	•	turen går vidare deterministiskt
+
+Dubbel-spar skyddas lokalt via NightSaveGuard.
+
+⸻
+
+🛠 Utvecklingssätt (viktigt)
+
+När vi ändrar något i detta projekt jobbar vi systematiskt:
+	1.	📝 Kort beskrivning av vad som ska ändras (utan kod)
+	2.	☑️ Checklista med berörda filer
+	3.	📂 En fil i taget:
+	•	öppnas i canvas
+	•	ändras färdigt
+	•	markeras “redo för commit”
+	4.	🔁 Du committar till main
+	5.	✅ Filen bockas av
+	6.	➡️ Nästa fil
+
+Detta minimerar misstag och gör att både människa och AI hänger med.
+
+⸻
+
+🚀 Drift
+	•	Frontend: GitHub Pages
+	•	Backend: Apps Script Web App
+	•	Inga build-steg
+	•	Inga beroenden
+
+⸻
+
+❤️ Målgrupp
+
+Filmkväll är byggt för:
+	•	familjer
+	•	små grupper
+	•	låg teknisk tröskel
+	•	långsiktig användning
+
+Inte för:
+	•	publika appar
+	•	tusentals användare
+	•	känslig data
+
+⸻
+
+✅ Status
+
+Projektet är stabilt, användbart och redo för vardagsbruk.
+
+🍿 Trevlig filmkväll!
