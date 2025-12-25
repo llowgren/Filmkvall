@@ -22,18 +22,13 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Inställningar (lokalt, inget committas) -->
+    <!-- Inställningar (allt lokalt, inga hemligheter i repo och inga “token-rutor” för användaren) -->
     <div class="card" id="userCard">
       <h3>Inställningar</h3>
       <div class="row" style="align-items:flex-end">
         <div class="col" style="max-width:260px">
           <label for="who">Användare</label>
           <select id="who" aria-label="Användare"></select>
-        </div>
-        <div class="col" style="max-width:260px">
-          <label for="pwInput">Token</label>
-          <input id="pwInput" type="password" autocomplete="current-password" placeholder="ange token" />
-          <div class="muted" style="font-size:12px; margin-top:4px">Sparas bara lokalt i webbläsaren.</div>
         </div>
       </div>
 
@@ -80,7 +75,7 @@
         </div>
       </div>
 
-      <!-- Poäng (renderas av app.js) -->
+      <!-- Poäng (renderas av UI-koden) -->
       <div id="scoresRow"></div>
 
       <div class="row">
@@ -153,7 +148,8 @@
     </div>
   </div>
 
-  <!-- Viktigt: vi kör ES-moduler nu (pga export/import i state.js m.m.) -->
+  <!-- Viktigt: ni har "export" i era .js-filer => måste köras som ES-moduler.
+       Kör EN entrypoint så laddas allt i rätt ordning. -->
   <script type="module" src="app.js"></script>
 </body>
 </html>
