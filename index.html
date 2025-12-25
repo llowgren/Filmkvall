@@ -3,14 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Filmkväll</title>
+  <title>Filmkväll (single file test)</title>
 
-  <link id="favicon" rel="icon" type="image/png" href="Logo.PNG">
-  <meta property="og:title" content="Filmkväll">
-  <meta property="og:type" content="website">
-  <meta property="og:image" content="Logo.PNG">
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:image" content="Logo.PNG">
+  <link rel="icon" type="image/png" href="Logo.PNG">
 
   <style>
     :root{
@@ -24,24 +19,18 @@
       --input:#ffffff; --border:#dfe3ee; --btn:#eef0f6; --btn-text:#111826;
       --pill-bg:#f1f3f8;
     }
-
     *{box-sizing:border-box}
     body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
     .wrap{max-width:1100px; margin:24px auto; padding:0 16px;}
-    h3{margin:0 0 10px}
-    .muted{color:var(--muted)}
     .hero{display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px; margin:8px 0 20px}
     .hero-logo{width:14%; max-width:180px; min-width:96px; height:auto}
     .hero-title{font-size:34px; margin:0; letter-spacing:.08em}
     .hero-version{font-size:12px}
-    @media (max-width:520px){
-      .hero-logo{width:28%}
-      .hero-title{font-size:26px}
-    }
-
+    @media (max-width:520px){ .hero-logo{width:28%} .hero-title{font-size:26px} }
     .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0}
     .row{display:flex; gap:12px; flex-wrap:wrap}
     .col{flex:1 1 220px; min-width:220px}
+    .right{margin-left:auto}
     label{display:block; font-size:13px; color:var(--muted); margin:0 0 6px}
     input,select,textarea{
       width:100%; padding:10px 12px; border-radius:10px;
@@ -55,6 +44,7 @@
     button:disabled{opacity:.55; cursor:not-allowed; filter:saturate(.6)}
     .primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a}
     .ghost{background:transparent}
+    .muted{color:var(--muted)}
     .pill{display:inline-block; padding:8px 12px; border-radius:999px; font-size:13px; background:var(--pill-bg); border:1px solid var(--border)}
     .ok{color:var(--ok)}
     .err{color:var(--err)}
@@ -65,10 +55,10 @@
     .score-col label{margin-bottom:4px}
     .score-col select{padding:8px 10px; border-radius:8px; text-align:center; text-align-last:center}
 
-    /* Lösenordsrad */
-    .pw-wrap{display:flex; gap:8px; align-items:center}
-    .pw-wrap input{flex:1 1 auto; min-width:0}
-    .pw-wrap button{flex:0 0 auto; padding:8px 10px}
+    /* Lösenordsrad: input + två knappar snyggt på samma rad */
+    .pw-row{display:flex; gap:8px; align-items:center}
+    .pw-row input{flex:1 1 auto; min-width:0}
+    .pw-row button{flex:0 0 auto; white-space:nowrap}
   </style>
 </head>
 
@@ -80,7 +70,6 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">single-file</span></div>
     </header>
 
-    <!-- Inställningar (utan “löjlig text” och utan rubriken “Inställningar”) -->
     <div class="card" id="settingsCard">
       <div class="row" style="align-items:flex-end">
         <div class="col" style="max-width:260px">
@@ -88,11 +77,13 @@
           <select id="who" aria-label="Användare"></select>
         </div>
 
-        <div class="col" style="max-width:320px">
-          <label for="pw">Lösenord</label>
-          <div class="pw-wrap">
-            <input id="pw" type="password" autocomplete="current-password" placeholder="lösenord">
-            <button id="togglePw" type="button" class="ghost" aria-label="Visa lösenord">Visa</button>
+        <!-- Lösenord: lika “stor kolumn” som användare (max-width:260px) -->
+        <div class="col" style="max-width:260px">
+          <label for="pwInput">Lösenord</label>
+          <div class="pw-row">
+            <input id="pwInput" type="password" autocomplete="current-password" placeholder="ange lösenord" />
+            <button id="togglePw" type="button" class="ghost" aria-label="Visa/Dölj lösenord">Visa</button>
+            <button id="loginBtn" type="button" class="primary">Logga in</button>
           </div>
         </div>
 
@@ -164,13 +155,24 @@
 
   <script>
     /********************************************************************
-     *  Filmkväll – single file (stabil testvariant)
+     *  Filmkväll – SINGLE FILE TEST
+     *  Fokus: backendkontakt + lösenordsinloggning (pw skickas från rutan).
      ********************************************************************/
 
-    // ====== KONFIG ======
+    // ====== KONFIG (hårdkodat, ej UI) ======
     const API_URL = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
     const API_TOKEN = 'filmkvall_v1_9f3d2a7c_2b1e_47d2_bcf2_4c8b1d3e6a91';
     const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
+
+    // ===== Lösenord: sparas lokalt =====
+    const LS_PW_KEY = 'filmkvall_pw_v1';
+    function getSavedPw(){
+      try { return (localStorage.getItem(LS_PW_KEY) || '').trim(); }
+      catch { return ''; }
+    }
+    function setSavedPw(pw){
+      try { localStorage.setItem(LS_PW_KEY, String(pw || '').trim()); } catch {}
+    }
 
     // ===== Debug buffer =====
     const DBG = (window.__FILMKVALL_DEBUG__ = window.__FILMKVALL_DEBUG__ || []);
@@ -206,13 +208,16 @@
       else root.removeAttribute('data-theme');
     }
 
-    function getPw(){
-      return (document.getElementById('pw')?.value || '').trim();
+    function escapeHtml(s){
+      return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
     }
 
-    // ===== API (form-urlencoded för att undvika preflight) =====
+    // ===== API =====
+    // Skickar ALWAYS pw = det du skrivit in + sparat (inte hårdkodat).
     async function apiCall(action, payload = {}){
-      const bodyObj = { action, token: API_TOKEN, pw: getPw(), ...payload };
+      const pw = getSavedPw();
+
+      const bodyObj = { action, token: API_TOKEN, pw, ...payload };
       const params = new URLSearchParams();
       for(const [k,v] of Object.entries(bodyObj)){
         if(v === undefined) continue;
@@ -220,12 +225,9 @@
         else params.set(k, String(v));
       }
 
-      // logga INTE lösenord i debug
-      const dbgBody = { ...bodyObj };
-      if ('pw' in dbgBody) dbgBody.pw = '***';
-      if ('token' in dbgBody) dbgBody.token = '***';
-
-      dbgPush({ kind:'request', action, url: API_URL, payload: dbgBody });
+      // Maskera pw i debug-loggen
+      const dbgPayload = { ...bodyObj, pw: pw ? '***' : '' };
+      dbgPush({ kind:'request', action, url: API_URL, payload: dbgPayload });
 
       let res, text = '';
       try{
@@ -235,6 +237,7 @@
           cache: 'no-store',
           body: params.toString(),
         });
+
         text = await res.text().catch(()=>'');
 
         let data = null;
@@ -261,27 +264,11 @@
       const savedWho = localStorage.getItem('film_who');
       if(savedWho && PEOPLE.includes(savedWho)) whoSel.value = savedWho;
 
-      // theme
       document.getElementById('theme').value = localStorage.getItem('film_theme') || 'auto';
       applyTheme();
 
-      // password (sparas lokalt)
-      const pwInput = document.getElementById('pw');
-      const savedPw = localStorage.getItem('film_pw') || '';
-      if(savedPw) pwInput.value = savedPw;
-
-      pwInput.addEventListener('change', (e)=>{
-        localStorage.setItem('film_pw', e.target.value || '');
-      });
-
-      // show/hide
-      const toggleBtn = document.getElementById('togglePw');
-      toggleBtn.addEventListener('click', ()=>{
-        const isPw = pwInput.type === 'password';
-        pwInput.type = isPw ? 'text' : 'password';
-        toggleBtn.textContent = isPw ? 'Dölj' : 'Visa';
-        toggleBtn.setAttribute('aria-label', isPw ? 'Dölj lösenord' : 'Visa lösenord');
-      });
+      // fyll pw-rutan med sparat (om finns)
+      document.getElementById('pwInput').value = getSavedPw();
 
       // scores selects
       const scoresRow = document.getElementById('scoresRow');
@@ -293,8 +280,7 @@
         lab.textContent = p;
         const sel = document.createElement('select');
         sel.dataset.person = p;
-        sel.innerHTML =
-          `<option value="">-</option>` +
+        sel.innerHTML = `<option value="">-</option>` +
           Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}">${n}</option>`).join('');
         col.appendChild(lab);
         col.appendChild(sel);
@@ -302,10 +288,21 @@
       }
     }
 
+    function setAuthedUI(isAuthed){
+      // enkel “låsbrytare” så det känns tydligt vad som krävs
+      const ids = ['saveNight','skipNext','loadList','saveList'];
+      for(const id of ids){
+        const el = document.getElementById(id);
+        if(el) el.disabled = !isAuthed;
+      }
+      // också: input-fält kan vara öppna, men knapparna kräver login
+    }
+
     async function loadCurrent(){
       const j = await apiCall('getCurrent');
       document.getElementById('nextName').value = j.next || '';
       document.getElementById('suggested').value = j.suggestion || '';
+
       const scores = (j.scores || {});
       for(const sel of document.querySelectorAll('#scoresRow select')){
         const p = sel.dataset.person;
@@ -362,37 +359,94 @@
       const j = await apiCall('getHistory', { limit: 10 });
       const box = document.getElementById('history');
       const rows = Array.isArray(j.rows) ? j.rows : [];
-      box.innerHTML = rows.map(r => `<div class="pill"><strong>${escapeHtml(r.Film||'')}</strong> – ${escapeHtml(r.Datum||'')}</div>`).join('');
+      box.innerHTML = rows.map(r =>
+        `<div class="pill"><strong>${escapeHtml(r.Film||'')}</strong> – ${escapeHtml(r.Datum||'')}</div>`
+      ).join('');
     }
 
-    function escapeHtml(s){
-      return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    async function tryAutoLogin(){
+      if(!getSavedPw()) return false;
+      try{
+        await apiCall('getCurrent');
+        return true;
+      }catch{
+        return false;
+      }
+    }
+
+    async function doLogin(){
+      const pw = (document.getElementById('pwInput').value || '').trim();
+      setSavedPw(pw);
+
+      setStatus(true, 'Loggar in…');
+      try{
+        await apiCall('getCurrent');     // validerar PW direkt
+        await loadCurrent();
+        await loadWishlist();
+        await loadHistory();
+        setAuthedUI(true);
+        setStatus(true, 'Redo');
+      }catch(e){
+        setAuthedUI(false);
+        setStatus(false, e && e.message ? e.message : 'Inloggning misslyckades');
+      }
     }
 
     async function boot(){
       initStatic();
-      setStatus(true, 'Laddar…');
+      setAuthedUI(false);
+      setStatus(true, 'Init…');
 
+      // ping för att se att URL:en funkar (ping är öppen i din backend)
       try{
         await apiCall('ping');
-        await loadCurrent();
-        await loadWishlist();
-        await loadHistory();
-        setStatus(true, 'Redo');
       }catch(e){
-        setStatus(false, e && e.message ? e.message : 'Load failed');
+        setStatus(false, 'Ingen kontakt med backend (ping misslyckades)');
+        return;
       }
+
+      // försök auto-login om pw redan finns sparat
+      const ok = await tryAutoLogin();
+      if(ok){
+        try{
+          await loadCurrent();
+          await loadWishlist();
+          await loadHistory();
+          setAuthedUI(true);
+          setStatus(true, 'Redo');
+          return;
+        }catch(e){
+          // fall through -> man får logga in manuellt
+        }
+      }
+
+      setStatus(false, 'Logga in för att fortsätta');
     }
 
     // ===== Bind events =====
-    document.getElementById('who').addEventListener('change', async (e)=>{
+    document.getElementById('who').addEventListener('change', (e)=>{
       localStorage.setItem('film_who', e.target.value);
-      try{ await loadWishlist(); setStatus(true,'Redo'); }catch(err){ setStatus(false, err.message); }
+      // (listan laddas efter login – annars bad pw)
     });
 
     document.getElementById('theme').addEventListener('change', (e)=>{
       localStorage.setItem('film_theme', e.target.value);
       applyTheme();
+    });
+
+    document.getElementById('togglePw').addEventListener('click', ()=>{
+      const inp = document.getElementById('pwInput');
+      const btn = document.getElementById('togglePw');
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      btn.textContent = show ? 'Dölj' : 'Visa';
+    });
+
+    document.getElementById('loginBtn').addEventListener('click', doLogin);
+
+    // Enter i lösenordsrutan = logga in
+    document.getElementById('pwInput').addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter') doLogin();
     });
 
     document.getElementById('loadList').addEventListener('click', async ()=>{
