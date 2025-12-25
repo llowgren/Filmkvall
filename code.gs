@@ -6,7 +6,6 @@
  *   - Scores   : Hannah | Maria | Tuva | Alva | Lars
  *   - History  : Datum | Film | Vem valde | Kommentar | Hannah | Maria | Tuva | Alva | Lars
  *  ======================= 
- *  deploy test
  */
 const PW = '__USE_SCRIPT_PROPERTIES_ONLY__'; // Password must be stored in Script Properties (key: PW).
 
@@ -19,6 +18,7 @@ function getPw_(){
   if (!pw) throw new Error('PW not configured (set Script Property PW)');
   return pw;
 }
+
 function secureEq_(a,b){
   // Constant-time-ish compare to reduce timing leakage.
   a = String(a || '');
@@ -32,11 +32,13 @@ function secureEq_(a,b){
   }
   return diff === 0;
 }
+
 function getDebugToken_(){
   // Optional: if set, debug requires this token.
   // Key: DEBUG_TOKEN
   return PropertiesService.getScriptProperties().getProperty('DEBUG_TOKEN') || '';
 }
+
 function getApiToken_(){
   // Primary auth secret.
   // Key: API_TOKEN
@@ -45,48 +47,60 @@ function getApiToken_(){
   if (!t) throw new Error('API_TOKEN not configured (set Script Property API_TOKEN)');
   return t;
 }
+
 function redactSecrets_(obj){
   // Avoid reflecting secrets back to client.
   const out = {};
   Object.keys(obj || {}).forEach(k => {
-    if (k === 'pw' || k === 'token') return;
+    if (k === 'pw' || k === 'token' || k === 'debugToken') return; // ✅ include debugToken
     out[k] = obj[k];
   });
   return out;
 }
+
 function isDebugEnabled_(){
   // Optional kill-switch for debug without removing the action.
   // Set Script Property DEBUG_ENABLED = '0' to disable.
   const v = PropertiesService.getScriptProperties().getProperty('DEBUG_ENABLED');
   return String(v == null ? '1' : v) !== '0';
 }
+
 function shouldEnforcePost_(){
   // Optional hardening: set Script Property ENFORCE_POST = '1' to require POST for mutating actions.
   const v = PropertiesService.getScriptProperties().getProperty('ENFORCE_POST');
   return String(v || '') === '1';
 }
+
 function isWriteAction_(action){
   // Actions that mutate sheets.
   return ['saveScores','saveWishlist','skipNext','saveNight'].indexOf(action) >= 0;
 }
+
 function isPost_(e){
   // For doPost, e.postData is present; for doGet, it is not.
   return !!(e && e.postData && typeof e.postData.contents === 'string');
 }
+
 function tooManyBadPw_(){
   // Light global rate-limit for bad auth attempts (per minute).
-  // Safe: only triggers on repeated failures; no impact on valid clients.
+  // Robust against corrupt BAD_AUTH_MINUTE value.
   const props = PropertiesService.getScriptProperties();
   const key = 'BAD_AUTH_MINUTE';
   const nowMin = Math.floor(Date.now() / 60000);
-  const raw = props.getProperty(key);
-  let state = raw ? JSON.parse(raw) : { min: nowMin, n: 0 };
+
+  let state = { min: nowMin, n: 0 };
+  try {
+    const raw = props.getProperty(key);
+    if (raw) state = JSON.parse(raw);
+  } catch (_) {
+    state = { min: nowMin, n: 0 };
+  }
+
   if (state.min !== nowMin) state = { min: nowMin, n: 0 };
   state.n++;
   props.setProperty(key, JSON.stringify(state));
   return state.n > 20; // allow up to 20 bad attempts per minute
 }
-
 
 const PEOPLE_DEFAULT = ['Hannah','Maria','Tuva','Alva','Lars'];
 const TZ = 'Europe/Stockholm';
@@ -127,13 +141,10 @@ function handle_(e) {
     const p = getParams_(e);
     const action = String(p.action || '').trim();
 
-    // Explicitly block empty action early (more explicit than whitelist hit)
     if (!action) {
       return json_({ ok:false, error:'action required' });
     }
 
-    // Fail fast on unknown actions to reduce attack surface and avoid unnecessary sheet work.
-    // Safe: does not change the API contract or sheet structures.
     const allowedActions = {
       ping:1, debug:1,
       getCurrent:1, getScores:1, saveScores:1,
@@ -145,8 +156,7 @@ function handle_(e) {
       return json_({ ok:false, error:'unknown action', got:action });
     }
 
-    // Optional: require POST for mutating calls (off by default to avoid breaking existing clients)
-    // Moved before auth: safer because it avoids evaluating/recording auth attempts via GET.
+    // Optional: require POST for mutating calls
     if (shouldEnforcePost_() && isWriteAction_(action) && !isPost_(e)) {
       return json_({ ok:false, error:'POST required' });
     }
@@ -164,14 +174,12 @@ function handle_(e) {
       }
     }
 
-    // Ensure schema
     ensureSheets_();
 
     switch (action) {
       case 'ping':         return json_({ ok:true, time:new Date().toISOString() });
       case 'debug':
         if (!isDebugEnabled_()) return json_({ ok:false, error:'debug disabled' });
-        // Optional: add a second factor for debug if DEBUG_TOKEN is set.
         const dbg = getDebugToken_();
         if (dbg && !secureEq_(p.debugToken || '', dbg)) return json_({ ok:false, error:'bad debug token' });
         return json_({ ok:true, received: redactSecrets_(p) });
@@ -325,7 +333,6 @@ function getScores_(){
 
 function saveScores_(p){
   try{
-    // Normalize to numbers where possible; allow '' to clear.
     const incomingRaw = p.scores ? JSON.parse(p.scores) : {};
     const incoming = {};
     Object.keys(incomingRaw || {}).forEach(k => {
@@ -372,7 +379,6 @@ function saveWishlist_(p){
   const who = trim_(p.person);
   if (!who) return { ok:false, error:'person required' };
 
-  // Trim each entry to avoid duplicates with trailing spaces.
   const R1 = trim_(p.R1), R2 = trim_(p.R2), R3 = trim_(p.R3), R4 = trim_(p.R4), R5 = trim_(p.R5);
 
   const sh = ss_().getSheetByName('Wishlists');
@@ -434,7 +440,6 @@ function getTops_(p){
       if (!filmStats[film]) filmStats[film] = { sum:0, n:0, who:String(row[idxPicker]||'') };
       filmStats[film].sum += (sum/n);
       filmStats[film].n  += 1;
-      // Note: who reflects the last occurrence in history; adjust if you want “most common picker”.
       filmStats[film].who = String(row[idxPicker]||'');
     }
   });
@@ -526,7 +531,6 @@ function saveNight_(p){
       }
     }
 
-    // Advance turn deterministically from who
     const whoIdx = PEOPLE.indexOf(who);
     const nextIdx = whoIdx >= 0
       ? (whoIdx+1)%PEOPLE.length
