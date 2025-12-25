@@ -22,19 +22,20 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Inställningar (lokalt, inget committas) -->
+    <!-- Användarval + valfria API-nycklar (sparas lokalt i webbläsaren) -->
     <div class="card" id="userCard">
-      <h3>Inställningar</h3>
       <div class="row" style="align-items:flex-end">
         <div class="col" style="max-width:260px">
           <label for="who">Användare</label>
           <select id="who" aria-label="Användare"></select>
         </div>
-        <div class="col" style="max-width:260px">
-          <label for="pwInput">Lösenord</label>
-          <input id="pwInput" type="password" autocomplete="current-password" placeholder="ange lösenord" />
-          <div class="muted" style="font-size:12px; margin-top:4px">Sparas bara lokalt i webbläsaren.</div>
-        </div>
+
+        <!--
+          Tidigare lösenordsfält:
+          Behålls som dold input (för bakåtkompatibilitet i JS) men visas aldrig.
+          Nästa steg är att ta bort beroendet i ui.js helt.
+        -->
+        <input id="pwInput" type="password" autocomplete="current-password" style="display:none" aria-hidden="true" tabindex="-1" />
       </div>
 
       <details style="margin-top:12px">
@@ -153,8 +154,10 @@
     </div>
   </div>
 
-  <!-- Viktigt: vi använder ES-moduler (export/import). Därför MÅSTE scripts vara type="module". -->
-  <!-- Ladda EN entrypoint som i sin tur importerar state/api/lookup. -->
-  <script type="module" src="ui.js"></script>
+  <!-- Laddas som separata filer (lättare att granska/underhålla) -->
+  <script src="state.js" defer></script>
+  <script src="api.js" defer></script>
+  <script src="lookup.js" defer></script>
+  <script src="ui.js" defer></script>
 </body>
 </html>
