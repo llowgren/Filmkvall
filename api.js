@@ -1,144 +1,36 @@
-/* Filmkväll – api.js
- * Backend-anrop + SWR-cache.
- * - Skickar auth i POST-body (inte i URL)
- * - Inga UI-fält för token/lösenord
- *
- * OBS om “hemligheter”:
- * På en statisk sida (GitHub Pages) kan en token aldrig bli helt hemlig –
- * den går alltid att läsa i nätverk/JS-kod. Den här lösningen handlar därför
- * om att användaren slipper mata in något, inte om “perfekt säkerhet”.
- */
+// Filmkväll – api.js
+// All backendkommunikation. Token hanteras här – ALDRIG i UI.
 
-import { Cache } from "./state.js";
+export const API_URL = 'https://script.google.com/macros/s/PASTE_DIN_WEBAPP_URL_HÄR/exec';
 
-// ===== Backend (Apps Script Web App URL) =====
-// OBS: behåll /exec.
-export const API_BASE = "https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec";
+// ✅ Fast token – committas och används av frontend
+// Måste matcha Script Property API_TOKEN i Apps Script
+const API_TOKEN = 'filmkvall_v1_9f3d2a7c_2b1e_47d2_bcf2_4c8b1d3e6a91';
 
-// ===== Auth (osynligt för användaren) =====
-// Prioritet:
-// 1) localStorage (för enkel rotation utan commit)
-// 2) fallback-konstant (för att sidan ska funka direkt)
-const AUTH_STORAGE_KEY = "filmkvall_api_token_v1"; // token
-
-// ✅ “Bara funka”-läge:
-// Sätt API_TOKEN i Script Properties i Apps Script till exakt samma värde.
-// (Byt gärna till ett långt slumpat värde när allt fungerar.)
-const TOKEN_FALLBACK = "Look4fun";
-
-function readLocal(key){
-  try { return String(localStorage.getItem(key) || "").trim(); } catch { return ""; }
-}
-
-function getAuth(){
-  const token = readLocal(AUTH_STORAGE_KEY) || TOKEN_FALLBACK;
-  return { token: token || "" };
-}
-
-export function setAuthToken(token){
-  try { localStorage.setItem(AUTH_STORAGE_KEY, String(token || "").trim()); } catch {}
-}
-
-// ===== Low-level request =====
-export async function api(action, params = {}, { timeoutMs = 15000 } = {}){
-  const { token } = getAuth();
-
-  const body = {
-    action,
-    ...(token ? { token } : {}),
-    ...params,
-  };
-
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), timeoutMs);
-
-  try{
-    const res = await fetch(API_BASE, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      cache: "no-store",
-      signal: ac.signal,
-    });
-
-    // Apps Script kan ibland svara 302/HTML vid fel deploy/access
-    const ct = (res.headers.get("content-type") || "").toLowerCase();
-    const text = await res.text();
-
-    if (!ct.includes("application/json")){
-      // Försök ändå parse:a om servern satte fel content-type
-      try { return JSON.parse(text); } catch {
-        return {
-          ok:false,
-          error:`Non-JSON response (${res.status}). Check Web App deploy/access.`,
-          raw:text.slice(0,300)
-        };
-      }
-    }
-
-    return JSON.parse(text);
-  } catch (e){
-    const msg = (e && e.name === "AbortError")
-      ? "Request timeout"
-      : (e && e.message) ? e.message : String(e);
-    return { ok:false, error: msg };
-  } finally {
-    clearTimeout(t);
+async function parseJsonResponse(res){
+  const ct = (res.headers.get('content-type') || '').toLowerCase();
+  if (!ct.includes('application/json')){
+    const txt = await res.text().catch(()=> '');
+    throw new Error('Backend svarade inte JSON: ' + txt.slice(0,120));
   }
+  return res.json();
 }
 
-// ===== SWR (stale-while-revalidate) =====
-export async function fetchJsonSWR({ key, action, params = {}, maxAgeMs = 30_000, onFresh, fingerprint }){
-  const cached = Cache.get(key);
-  const now = Date.now();
-
-  if (cached?.data){
-    if (!cached.savedAt || (now - cached.savedAt) > maxAgeMs) refresh();
-    return cached.data;
-  }
-
-  const data = await api(action, params);
-  Cache.set(key, { savedAt: Date.now(), data, fp: safeFp(data) });
-  return data;
-
-  function safeFp(x){
-    try{
-      if (typeof fingerprint === "function") return String(fingerprint(x));
-    }catch(_){ }
-    try{
-      if (x == null) return "null";
-      if (typeof x !== "object") return String(x);
-      if (Array.isArray(x)) return `a:${x.length}`;
-      if ("rows" in x && Array.isArray(x.rows)){
-        const r = x.rows;
-        const last = r[0] || r[r.length-1] || {};
-        return `rows:${r.length}:${last["Datum"]||""}:${last["Film"]||""}`;
-      }
-      return `o:${Object.keys(x).length}`;
-    }catch(_){
-      return "x";
-    }
-  }
-
-  async function refresh(){
-    try{
-      const fresh = await api(action, params);
-      const fpNew = safeFp(fresh);
-      const fpOld = cached?.fp ?? safeFp(cached?.data);
-      Cache.set(key, { savedAt: Date.now(), data: fresh, fp: fpNew });
-      if (fpOld !== fpNew) onFresh?.(fresh);
-    }catch(_){ }
-  }
-}
-
-// Bekväm wrapper
-export function apiSWR(action, params, { cacheKey, maxAgeMs, onFresh, fingerprint } = {}){
-  return fetchJsonSWR({
-    key: cacheKey || `api_${action}`,
-    action,
-    params,
-    maxAgeMs: maxAgeMs ?? 30_000,
-    onFresh,
-    fingerprint,
+export async function apiCall(action, payload = {}){
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify({
+      action,
+      token: API_TOKEN,
+      ...payload
+    })
   });
+
+  const j = await parseJsonResponse(res);
+  if (!j || j.ok !== true){
+    throw new Error(j?.error || 'API error');
+  }
+  return j;
 }
