@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Filmkväll</title>
 
-  <link rel="icon" type="image/png" href="Logo.PNG">
+  <link id="favicon" rel="icon" type="image/png" href="Logo.PNG">
   <meta property="og:title" content="Filmkväll">
   <meta property="og:type" content="website">
   <meta property="og:image" content="Logo.PNG">
@@ -17,12 +17,12 @@
 <body>
   <div class="wrap">
     <header class="hero">
-      <img src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
+      <img id="logoImg" src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
       <h1 class="hero-title">Filmkväll</h1>
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Inställningar (sparas lokalt i webbläsaren) -->
+    <!-- Inställningar (lokalt, inget committas) -->
     <div class="card" id="userCard">
       <h3>Inställningar</h3>
       <div class="row" style="align-items:flex-end">
@@ -31,7 +31,7 @@
           <select id="who" aria-label="Användare"></select>
         </div>
         <div class="col" style="max-width:260px">
-          <label for="pwInput">API-token / lösenord</label>
+          <label for="pwInput">Token</label>
           <input id="pwInput" type="password" autocomplete="current-password" placeholder="ange token" />
           <div class="muted" style="font-size:12px; margin-top:4px">Sparas bara lokalt i webbläsaren.</div>
         </div>
@@ -72,9 +72,7 @@
         <div class="col">
           <label for="suggested">Film (förslag från #1 i listan)</label>
           <div class="lookup-wrap ac-wrap">
-            <input id="suggested" class="lookup-input" type="text" readonly
-                   placeholder="Skriv film här om listan är tom…"
-                   autocomplete="off" autocapitalize="off" spellcheck="false">
+            <input id="suggested" class="lookup-input" type="text" readonly placeholder="Skriv film här om listan är tom…" autocomplete="off" autocapitalize="off" spellcheck="false">
             <button class="lookup-btn" data-lookup="suggested">Sök</button>
             <div class="ac-list" id="ac-suggested" style="display:none"></div>
           </div>
@@ -82,11 +80,12 @@
         </div>
       </div>
 
+      <!-- Poäng (renderas av app.js) -->
       <div id="scoresRow"></div>
 
       <div class="row">
         <span class="right"></span>
-        <button id="toggleAdvanced" class="ghost">Hoppa över</button>
+        <button id="toggleAdvanced" class="ghost" style="margin-left:6px">Hoppa över</button>
       </div>
 
       <div class="row" id="advancedRow" style="display:none; gap:8px; align-items:flex-end">
@@ -98,7 +97,7 @@
           <button id="doJump" class="ghost" disabled>Byt tur</button>
         </div>
         <div class="col" style="align-self:end; flex:1 1 auto">
-          <div class="muted" style="font-size:12px">Används bara vid undantag.</div>
+          <div class="muted" style="font-size:12px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
         </div>
       </div>
 
@@ -154,7 +153,7 @@
     </div>
   </div>
 
-  <!-- Entrypoint -->
+  <!-- Viktigt: vi kör ES-moduler nu (pga export/import i state.js m.m.) -->
   <script type="module" src="app.js"></script>
 </body>
 </html>
