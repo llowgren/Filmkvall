@@ -1,325 +1,139 @@
-// Filmkväll – ui.js
-// All DOM-logik och användarinteraktion
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Filmkväll</title>
 
-import { apiCall } from './api.js';
-import { NightSaveGuard } from './state.js';
+  <link id="favicon" rel="icon" type="image/png" href="Logo.PNG">
+  <meta property="og:title" content="Filmkväll">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="Logo.PNG">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:image" content="Logo.PNG">
 
-const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <img id="logoImg" src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
+      <h1 class="hero-title">Filmkväll</h1>
+      <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
+    </header>
 
-export function initUI(){
-  initStaticUI();
-  bindEvents();
-  loadInitial();
-}
+    <!-- Inställningar (lokalt i webbläsaren) -->
+    <div class="card" id="userCard">
+      <div class="row" style="align-items:flex-end">
+        <div class="col" style="max-width:260px">
+          <label for="who">Användare</label>
+          <select id="who" aria-label="Användare"></select>
+        </div>
+      </div>
+    </div>
 
-function initStaticUI(){
-  // Användarlista
-  const whoSel = document.getElementById('who');
-  if (whoSel){
-    whoSel.innerHTML = PEOPLE.map(p=>`<option value="${p}">${p}</option>`).join('');
+    <!-- På tur nu -->
+    <div class="card" id="nowCard">
+      <h3>På tur nu</h3>
 
-    const savedWho = localStorage.getItem('film_who');
-    if (savedWho && PEOPLE.includes(savedWho)) whoSel.value = savedWho;
-  }
+      <div class="row">
+        <div class="col">
+          <label for="nextName">Nästa i tur</label>
+          <input id="nextName" type="text" readonly>
+        </div>
 
-  const themeSel = document.getElementById('theme');
-  if (themeSel){
-    themeSel.value = localStorage.getItem('film_theme') || 'auto';
-  }
+        <div class="col">
+          <label for="suggested">Film (förslag från #1 i listan)</label>
+          <div class="lookup-wrap ac-wrap">
+            <input id="suggested" class="lookup-input" type="text" readonly placeholder="Skriv film här om listan är tom…" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <button class="lookup-btn" data-lookup="suggested">Sök</button>
+            <div class="ac-list" id="ac-suggested" style="display:none"></div>
+          </div>
+          <div id="suggested-info" class="omdb-info"></div>
+        </div>
+      </div>
 
-  applyTheme();
-}
+      <!-- Poäng (renderas av ui.js) -->
+      <div id="scoresRow"></div>
 
-function bindEvents(){
-  document.getElementById('who')?.addEventListener('change', e=>{
-    localStorage.setItem('film_who', e.target.value);
-    loadWishlist().catch(err=>setStatus(false, err.message || String(err)));
-  });
+      <div class="row">
+        <span class="right"></span>
+        <button id="toggleAdvanced" class="ghost" style="margin-left:6px">Hoppa över</button>
+      </div>
 
-  document.getElementById('theme')?.addEventListener('change', e=>{
-    localStorage.setItem('film_theme', e.target.value);
-    applyTheme();
-  });
+      <div class="row" id="advancedRow" style="display:none; gap:8px; align-items:flex-end">
+        <div class="col" style="min-width:220px; flex:0 0 260px">
+          <label for="jumpTo">Hoppa till (nästa i tur överst)</label>
+          <select id="jumpTo"></select>
+        </div>
+        <div class="col" style="align-self:end; flex:0 0 auto">
+          <button id="doJump" class="ghost" disabled>Byt tur</button>
+        </div>
+        <div class="col" style="align-self:end; flex:1 1 auto">
+          <div class="muted" style="font-size:12px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
+        </div>
+      </div>
 
-  document.getElementById('saveList')?.addEventListener('click', ()=>saveWishlist());
-  document.getElementById('loadList')?.addEventListener('click', ()=>loadWishlist());
-  document.getElementById('saveNight')?.addEventListener('click', ()=>saveNight());
-}
+      <div class="row">
+        <div class="col">
+          <label for="comment">Kommentar</label>
+          <input id="comment" placeholder="valfritt">
+        </div>
+        <div class="col" style="align-self:end">
+          <button id="saveNight" class="primary">Spara kväll</button>
+        </div>
+      </div>
+    </div>
 
-async function loadInitial(){
-  setStatus(true,'Laddar…');
-  try{
-    await loadCurrent();
-    await loadWishlist();
-    await loadHistory();
-    setStatus(true,'Redo');
-  }catch(e){
-    setStatus(false, e?.message || String(e));
-  }
-}
+    <!-- Min lista -->
+    <div class="card">
+      <h3>Mina kommande (1–5)</h3>
+      <div class="wishlist-col" id="wishlistCol"></div>
+      <div class="row">
+        <button id="loadList" class="ghost">Hämta min lista</button>
+        <button id="saveList" class="primary">Spara min lista</button>
+      </div>
+    </div>
 
-async function loadCurrent(){
-  const j = await apiCall('getCurrent');
-  document.getElementById('nextName').value = j.next || '';
-  const suggested = document.getElementById('suggested');
-  if (suggested){
-    suggested.value = j.suggestion || '';
-    // Om listan är tom: låt användaren skriva film manuellt
-    suggested.readOnly = !!(j.suggestion && String(j.suggestion).trim().length);
-  }
+    <!-- Tema + Status -->
+    <div class="card">
+      <div class="row">
+        <div class="col">
+          <label for="theme">Tema</label>
+          <select id="theme">
+            <option value="auto" selected>Auto</option>
+            <option value="dark">Mörkt</option>
+            <option value="light">Ljust</option>
+          </select>
+        </div>
+        <div class="col">
+          <label>Status</label>
+          <div id="apiStatus" class="pill">Init…</div>
+        </div>
+      </div>
+    </div>
 
-  // (Valfritt) rendera poäng-rad om backend skickar scores
-  renderScoresRow(j.scores || {});
-}
+    <!-- Topplistor -->
+    <div class="card">
+      <h3>Topplistor (topp 5)</h3>
+      <div id="tops"></div>
+    </div>
 
-function renderScoresRow(scores){
-  const row = document.getElementById('scoresRow');
-  if(!row) return;
+    <!-- Historik -->
+    <div class="card">
+      <h3>Historik (senaste 10)</h3>
+      <div id="history"></div>
+    </div>
+  </div>
 
-  // Bygg en enkel select per person (1–10) + ”–”
-  row.innerHTML = '';
-  for(const p of PEOPLE){
-    const wrap = document.createElement('div');
-    wrap.className = 'score-col';
-
-    const lab = document.createElement('label');
-    lab.textContent = p;
-    wrap.appendChild(lab);
-
-    const sel = document.createElement('select');
-    sel.className = 'score-select';
-    sel.id = `s-${p}`;
-
-    const opt0 = document.createElement('option');
-    opt0.value = '';
-    opt0.textContent = '–';
-    sel.appendChild(opt0);
-
-    for(let i=1;i<=10;i++){
-      const o = document.createElement('option');
-      o.value = String(i);
-      o.textContent = String(i);
-      sel.appendChild(o);
-    }
-
-    // Fyll från server
-    const v = (scores && (p in scores)) ? String(scores[p] ?? '').trim() : '';
-    sel.value = v;
-
-    // Spara direkt vid ändring
-    sel.addEventListener('change', async ()=>{
-      try{
-        await apiCall('saveScores', { scores: JSON.stringify({ [p]: sel.value }) });
-        setStatus(true, `Poäng sparad (${p})`);
-      }catch(e){
-        setStatus(false, e?.message || String(e));
-      }
-    });
-
-    wrap.appendChild(sel);
-    row.appendChild(wrap);
-  }
-}
-
-async function loadWishlist(){
-  const who = document.getElementById('who')?.value;
-  if(!who) return;
-
-  const j = await apiCall('getWishlist', { person: who });
-
-  const col = document.getElementById('wishlistCol');
-  if(!col) return;
-  col.innerHTML = '';
-
-  ['R1','R2','R3','R4','R5'].forEach((k,i)=>{
-    const inp = document.createElement('input');
-    inp.value = j[k] || '';
-    inp.placeholder = `#${i+1}`;
-    inp.addEventListener('input', ()=>scheduleWishlistAutoSave());
-    inp.addEventListener('blur', ()=>scheduleWishlistAutoSave(true));
-    col.appendChild(inp);
-  });
-}
-
-let wishlistTimer = null;
-function scheduleWishlistAutoSave(force=false){
-  clearTimeout(wishlistTimer);
-  wishlistTimer = setTimeout(()=>{
-    sendWishlist().catch(err=>setStatus(false, err?.message || String(err)));
-  }, force ? 100 : 900);
-}
-
-async function sendWishlist(){
-  const who = document.getElementById('who')?.value;
-  if(!who) return;
-
-  const vals = Array.from(document.querySelectorAll('#wishlistCol input')).map(i=>i.value);
-  await apiCall('saveWishlist', {
-    person: who,
-    R1: vals[0] || '',
-    R2: vals[1] || '',
-    R3: vals[2] || '',
-    R4: vals[3] || '',
-    R5: vals[4] || ''
-  });
-  setStatus(true,'Lista sparad');
-}
-
-async function saveWishlist(){
-  try{
-    await sendWishlist();
-  }catch(e){
-    setStatus(false, e?.message || String(e));
-  }
-}
-
-async function saveNight(){
-  const who = (document.getElementById('nextName')?.value || '').trim();
-  const film = (document.getElementById('suggested')?.value || '').trim();
-  const comment = (document.getElementById('comment')?.value || '').trim();
-
-  if(!who || !film){
-    setStatus(false,'Saknar vem eller film');
-    return;
-  }
-
-  // Ta med scores om de finns (för guard)
-  const scores = {};
-  for(const p of PEOPLE){
-    scores[p] = (document.getElementById(`s-${p}`)?.value || '').trim();
-  }
-
-  const snap = NightSaveGuard.snapshot({ who, film, comment, scores });
-  if (NightSaveGuard.shouldBlock(snap)){
-    setStatus(true,'Redan sparad');
-    return;
-  }
-
-  try{
-    await apiCall('saveNight', { who, film, comment });
-    NightSaveGuard.markSaved(snap);
-
-    if (document.getElementById('comment')) document.getElementById('comment').value = '';
-
-    await loadCurrent();
-    await loadHistory();
-    setStatus(true,'Kväll sparad');
-  }catch(e){
-    setStatus(false, e?.message || String(e));
-  }
-}
-
-async function loadHistory(){
-  const j = await apiCall('getHistory', { limit: 10 });
-  const box = document.getElementById('history');
-  if(!box) return;
-  box.innerHTML = (j.rows || []).map(r=>
-    `<div class="pill" style="display:block;margin:6px 0;padding:10px 12px"><strong>${escapeHtml(r.Film||'')}</strong> – ${escapeHtml(r.Datum||'')}</div>`
-  ).join('') || '<div class="muted">Tomt.</div>';
-}
-
-function setStatus(ok,msg){
-  const el = document.getElementById('apiStatus');
-  if(!el) return;
-  el.textContent = msg;
-  el.className = 'pill ' + (ok?'ok':'err');
-
-  // trigga debug-render (iPad-panel)
-  try{ window.dispatchEvent(new Event('filmkvall:debug')); }catch{}
-}
-
-function applyTheme(){
-  const sel = document.getElementById('theme')?.value || 'auto';
-  const root = document.documentElement;
-  let mode = sel;
-  if (sel === 'auto'){
-    mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  }
-  if (mode === 'light') root.setAttribute('data-theme','light');
-  else root.removeAttribute('data-theme');
-  root.style.colorScheme = (mode === 'light') ? 'light' : 'dark';
-}
-
-function escapeHtml(s){
-  return String(s ?? '').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
-}
-
-// ===== Filmkväll: inbyggd felsökning (iPad-friendly) =====
-(function initDebugPanel(){
-  function safeJson(x){
-    try { return JSON.stringify(x, null, 2); } catch { return String(x); }
-  }
-
-  function ensurePanel(){
-    const statusEl = document.getElementById('apiStatus');
-    if(!statusEl) return null;
-
-    const card = statusEl.closest('.card') || statusEl.parentElement;
-    if(!card) return null;
-
-    if(document.getElementById('debugPanel')) return document.getElementById('debugPanel');
-
-    const wrap = document.createElement('details');
-    wrap.id = 'debugPanel';
-    wrap.style.marginTop = '10px';
-
-    const sum = document.createElement('summary');
-    sum.textContent = 'Felsök (visa teknisk info)';
-    sum.className = 'muted';
-    wrap.appendChild(sum);
-
-    const pre = document.createElement('pre');
-    pre.id = 'debugPre';
-    pre.style.whiteSpace = 'pre-wrap';
-    pre.style.wordBreak = 'break-word';
-    pre.style.margin = '10px 0 0';
-    pre.style.padding = '10px';
-    pre.style.border = '1px solid var(--border)';
-    pre.style.borderRadius = '10px';
-    pre.style.background = 'var(--input)';
-    pre.textContent = 'Ingen debug-data ännu.';
-    wrap.appendChild(pre);
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'ghost';
-    btn.textContent = 'Kopiera felsökning';
-    btn.style.marginTop = '8px';
-    btn.addEventListener('click', async ()=>{
-      const txt = pre.textContent || '';
-      try{
-        await navigator.clipboard.writeText(txt);
-        statusEl.classList.add('flash');
-        setTimeout(()=>statusEl.classList.remove('flash'), 800);
-      }catch{
-        const r = document.createRange();
-        r.selectNodeContents(pre);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(r);
-      }
-    });
-    wrap.appendChild(btn);
-
-    card.appendChild(wrap);
-    return wrap;
-  }
-
-  function render(){
-    const panel = ensurePanel();
-    if(!panel) return;
-    const pre = document.getElementById('debugPre');
-    if(!pre) return;
-
-    const d = window.__FILMKVALL_DEBUG__;
-    if(!d){
-      pre.textContent = 'Ingen debug-data ännu.\n(Om detta står kvar efter "Load failed" så har api.js inte hunnit skicka debug-info ännu.)';
-      return;
-    }
-    pre.textContent = safeJson(d);
-  }
-
-  window.addEventListener('filmkvall:debug', render);
-  window.addEventListener('load', render);
-  setTimeout(render, 500);
-})();
+  <!--
+    VIKTIGT:
+    Alla JS-filer använder ES modules (import/export), så vi måste ladda dem som modules.
+    Endast ui.js behöver laddas här; den importerar api/state/lookup internt.
+  -->
+  <script type="module">
+    import { initUI } from './ui.js';
+    initUI();
+  </script>
+</body>
+</html>
