@@ -1,230 +1,144 @@
-/* ===== Filmkväll api.js =====
- * Mål:
- * - Skicka auth-token i POST-body (JSON), inte i URL.
- * - Fungerar med code.gs som har getParams_() och (valfritt) ENFORCE_POST=1.
- * - Inga hemligheter i repo: token/nycklar lagras lokalt i webbläsaren.
+/* Filmkväll – api.js
+ * Backend-anrop + SWR-cache.
+ * - Skickar auth i POST-body (inte i URL)
+ * - Inga UI-fält för token/lösenord
+ *
+ * OBS om “hemligheter”:
+ * På en statisk sida (GitHub Pages) kan en token aldrig bli helt hemlig –
+ * den går alltid att läsa i nätverk/JS-kod. Den här lösningen handlar därför
+ * om att användaren slipper mata in något, inte om “perfekt säkerhet”.
  */
 
-(function(){
-  'use strict';
+import { Cache } from "./state.js";
 
-  // ===== Konfiguration =====
-  // Förväntat: state.js sätter window.FILMKVALL_CONFIG. Om inte, kör fallback.
-  const CFG = window.FILMKVALL_CONFIG || {};
+// ===== Backend (Apps Script Web App URL) =====
+// OBS: behåll /exec.
+export const API_BASE = "https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec";
 
-  // Obs: Lägg gärna API_URL i state.js så index.html inte behöver uppdateras vid ny deploy.
-  const API_URL = String(CFG.API_URL || window.API || '').trim();
+// ===== Auth (osynligt för användaren) =====
+// Prioritet:
+// 1) localStorage (för enkel rotation utan commit)
+// 2) fallback-konstant (för att sidan ska funka direkt)
+const AUTH_STORAGE_KEY = "filmkvall_api_token_v1"; // token
 
-  // ===== Lokal lagring =====
-  const Storage = {
-    get(key, fallback=null){
-      try{ const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); }
-      catch{ return fallback; }
-    },
-    set(key, value){
-      try{ localStorage.setItem(key, JSON.stringify(value)); } catch(_){ }
-    },
-    getStr(key, fallback=''){
-      try{ const v = localStorage.getItem(key); return v == null ? fallback : String(v); }
-      catch{ return fallback; }
-    },
-    setStr(key, value){
-      try{ localStorage.setItem(key, String(value ?? '')); } catch(_){ }
-    }
+// ✅ “Bara funka”-läge:
+// Sätt API_TOKEN i Script Properties i Apps Script till exakt samma värde.
+// (Byt gärna till ett långt slumpat värde när allt fungerar.)
+const TOKEN_FALLBACK = "Look4fun";
+
+function readLocal(key){
+  try { return String(localStorage.getItem(key) || "").trim(); } catch { return ""; }
+}
+
+function getAuth(){
+  const token = readLocal(AUTH_STORAGE_KEY) || TOKEN_FALLBACK;
+  return { token: token || "" };
+}
+
+export function setAuthToken(token){
+  try { localStorage.setItem(AUTH_STORAGE_KEY, String(token || "").trim()); } catch {}
+}
+
+// ===== Low-level request =====
+export async function api(action, params = {}, { timeoutMs = 15000 } = {}){
+  const { token } = getAuth();
+
+  const body = {
+    action,
+    ...(token ? { token } : {}),
+    ...params,
   };
 
-  // Standard-nycklar (kan override:as i state.js)
-  const KEY_TOKEN = CFG.STORAGE_TOKEN_KEY || 'film_token';
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), timeoutMs);
 
-  function getToken(){
-    // Token kan komma från:
-    // 1) localStorage (primärt)
-    // 2) pwInput i UI (om användaren just skriver)
-    const ui = document.getElementById('pwInput');
-    const uiVal = ui ? String(ui.value || '').trim() : '';
-    if(uiVal) return uiVal;
-    return Storage.getStr(KEY_TOKEN, '').trim();
+  try{
+    const res = await fetch(API_BASE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal: ac.signal,
+    });
+
+    // Apps Script kan ibland svara 302/HTML vid fel deploy/access
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    const text = await res.text();
+
+    if (!ct.includes("application/json")){
+      // Försök ändå parse:a om servern satte fel content-type
+      try { return JSON.parse(text); } catch {
+        return {
+          ok:false,
+          error:`Non-JSON response (${res.status}). Check Web App deploy/access.`,
+          raw:text.slice(0,300)
+        };
+      }
+    }
+
+    return JSON.parse(text);
+  } catch (e){
+    const msg = (e && e.name === "AbortError")
+      ? "Request timeout"
+      : (e && e.message) ? e.message : String(e);
+    return { ok:false, error: msg };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// ===== SWR (stale-while-revalidate) =====
+export async function fetchJsonSWR({ key, action, params = {}, maxAgeMs = 30_000, onFresh, fingerprint }){
+  const cached = Cache.get(key);
+  const now = Date.now();
+
+  if (cached?.data){
+    if (!cached.savedAt || (now - cached.savedAt) > maxAgeMs) refresh();
+    return cached.data;
   }
 
-  function persistTokenFromUI(){
-    const ui = document.getElementById('pwInput');
-    if(!ui) return;
-    const v = String(ui.value || '').trim();
-    if(v) Storage.setStr(KEY_TOKEN, v);
-  }
+  const data = await api(action, params);
+  Cache.set(key, { savedAt: Date.now(), data, fp: safeFp(data) });
+  return data;
 
-  // ===== Core request (POST JSON) =====
-  async function request(action, params={}, opts={}){
-    if(!API_URL) throw new Error('API_URL saknas');
-
-    const timeoutMs = Number(opts.timeoutMs || 15000);
-    const controller = new AbortController();
-    const t = setTimeout(()=>controller.abort(), timeoutMs);
-
-    const token = (action === 'ping') ? (getToken() || undefined) : getToken();
-    const payload = Object.assign({}, params || {}, { action });
-    if(token) payload.token = token;
-
+  function safeFp(x){
     try{
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        cache: 'no-store',
-        signal: controller.signal
-      });
-
-      // Apps Script kan ibland svara 200 med text som inte är JSON vid fel.
-      const text = await res.text();
-      let json;
-      try{ json = text ? JSON.parse(text) : null; }
-      catch(_){
-        throw new Error(`Ogiltigt JSON-svar (${res.status}): ${text.slice(0,200)}`);
+      if (typeof fingerprint === "function") return String(fingerprint(x));
+    }catch(_){ }
+    try{
+      if (x == null) return "null";
+      if (typeof x !== "object") return String(x);
+      if (Array.isArray(x)) return `a:${x.length}`;
+      if ("rows" in x && Array.isArray(x.rows)){
+        const r = x.rows;
+        const last = r[0] || r[r.length-1] || {};
+        return `rows:${r.length}:${last["Datum"]||""}:${last["Film"]||""}`;
       }
-
-      // Normalisera: om HTTP != ok men JSON finns
-      if(!res.ok){
-        const msg = (json && json.error) ? String(json.error) : `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-
-      return json;
-    } finally {
-      clearTimeout(t);
+      return `o:${Object.keys(x).length}`;
+    }catch(_){
+      return "x";
     }
   }
 
-  // ===== Enkel cache (för SWR) =====
-  const Cache = {
-    get(key){ return Storage.get(key, null); },
-    set(key, value){ Storage.set(key, value); },
-    del(key){ try{ localStorage.removeItem(key); }catch(_){ } }
-  };
-
-  // SWR: returnera cache direkt, refresh i bakgrunden, kalla onFresh när fingerprint ändras.
-  async function fetchJsonSWR({ key, action, params, maxAgeMs=30000, onFresh, fingerprint }){
-    const cached = Cache.get(key);
-    const now = Date.now();
-
-    const safeFp = (x)=>{
-      try{ return typeof fingerprint === 'function' ? String(fingerprint(x)) : JSON.stringify(x).slice(0,5000); }
-      catch(_){ return 'x'; }
-    };
-
-    const refresh = async ()=>{
-      try{
-        const fresh = await request(action, params);
-        const fpNew = safeFp(fresh);
-        const fpOld = cached?.fp ?? safeFp(cached?.data);
-        Cache.set(key, { savedAt: Date.now(), data: fresh, fp: fpNew });
-        if(fpOld !== fpNew) onFresh?.(fresh);
-      }catch(_){ }
-    };
-
-    if(cached?.data){
-      if(!cached.savedAt || (now - cached.savedAt) > maxAgeMs) refresh();
-      return cached.data;
-    }
-
-    const data = await request(action, params);
-    Cache.set(key, { savedAt: Date.now(), data, fp: safeFp(data) });
-    return data;
+  async function refresh(){
+    try{
+      const fresh = await api(action, params);
+      const fpNew = safeFp(fresh);
+      const fpOld = cached?.fp ?? safeFp(cached?.data);
+      Cache.set(key, { savedAt: Date.now(), data: fresh, fp: fpNew });
+      if (fpOld !== fpNew) onFresh?.(fresh);
+    }catch(_){ }
   }
+}
 
-  // ===== Save-queue (offline/latensvänligt) =====
-  const SaveQueue = {
-    key: CFG.STORAGE_QUEUE_KEY || 'filmkvall_savequeue_v1',
-    read(){ return Cache.get(this.key) || []; },
-    write(q){ Cache.set(this.key, q); },
-    enqueue(job){
-      const q = this.read();
-      q.push({ ...job, ts: Date.now() });
-      this.write(q);
-      window.FilmApi?.events?.emit?.('queue:changed', { n: q.length });
-    },
-    async flush(flusher){
-      const q = this.read();
-      if(!q.length) return;
-      const remaining = [];
-
-      for(let i=0;i<q.length;i++){
-        const job = q[i];
-        try{
-          await flusher(job);
-        }catch(e){
-          remaining.push(job, ...q.slice(i+1));
-          this.write(remaining);
-          window.FilmApi?.events?.emit?.('queue:changed', { n: remaining.length });
-          throw e;
-        }
-      }
-
-      this.write([]);
-      window.FilmApi?.events?.emit?.('queue:changed', { n: 0 });
-    }
-  };
-
-  let flushTimer = null;
-  function scheduleFlush(flusher, delayMs=700){
-    clearTimeout(flushTimer);
-    flushTimer = setTimeout(async ()=>{
-      try{
-        await SaveQueue.flush(flusher);
-      }catch(_){ }
-    }, delayMs);
-  }
-
-  async function sendJobToServer(job){
-    const { action, payload } = job;
-    const j = await request(action, payload || {});
-    if(!j?.ok) throw new Error(j?.error || action);
-    return j;
-  }
-
-  function enqueueAndSync(action, payload){
-    // Om användaren nyss skrev token i UI: spara lokalt så kommande POST fungerar.
-    persistTokenFromUI();
-    SaveQueue.enqueue({ action, payload });
-    scheduleFlush(sendJobToServer, 700);
-  }
-
-  function pendingCount(){
-    return (SaveQueue.read() || []).length;
-  }
-
-  // ===== Minimal event-bus (för ui.js status/badge) =====
-  const events = {
-    _m: new Map(),
-    on(name, fn){
-      const arr = this._m.get(name) || [];
-      arr.push(fn);
-      this._m.set(name, arr);
-    },
-    emit(name, payload){
-      const arr = this._m.get(name) || [];
-      for(const fn of arr){ try{ fn(payload); }catch(_){ } }
-    }
-  };
-
-  // ===== Exponera API =====
-  window.FilmApi = {
-    request,
-    fetchJsonSWR,
-    Cache,
-    SaveQueue,
-    enqueueAndSync,
-    scheduleFlush,
-    sendJobToServer,
-    pendingCount,
-    getToken,
-    persistTokenFromUI,
-    events
-  };
-
-  // Flush när vi kommer online/visas
-  window.addEventListener('online', ()=>scheduleFlush(sendJobToServer, 200));
-  document.addEventListener('visibilitychange', ()=>{
-    if(document.visibilityState === 'visible') scheduleFlush(sendJobToServer, 200);
+// Bekväm wrapper
+export function apiSWR(action, params, { cacheKey, maxAgeMs, onFresh, fingerprint } = {}){
+  return fetchJsonSWR({
+    key: cacheKey || `api_${action}`,
+    action,
+    params,
+    maxAgeMs: maxAgeMs ?? 30_000,
+    onFresh,
+    fingerprint,
   });
-
-})();
+}
