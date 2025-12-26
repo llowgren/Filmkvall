@@ -6,12 +6,6 @@
   <title>Filmkväll</title>
 
   <link rel="icon" type="image/png" href="Logo.PNG">
-  <meta property="og:title" content="Filmkväll">
-  <meta property="og:type" content="website">
-  <meta property="og:image" content="Logo.PNG">
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:image" content="Logo.PNG">
-
   <link rel="stylesheet" href="./styles.css">
 </head>
 
@@ -23,7 +17,12 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Moduler i ordning -->
+    <!-- Boot-logg (visas om något går fel) -->
+    <div class="card" id="bootCard">
+      <h3>Boot</h3>
+      <pre id="bootlog" style="white-space:pre-wrap;margin:0"></pre>
+    </div>
+
     <film-login></film-login>
     <film-now></film-now>
     <film-wishlist></film-wishlist>
@@ -33,21 +32,40 @@
   </div>
 
   <script type="module">
-    // Core
-    import './store.js';
-    import './api.js';
+    const logEl = document.getElementById('bootlog');
+    const log = (m)=>{ logEl.textContent += m + "\n"; };
 
-    // Modules (alla ligger i root)
-    import './film-login.js';
-    import './film-now.js';
-    import './film-wishlist.js';
-    import './film-tops.js';
-    import './film-history.js';
-    import './film-system.js';
-
-    // Enkel versionstext
+    // version
     const verEl = document.getElementById('appVersion');
     if (verEl) verEl.textContent = document.lastModified || '–';
+
+    async function mustImport(path){
+      try{
+        await import(path);
+        log("OK  " + path);
+      }catch(e){
+        log("FEL " + path);
+        log(String(e?.message || e));
+        throw e;
+      }
+    }
+
+    try{
+      log("Startar imports…");
+      await mustImport('./store.js');
+      await mustImport('./film-login.js');   // viktigt: sätter auth i store
+      await mustImport('./api.js');
+
+      await mustImport('./film-now.js');
+      await mustImport('./film-wishlist.js');
+      await mustImport('./film-tops.js');
+      await mustImport('./film-history.js');
+      await mustImport('./film-system.js');
+
+      log("KLAR ✅");
+    }catch(_){
+      log("Stopp pga fel ovan.");
+    }
   </script>
 </body>
 </html>
