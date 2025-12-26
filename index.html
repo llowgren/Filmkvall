@@ -1,21 +1,53 @@
-<link rel="stylesheet" href="styles.css">
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Filmkväll</title>
 
-<header class="hero">...</header>
+  <link rel="icon" type="image/png" href="Logo.PNG">
+  <meta property="og:title" content="Filmkväll">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="Logo.PNG">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:image" content="Logo.PNG">
 
-<film-login></film-login>
-<film-now></film-now>
-<film-wishlist></film-wishlist>
-<film-tops></film-tops>
-<film-history></film-history>
-<film-system></film-system>
+  <link rel="stylesheet" href="./styles.css">
+</head>
 
-<script type="module">
-  import './store.js';
-  import './api.js';
-  import './components/film-login.js';
-  import './components/film-now.js';
-  import './components/film-wishlist.js';
-  import './components/film-tops.js';
-  import './components/film-history.js';
-  import './components/film-system.js';
-</script>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <img id="logoImg" src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
+      <h1 class="hero-title">Filmkväll</h1>
+      <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
+    </header>
+
+    <!-- Moduler i ordning -->
+    <film-login></film-login>
+    <film-now></film-now>
+    <film-wishlist></film-wishlist>
+    <film-tops></film-tops>
+    <film-history></film-history>
+    <film-system></film-system>
+  </div>
+
+  <script type="module">
+    // Core
+    import './store.js';
+    import './api.js';
+
+    // Modules (alla ligger i root)
+    import './film-login.js';
+    import './film-now.js';
+    import './film-wishlist.js';
+    import './film-tops.js';
+    import './film-history.js';
+    import './film-system.js';
+
+    // Enkel versionstext
+    const verEl = document.getElementById('appVersion');
+    if (verEl) verEl.textContent = document.lastModified || '–';
+  </script>
+</body>
+</html>
