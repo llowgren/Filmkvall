@@ -1,5 +1,5 @@
 // film-now.js
-// <film-now> = bara blocket "På tur nu" (förslag + preview + streaming + autocomplete + poäng + spara/skip)
+// <film-now> = blocket "På tur nu" (förslag + preview + streaming + poäng + spara/skip)
 
 import { api } from './api.js';
 import { getWho, on as onStore } from './store.js';
@@ -33,10 +33,8 @@ function tokens() {
   };
 }
 
-function nextPerson(cur) {
-  const i = PEOPLE.indexOf(cur);
-  if (i < 0) return PEOPLE[0];
-  return PEOPLE[(i + 1) % PEOPLE.length];
+function emptyScoresPayload() {
+  return Object.fromEntries(PEOPLE.map((p) => [p, '']));
 }
 
 // -------------------- TMDb autocomplete --------------------
@@ -56,8 +54,7 @@ async function tmdbSearchMovies(query, limit = 8) {
   const res = Array.isArray(j?.results) ? j.results : [];
   return res.slice(0, limit).map((it) => ({
     title: it.title || it.original_title || '',
-    year: (it.release_date || '').slice(0, 4) || '',
-    id: it.id
+    year: (it.release_date || '').slice(0, 4) || ''
   }));
 }
 
@@ -118,6 +115,7 @@ async function smartLookup(query) {
   const q = (query || '').trim();
   if (!q) return null;
 
+  // imdb-id/länk: gå direkt OMDb
   if (/\btt\d{7,}\b/i.test(q) || /imdb\.com\/title\//i.test(q)) {
     return omdbLookup(q);
   }
@@ -171,7 +169,6 @@ async function getStreamingInfo(imdbID) {
   const { watchmode } = tokens();
   if (!watchmode || !imdbID) return null;
 
-  // enkel 7-dagars cache i localStorage
   const key = `wm_sources_v1_${imdbID}`;
   try {
     const cached = JSON.parse(localStorage.getItem(key) || 'null');
@@ -222,16 +219,19 @@ function renderStreamingPills(sources) {
   const pills = sources.map((s) => {
     const label = `${s.service}${s.quality ? ` ${s.quality}` : ''}${s.region ? ` · ${s.region}` : ''}`;
     const href = s.link ? `href="${esc(s.link)}" target="_blank" rel="noopener"` : '';
-    return `<a ${href} class="pill" style="text-decoration:none">${esc(label)} (ingår)</a>`;
+    return `<a ${href} class="pill" style="text-decoration:none;display:inline-block">${esc(label)} (ingår)</a>`;
   }).join(' ');
 
-  // Viktigt: kollapsa visuellt ÄVEN om global CSS saknas
+  // Default: visa bara första raden (maxhöjd), med en "…"-toggle.
   return `
     <div class="streaming-wrap" style="margin-top:8px">
       <strong>Tillgängligt i abonnemang (globalt):</strong>
-      <div class="streaming-row collapsed" data-collapsed="1"
-           style="display:flex;flex-wrap:wrap;gap:4px;max-height:34px;overflow:hidden">${pills}</div>
-      <button type="button" class="streaming-toggle" style="margin-top:4px;font-size:12px;padding:0;border:none;background:transparent;text-decoration:underline;cursor:pointer;color:var(--muted)">…</button>
+      <div class="streaming-row" data-collapsed="1"
+           style="display:flex;flex-wrap:wrap;gap:4px;max-height:32px;overflow:hidden">
+        ${pills}
+      </div>
+      <button type="button" class="streaming-toggle"
+              style="margin-top:4px;font-size:12px;padding:0;border:none;background:transparent;text-decoration:underline;cursor:pointer;color:var(--muted)">…</button>
     </div>
   `;
 }
@@ -257,6 +257,11 @@ class FilmNow extends HTMLElement {
   render() {
     this.innerHTML = `
       <div class="card" id="nowCard">
+        <style>
+          .fn-poster{width:36px;height:auto;border-radius:6px;border:1px solid var(--border);flex:0 0 auto}
+          .fn-info{display:flex;gap:10px;align-items:flex-start}
+        </style>
+
         <div class="row" style="align-items:center">
           <div>
             <h3 style="margin:0">På tur nu</h3>
@@ -355,6 +360,23 @@ class FilmNow extends HTMLElement {
     }
   }
 
+  clearScoresUI() {
+    PEOPLE.forEach((p) => {
+      const el = this.querySelector(`#s-${CSS.escape(p)}`);
+      if (el) el.value = '';
+    });
+  }
+
+  async resetScoresServer() {
+    // Krav: vid "Hoppa över" och "Spara kväll" ska poängen nollställas.
+    try {
+      await api('saveScores', { scores: JSON.stringify(emptyScoresPayload()) });
+    } catch (e) {
+      // tyst (UI får ändå uppdateras vid nästa load)
+      console.warn('resetScores failed', e);
+    }
+  }
+
   async load() {
     if (this._busy) return;
     this.setBusy(true);
@@ -366,7 +388,6 @@ class FilmNow extends HTMLElement {
 
       const filmEl = this.querySelector('#film');
       filmEl.value = (cur.suggestion || '').trim();
-      // Som i gamla: om förslaget är tomt får man skriva själv
       filmEl.readOnly = false;
 
       if (cur.scores) {
@@ -385,35 +406,25 @@ class FilmNow extends HTMLElement {
     }
   }
 
-  // Hoppa över som i gamla index:
-  // 1) Uppdatera UI direkt (optimistiskt)
-  // 2) Skicka skipNext
-  // 3) Ladda om så allt hamnar rätt (suggestion + scores etc)
   async skip() {
     if (this._busy) return;
-
-    // Optimistiskt UI direkt (känns "instant" på iPad)
-    const nextEl = this.querySelector('#nextName');
-    const prev = (nextEl?.value || '').trim();
-    if (nextEl) nextEl.value = nextPerson(prev);
-
-    const filmEl = this.querySelector('#film');
-    if (filmEl) {
-      filmEl.value = '';
-      filmEl.readOnly = false;
-    }
-
-    const info = this.querySelector('#filmInfo');
-    if (info) info.innerHTML = '';
-
     this.setBusy(true);
+
+    // UI direkt
+    this.querySelector('#film').value = '';
+    this.querySelector('#filmInfo').innerHTML = '';
+    this.clearScoresUI();
+
     try {
       const j = await api('skipNext', {});
       if (!j?.ok) throw new Error(j?.error || 'skipNext');
+
+      // nollställ poäng efter skip
+      await this.resetScoresServer();
+
       await this.load(true);
     } catch (err) {
       console.error(err);
-      // Om skip misslyckas: hämta tillbaka server-läget så vi inte fastnar
       try { await this.load(true); } catch (_) {}
     } finally {
       this.setBusy(false);
@@ -441,6 +452,11 @@ class FilmNow extends HTMLElement {
     try {
       const j = await api('saveNight', { who, film, comment });
       if (!j?.ok) throw new Error(j?.error || 'saveNight');
+
+      // nollställ poäng efter sparad kväll
+      this.clearScoresUI();
+      await this.resetScoresServer();
+
       this.querySelector('#comment').value = '';
       await this.load(true);
     } catch (err) {
@@ -467,13 +483,10 @@ class FilmNow extends HTMLElement {
     const year = esc(data.Year || '');
     const rating = esc(data.imdbRating || '-');
     const link = imdbUrlFrom(data);
-
-    // Mindre thumbnail (och stabil layout)
     const poster = (data.Poster && data.Poster !== 'N/A')
-      ? `<img src="${esc(data.Poster)}" alt="poster" loading="lazy" decoding="async" style="width:48px;height:auto;border-radius:6px;border:1px solid var(--border);flex:0 0 auto">`
+      ? `<img src="${esc(data.Poster)}" alt="poster" loading="lazy" decoding="async" class="fn-poster">`
       : '';
 
-    // Streaming (Watchmode)
     let streamingHtml = '';
     if (data.imdbID) {
       const sources = await getStreamingInfo(data.imdbID);
@@ -481,9 +494,9 @@ class FilmNow extends HTMLElement {
     }
 
     info.innerHTML = `
-      <div style="display:flex; gap:10px; align-items:flex-start">
+      <div class="fn-info">
         ${poster}
-        <div style="min-width:0">
+        <div>
           <strong>${title}</strong>${year ? ` (${year})` : ''}<br>
           IMDb ${rating}${link ? ` — <a href="${esc(link)}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
           ${streamingHtml}
@@ -491,28 +504,28 @@ class FilmNow extends HTMLElement {
       </div>
     `;
 
-    // Toggle: visa bara första raden (kollapsad) som standard
+    // Toggle: kollapsa alltid till första raden.
     const row = info.querySelector('.streaming-row');
     const btn = info.querySelector('.streaming-toggle');
     if (row && btn) {
-      const applyCollapsedStyle = () => {
+      const apply = () => {
         const collapsed = row.getAttribute('data-collapsed') === '1';
-        row.style.maxHeight = collapsed ? '34px' : 'none';
+        row.style.maxHeight = collapsed ? '32px' : 'none';
         row.style.overflow = collapsed ? 'hidden' : 'visible';
         btn.textContent = collapsed ? '…' : 'visa färre';
 
-        // Dölj knappen om allt får plats på en rad
+        // dölj knappen om allt får plats
         requestAnimationFrame(() => {
-          const needs = row.scrollHeight > 34 + 2;
+          const needs = row.scrollHeight > 32 + 2;
           btn.style.display = needs ? 'inline-block' : 'none';
         });
       };
 
-      applyCollapsedStyle();
+      apply();
       btn.onclick = () => {
         const collapsed = row.getAttribute('data-collapsed') === '1';
         row.setAttribute('data-collapsed', collapsed ? '0' : '1');
-        applyCollapsedStyle();
+        apply();
       };
     }
   }
