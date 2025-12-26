@@ -2,14 +2,11 @@
 // <film-now> – “På tur nu”-modulen (UI + API-koppling)
 // Mål: samma beteende som gamla singelfilen, men fristående.
 //
-// Ändringar i denna version:
-// - “Nästa i tur” -> “Filmväljare”
-// - Ny layout enligt önskemål (Filmväljare rad + knappar höger, filmrad, previewrad, poäng under)
-// - Hoppa över öppnar alltid avancerat läge (välj vem som är näst på tur) – ingen auto-skip
-// - Knappskydd mot dubbeltryck: inaktiveras + visar “…” medan kommandot kör
-// - Thumbnail mindre
-// - Streaming: bara första raden syns (collapsed) + “…” för expand
-// - Vid “Byt tur” (hoppa) eller “Spara kväll” nollställs poängen (UI + backend)
+// Viktigt beteende:
+// - "Hoppa över" öppnar avancerad vy där man kan välja vem som ska vara näst på tur.
+// - När man sparar en kväll eller byter tur (hoppa/byt tur), nollställs poäng (UI + backend).
+// - Thumbnail liten. Streaming visas kollapsat (bara första raden) tills man expanderar.
+// - Knappar gråas ut och låses under pågående kommando för att undvika dubbeltryck.
 
 import { api } from './api.js';
 import { getWho, on } from './store.js';
@@ -108,17 +105,20 @@ async function watchmodeSources(imdbID) {
 }
 
 function buildStreamPills(sources) {
-  if (!sources?.length) return '<div class="muted" style="font-size:12px">Inget abonnemang hittades just nu.</div>';
+  if (!sources?.length) {
+    return '<div class="muted" style="font-size:12px">Inget abonnemang hittades just nu.</div>';
+  }
+
   const pills = sources.map((s) => {
     const label = `${s.service}${s.quality ? ` ${s.quality}` : ''}${s.region ? ` · ${s.region}` : ''}`;
     const href = s.url ? `href="${esc(s.url)}" target="_blank" rel="noopener"` : '';
     return `<a ${href} class="pill" style="text-decoration:none">${esc(label)} (ingår)</a>`;
   }).join('');
 
-  // collapsed ska bara visa första raden.
+  // collapsed visar bara första raden
   return `
     <div class="streaming-wrap">
-      <div class="muted" style="font-size:12px;margin:0 0 6px">Tillgängligt i abonnemang (globalt):</div>
+      <div class="muted" style="font-size:12px;margin:6px 0 6px">Tillgängligt i abonnemang (globalt):</div>
       <div class="streaming-row collapsed">${pills}</div>
       <button type="button" class="streaming-toggle" style="display:none">…</button>
     </div>
@@ -149,12 +149,16 @@ export class FilmNow extends HTMLElement {
     this.state = {
       current: null,
       info: null,
+      sources: null,
       advancedOpen: false,
       busy: false,
     };
 
     this._unsub = [];
     this._onWhoChange = this._onWhoChange.bind(this);
+
+    this._bound = false;
+    this._onJumpSelChange = null;
   }
 
   connectedCallback() {
@@ -168,7 +172,9 @@ export class FilmNow extends HTMLElement {
   }
 
   disconnectedCallback() {
-    for (const u of this._unsub) try { u(); } catch { }
+    for (const u of this._unsub) {
+      try { u(); } catch { }
+    }
     this._unsub = [];
   }
 
@@ -176,20 +182,20 @@ export class FilmNow extends HTMLElement {
     // UI-texten "Inloggad" ska uppdateras direkt
     const whoEl = this.querySelector('[data-now-who]');
     if (whoEl) whoEl.textContent = getWho();
-    // hämta ny #1 etc
+    // refresh så vi får uppdaterad suggestion för ny användare
     this.refresh();
   }
 
+  // --- Busy / dubbeltrycksskydd
   setBusy(on, { onlyButtons = null, labelWhileBusy = '…' } = {}) {
     this.state.busy = !!on;
 
-    // default: lås alla knappar i modulen
-    const btns = onlyButtons && onlyButtons.length
+    const btns = (onlyButtons && onlyButtons.length)
       ? onlyButtons
       : Array.from(this.querySelectorAll('button'));
 
-    btns.forEach((b) => {
-      if (!b) return;
+    for (const b of btns) {
+      if (!b) continue;
       if (this.state.busy) {
         b.disabled = true;
         b.classList.add('is-busy');
@@ -203,9 +209,14 @@ export class FilmNow extends HTMLElement {
           delete b.dataset.originalText;
         }
       }
-    });
+    }
 
     this.toggleAttribute('aria-busy', this.state.busy);
+  }
+
+  _allActionButtons() {
+    const ids = ['#now-refresh', '#now-skip', '#now-lookup', '#now-saveNight', '#now-doJump'];
+    return ids.map((id) => this.querySelector(id)).filter(Boolean);
   }
 
   resetScoresUI() {
@@ -266,6 +277,9 @@ export class FilmNow extends HTMLElement {
     // text "Inloggad"
     const whoEl = this.querySelector('[data-now-who]');
     if (whoEl) whoEl.textContent = getWho();
+
+    // advanced-knappen "Byt tur" ska spegla vald person
+    this.syncJumpButton();
   }
 
   async updatePreview() {
@@ -295,35 +309,36 @@ export class FilmNow extends HTMLElement {
     const imdbLink = info.imdbID ? `https://www.imdb.com/title/${esc(info.imdbID)}/` : '';
     const imdbTxt = (info.imdbRating && info.imdbRating !== 'N/A') ? `IMDb ${esc(info.imdbRating)}` : 'IMDb';
 
-    // Watchmode: lazy – hämta bara när man klickar
+    // lazy streaming
     box.innerHTML = `
       <div class="now-previewRow">
         <div class="now-previewLeft">
           ${poster}
         </div>
         <div class="now-previewRight">
-          <div class="now-imdbLine">
+          <div class="now-previewTitle">
+            <strong>${esc(info.Title || film)}</strong>${info.Year ? ` (${esc(info.Year)})` : ''}
+          </div>
+          <div class="now-previewMeta">
             ${imdbLink ? `${imdbTxt} — <a href="${imdbLink}" target="_blank" rel="noopener">Öppna på IMDb</a>` : imdbTxt}
           </div>
-          <div class="now-stream" data-has="0">
-            <div class="muted" style="font-size:12px">Tillgängligt i abonnemang (globalt):</div>
-            <div class="muted" style="font-size:12px;margin-top:6px">(klicka för att hämta)</div>
-            <button type="button" class="streaming-toggle" style="display:inline-block">…</button>
-          </div>
+        </div>
+        <div class="now-previewStreams">
+          <div class="muted" style="font-size:12px">Tillgängligt i abonnemang:</div>
+          <div class="muted" style="font-size:12px;margin-top:6px">(klicka för att hämta)</div>
+          <button type="button" class="streaming-toggle" style="display:inline-block">…</button>
         </div>
       </div>
     `;
 
-    const streamWrap = box.querySelector('.now-stream');
-    const btn = box.querySelector('.now-stream .streaming-toggle');
+    const streamBox = box.querySelector('.now-previewStreams');
+    const btn = streamBox?.querySelector('.streaming-toggle');
 
-    if (btn && streamWrap) {
+    if (btn && streamBox) {
       btn.addEventListener('click', async () => {
-        const has = streamWrap.getAttribute('data-has') === '1';
-
         // Om vi redan har pills: toggla collapse
-        const row = streamWrap.querySelector('.streaming-row');
-        if (has && row) {
+        const row = streamBox.querySelector('.streaming-row');
+        if (row) {
           const collapsed = row.classList.toggle('collapsed');
           btn.textContent = collapsed ? '…' : 'visa färre';
           return;
@@ -331,14 +346,16 @@ export class FilmNow extends HTMLElement {
 
         // Annars: hämta sources
         btn.disabled = true;
+        btn.classList.add('is-busy');
         btn.textContent = 'hämtar…';
 
         const sources = await watchmodeSources(info.imdbID);
+        this.state.sources = sources;
 
-        streamWrap.innerHTML = buildStreamPills(sources);
-        streamWrap.setAttribute('data-has', '1');
+        streamBox.innerHTML = buildStreamPills(sources);
+        applyStreamingToggle(streamBox);
 
-        applyStreamingToggle(streamWrap);
+        // knappen kan ha dolts om det inte finns overflow — okej.
       });
     }
   }
@@ -346,24 +363,31 @@ export class FilmNow extends HTMLElement {
   updateAdvancedOptions({ preserveSelection = true } = {}) {
     const curNext = (this.querySelector('#now-nextName')?.value || '').trim();
     const sel = this.querySelector('#now-jumpTo');
-    const btn = this.querySelector('#now-doJump');
-    if (!sel || !btn) return;
+    if (!sel) return;
 
+    const prev = (sel.value || '').trim();
     const list = orderedFrom(curNext);
-    const prev = preserveSelection ? (sel.value || '').trim() : '';
-
     sel.innerHTML = list.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
 
-    // default = "nästa i tur" (först i listan)
-    sel.value = (prev && list.includes(prev)) ? prev : (list[0] || '');
+    const nextVal = (preserveSelection && prev && list.includes(prev)) ? prev : (list[0] || '');
+    sel.value = nextVal;
 
+    this.syncJumpButton();
+
+    // bind onchange exakt en gång
+    if (!this._onJumpSelChange) {
+      this._onJumpSelChange = () => this.syncJumpButton();
+      sel.addEventListener('change', this._onJumpSelChange);
+    }
+  }
+
+  syncJumpButton() {
+    const curNext = (this.querySelector('#now-nextName')?.value || '').trim();
+    const sel = this.querySelector('#now-jumpTo');
+    const btn = this.querySelector('#now-doJump');
+    if (!sel || !btn) return;
     const steps = stepsToTarget(curNext, sel.value);
-    btn.disabled = (steps === 0);
-
-    sel.onchange = () => {
-      const steps2 = stepsToTarget(curNext, sel.value);
-      btn.disabled = (steps2 === 0);
-    };
+    btn.disabled = (steps === 0) || this.state.busy;
   }
 
   async doJump() {
@@ -372,42 +396,42 @@ export class FilmNow extends HTMLElement {
     const curNext = (this.querySelector('#now-nextName')?.value || '').trim();
     const target = (this.querySelector('#now-jumpTo')?.value || '').trim();
     const steps = stepsToTarget(curNext, target);
-
     if (steps <= 0) return;
 
-    const btn = this.querySelector('#now-doJump');
-    this.setBusy(true, { onlyButtons: [btn], labelWhileBusy: '…' });
+    const btns = this._allActionButtons();
+    this.setBusy(true, { onlyButtons: btns, labelWhileBusy: '…' });
 
     try {
-      // hoppa i backend: skipNext N gånger
-      for (let i = 0; i < steps; i++) {
-        await api('skipNext');
-      }
+      for (let i = 0; i < steps; i++) await api('skipNext');
 
-      // efter hopp: nollställ poäng (UI + backend)
+      // Efter hopp: nollställ poäng (UI + backend)
       this.resetScoresUI();
       await this.resetScoresOnServer();
 
-      // refresh
       await this.refresh();
 
-      // stäng avancerat efter att man gjort ett val
+      // Stäng avancerat efter utfört hopp
       this.state.advancedOpen = false;
       const row = this.querySelector('#now-advancedRow');
       if (row) row.style.display = 'none';
     } finally {
-      this.setBusy(false, { onlyButtons: [btn] });
+      this.setBusy(false, { onlyButtons: btns });
+      this.syncJumpButton();
     }
   }
 
   toggleAdvanced(forceOpen = null) {
-    const next = (forceOpen === null) ? !this.state.advancedOpen : !!forceOpen;
-    this.state.advancedOpen = next;
+    if (forceOpen === true) this.state.advancedOpen = true;
+    else if (forceOpen === false) this.state.advancedOpen = false;
+    else this.state.advancedOpen = !this.state.advancedOpen;
 
     const row = this.querySelector('#now-advancedRow');
     if (row) row.style.display = this.state.advancedOpen ? 'flex' : 'none';
 
-    if (this.state.advancedOpen) this.updateAdvancedOptions({ preserveSelection: false });
+    // se till att listan är korrekt när man öppnar
+    if (this.state.advancedOpen) {
+      this.updateAdvancedOptions({ preserveSelection: false });
+    }
   }
 
   async saveNight() {
@@ -419,13 +443,13 @@ export class FilmNow extends HTMLElement {
 
     if (!curNext || !film) return;
 
-    const btn = this.querySelector('#now-saveNight');
-    this.setBusy(true, { onlyButtons: [btn], labelWhileBusy: '…' });
+    const btns = this._allActionButtons();
+    this.setBusy(true, { onlyButtons: btns, labelWhileBusy: '…' });
 
     try {
       await api('saveNight', { who: curNext, film, comment });
 
-      // efter spar: nollställ poäng + kommentar
+      // Efter spara: nollställ poäng (UI + backend) + rensa kommentar
       this.resetScoresUI();
       await this.resetScoresOnServer();
       const c = this.querySelector('#now-comment');
@@ -433,7 +457,8 @@ export class FilmNow extends HTMLElement {
 
       await this.refresh();
     } finally {
-      this.setBusy(false, { onlyButtons: [btn] });
+      this.setBusy(false, { onlyButtons: btns });
+      this.syncJumpButton();
     }
   }
 
@@ -445,10 +470,13 @@ export class FilmNow extends HTMLElement {
   }
 
   bindEvents() {
+    if (this._bound) return;
+    this._bound = true;
+
     // update
     this.querySelector('#now-refresh')?.addEventListener('click', () => this.refresh());
 
-    // hoppa över = öppna avancerat läge
+    // hoppa över = öppna avancerat (inte direkt hoppa!)
     this.querySelector('#now-skip')?.addEventListener('click', () => this.toggleAdvanced(true));
 
     // byt tur
@@ -478,43 +506,38 @@ export class FilmNow extends HTMLElement {
   render() {
     this.innerHTML = `
       <section class="card" id="nowCard">
+        <h3 style="margin:0 0 10px">På tur nu</h3>
+
+        <!-- Rad 1: Filmväljare vänster, knappar höger -->
         <div class="now-topRow">
           <div class="now-topLeft">
-            <h3 style="margin:0">På tur nu</h3>
             <div class="muted" style="font-size:13px">Inloggad: <strong data-now-who>${esc(getWho())}</strong></div>
+            <div class="now-chooser">
+              <label>Filmväljare</label>
+              <input id="now-nextName" type="text" readonly>
+            </div>
           </div>
+
           <div class="now-topRight">
             <button id="now-refresh" class="ghost">Uppdatera</button>
             <button id="now-skip" class="ghost">Hoppa över</button>
           </div>
         </div>
 
-        <!-- Rad 1: Filmväljare vänster, knappar höger (rad ovan) -->
-        <div class="now-row now-rowChooser">
-          <div class="now-chooser">
-            <label>Filmväljare</label>
-            <input id="now-nextName" type="text" readonly>
+        <!-- Rad 2: Film-titel -->
+        <div class="now-filmRow">
+          <label>Film (förslag)</label>
+          <div class="lookup-wrap">
+            <input id="now-film" class="lookup-input" type="text" autocomplete="off" spellcheck="false">
+            <button id="now-lookup" class="lookup-btn" type="button">Sök</button>
           </div>
         </div>
 
-        <!-- Rad 2: Film (förslag) under -->
-        <div class="now-row">
-          <div class="now-filmBlock">
-            <label>Film (förslag)</label>
-            <div class="lookup-wrap">
-              <input id="now-film" class="lookup-input" type="text" autocomplete="off" spellcheck="false">
-              <button id="now-lookup" class="lookup-btn" type="button">Sök</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Rad 3: thumbnail vänster, streaming höger -->
-        <div class="now-row">
-          <div id="now-preview" class="now-preview"></div>
-        </div>
+        <!-- Rad 3: Thumbnail vänster, streaming höger -->
+        <div id="now-preview" class="now-preview"></div>
 
         <!-- Poäng -->
-        <div style="margin-top:10px">
+        <div style="margin-top:12px">
           <label>Poäng</label>
           <div id="now-scoresRow" class="now-scoresRow">
             ${PEOPLE.map((p) => `
@@ -556,61 +579,58 @@ export class FilmNow extends HTMLElement {
       </section>
     `;
 
-    // CSS specifikt för denna modul
+    // CSS som är specifik för just den här modulen
     const style = document.createElement('style');
     style.textContent = `
-      #nowCard .now-topRow{ display:flex; align-items:center; gap:12px; }
-      #nowCard .now-topRight{ margin-left:auto; display:flex; gap:10px; justify-content:flex-end; }
+      #nowCard .now-topRow{display:flex; align-items:flex-start; gap:16px;}
+      #nowCard .now-topLeft{flex:1 1 auto; min-width:260px;}
+      #nowCard .now-topRight{margin-left:auto; display:flex; gap:10px; justify-content:flex-end; align-items:flex-start;}
 
-      #nowCard .now-row{ margin-top:10px; }
-      #nowCard .now-chooser{ max-width:520px; }
+      #nowCard .now-chooser{margin-top:8px; max-width:520px;}
 
-      #nowCard .now-preview{ width:100%; }
-      #nowCard .now-previewRow{
-        display:flex;
-        align-items:flex-start;
-        gap:12px;
-      }
-      #nowCard .now-previewLeft{ flex:0 0 auto; }
-      #nowCard .now-previewRight{ flex:1 1 auto; text-align:right; }
-      #nowCard .now-imdbLine{ font-size:13px; color:var(--muted); }
-      #nowCard .now-imdbLine a{ color:inherit; text-decoration:underline; }
+      #nowCard .now-filmRow{margin-top:10px;}
+
+      /* Preview-layout: thumbnail vänster, streams höger */
+      #nowCard .now-preview{margin-top:10px;}
+      #nowCard .now-previewRow{display:flex; align-items:flex-start; gap:12px;}
+      #nowCard .now-previewLeft{flex:0 0 auto;}
+      #nowCard .now-previewRight{flex:1 1 auto;}
+      #nowCard .now-previewStreams{flex:0 0 340px; text-align:right;}
+      #nowCard .now-previewTitle{font-size:13px; color:var(--muted);}
+      #nowCard .now-previewMeta{font-size:13px; color:var(--muted); margin-top:2px;}
+      #nowCard .now-previewMeta a{color:inherit; text-decoration:underline;}
 
       /* Thumbnail mindre */
-      #nowCard .now-poster{ width:40px; height:auto; border-radius:8px; border:1px solid var(--border); }
+      #nowCard .now-poster{width:44px; height:auto; border-radius:8px; border:1px solid var(--border);}
 
       /* Streaming: visa bara första raden */
-      #nowCard .streaming-row{ display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
-      #nowCard .streaming-row.collapsed{ max-height:34px; overflow:hidden; }
-      #nowCard .streaming-toggle{
-        margin-top:6px;
-        font-size:12px;
-        padding:0;
-        border:none;
-        background:transparent;
-        text-decoration:underline;
-        cursor:pointer;
-        color:var(--muted);
+      #nowCard .streaming-row{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end;}
+      #nowCard .streaming-row.collapsed{max-height:34px; overflow:hidden;}
+      #nowCard .streaming-toggle{margin-top:6px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted);}
+
+      /* Poängrad */
+      #nowCard .now-scoresRow{display:flex; gap:10px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px;}
+
+      /* Gråa ut knappar när kommandot kör */
+      #nowCard button.is-busy{opacity:.55; cursor:not-allowed;}
+
+      @media (max-width:980px){
+        #nowCard .now-previewStreams{flex-basis:260px;}
       }
-
-      #nowCard .now-scoresRow{ display:flex; gap:10px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px; }
-
-      /* Visuell “grå ut” när en knapp kör */
-      #nowCard button.is-busy{ opacity:.6; }
-
       @media (max-width:820px){
-        #nowCard .now-previewRow{ flex-direction:row; }
-        #nowCard .now-previewRight{ text-align:left; }
-        #nowCard .streaming-row{ justify-content:flex-start; }
-      }
-      @media (max-width:640px){
-        #nowCard .now-topRow{ flex-direction:column; align-items:flex-start; }
-        #nowCard .now-topRight{ width:100%; justify-content:flex-start; }
+        #nowCard .now-topRow{flex-direction:column;}
+        #nowCard .now-topRight{width:100%; justify-content:flex-start;}
+        #nowCard .now-previewRow{flex-direction:column;}
+        #nowCard .now-previewStreams{text-align:left; width:100%;}
+        #nowCard .streaming-row{justify-content:flex-start;}
       }
     `;
     this.appendChild(style);
 
     this.bindEvents();
+
+    // bygg advanced dropdown direkt
+    this.updateAdvancedOptions({ preserveSelection: false });
   }
 }
 
