@@ -1,0 +1,121 @@
+/* styles.css – baseline styling restored for modular version */
+
+:root{
+  --bg:#f6f7f9;
+  --card:#ffffff;
+  --text:#1f2937;
+  --muted:#6b7280;
+  --accent:#f4c430;
+  --border:#e5e7eb;
+}
+
+*{ box-sizing:border-box; }
+
+body{
+  margin:0;
+  font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+}
+
+.wrap{
+  max-width:900px;
+  margin:0 auto;
+  padding:16px 12px 40px;
+}
+
+/* ---------- HERO ---------- */
+.hero{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+  margin:20px 0 24px;
+}
+
+.hero-logo{
+  width:160px;        /* ← adjust logo size here */
+  max-width:60vw;
+  height:auto;
+  margin-bottom:12px;
+}
+
+.hero-title{
+  font-size:2rem;
+  margin:0;
+}
+
+.hero-version{
+  font-size:0.85rem;
+  margin-top:4px;
+}
+
+.muted{ color:var(--muted); }
+
+/* ---------- CARDS ---------- */
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:14px 16px;
+  margin-bottom:16px;
+}
+
+h3{
+  margin:0 0 8px;
+}
+
+/* ---------- ROW / COL ---------- */
+.row{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.col{
+  flex:1 1 0;
+}
+
+/* ---------- BUTTONS ---------- */
+button{
+  appearance:none;
+  border:1px solid var(--border);
+  background:#fff;
+  border-radius:999px;
+  padding:6px 12px;
+  font-size:0.9rem;
+}
+
+button:hover{
+  background:#f3f4f6;
+}
+
+button.ghost{
+  background:transparent;
+}
+
+/* ---------- PRE / DEBUG ---------- */
+pre{
+  background:#f9fafb;
+  border:1px dashed var(--border);
+  border-radius:8px;
+  padding:10px;
+  font-size:0.85rem;
+  overflow:auto;
+}
+
+/* ---------- CUSTOM ELEMENTS ---------- */
+film-login,
+film-now,
+film-wishlist,
+film-tops,
+film-history,
+film-system{
+  display:block;
+}
+
+/* ---------- MOBILE TWEAKS ---------- */
+@media (max-width:600px){
+  .hero-logo{ width:130px; }
+  .hero-title{ font-size:1.6rem; }
+}
