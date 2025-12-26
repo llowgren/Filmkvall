@@ -1,110 +1,74 @@
-/* styles.css – baseline styling restored for modular version */
+/* styles.css */
 
 :root{
-  --bg:#f6f7f9;
+  --bg:#f4f7fb;
   --card:#ffffff;
   --text:#1f2937;
   --muted:#6b7280;
-  --accent:#f4c430;
   --border:#e5e7eb;
+  --shadow: 0 8px 24px rgba(15, 23, 42, .08);
+  --radius: 18px;
 }
 
 *{ box-sizing:border-box; }
-
+html,body{ height:100%; }
 body{
   margin:0;
-  font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;
   background:var(--bg);
   color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  line-height:1.35;
 }
 
 .wrap{
-  max-width:900px;
-  margin:0 auto;
-  padding:16px 12px 40px;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 22px 16px 60px;
 }
 
-/* ---------- HERO ---------- */
+/* Hero */
 .hero{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
   text-align:center;
-  margin:20px 0 24px;
+  padding: 6px 8px 18px;
 }
-
 .hero-logo{
-  width:160px;        /* ← adjust logo size here */
-  max-width:60vw;
-  height:auto;
-  margin-bottom:12px;
+  width: 84px;
+  height: auto;
+  display:block;
+  margin: 10px auto 10px;
 }
-
 .hero-title{
-  font-size:2rem;
-  margin:0;
+  font-size: 42px;
+  letter-spacing: .2px;
+  margin: 0;
+}
+.hero-version{
+  margin-top: 6px;
+  font-size: 15px;
 }
 
-.hero-version{
-  font-size:0.85rem;
-  margin-top:4px;
+/* Cards */
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px 18px;
+  margin: 14px 0;
+}
+
+.card h2{
+  font-size: 26px;
+  margin: 0 0 8px 0;
+}
+.card h3{
+  font-size: 18px;
+  margin: 0 0 10px 0;
 }
 
 .muted{ color:var(--muted); }
 
-/* ---------- CARDS ---------- */
-.card{
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:14px 16px;
-  margin-bottom:16px;
-}
-
-h3{
-  margin:0 0 8px;
-}
-
-/* ---------- ROW / COL ---------- */
-.row{
-  display:flex;
-  gap:12px;
-  flex-wrap:wrap;
-}
-
-.col{
-  flex:1 1 0;
-}
-
-/* ---------- BUTTONS ---------- */
-button{
-  appearance:none;
-  border:1px solid var(--border);
-  background:#fff;
-  border-radius:999px;
-  padding:6px 12px;
-  font-size:0.9rem;
-}
-
-button:hover{
-  background:#f3f4f6;
-}
-
-button.ghost{
-  background:transparent;
-}
-
-/* ---------- PRE / DEBUG ---------- */
-pre{
-  background:#f9fafb;
-  border:1px dashed var(--border);
-  border-radius:8px;
-  padding:10px;
-  font-size:0.85rem;
-  overflow:auto;
-}
-
-/* ---------- CUSTOM ELEMENTS ---------- */
+/* Ensure custom elements behave like blocks */
 film-login,
 film-now,
 film-wishlist,
@@ -114,8 +78,101 @@ film-system{
   display:block;
 }
 
-/* ---------- MOBILE TWEAKS ---------- */
-@media (max-width:600px){
-  .hero-logo{ width:130px; }
-  .hero-title{ font-size:1.6rem; }
+/* Form elements */
+label{
+  font-size: 14px;
+  color: var(--muted);
+}
+
+input[type="text"],
+input[type="search"],
+input[type="number"],
+select,
+textarea{
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 11px 12px;
+  background:#fff;
+  color: var(--text);
+  outline:none;
+}
+
+textarea{ min-height: 90px; resize: vertical; }
+
+input:focus,
+select:focus,
+textarea:focus{
+  border-color: #b9c5ff;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, .12);
+}
+
+/* Buttons */
+button{
+  appearance:none;
+  border:1px solid var(--border);
+  background:#fff;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 15px;
+  cursor:pointer;
+}
+
+button:hover{ filter: brightness(.98); }
+button:active{ transform: translateY(1px); }
+
+button.primary{
+  border-color: transparent;
+  background: #f3c84b;
+  color:#1b1b1b;
+  padding: 10px 16px;
+  font-weight: 600;
+}
+
+button.ghost{
+  background:#fff;
+}
+
+button.small{
+  padding: 7px 12px;
+  font-size: 14px;
+}
+
+/* Small layout helpers */
+.row{
+  display:flex;
+  gap: 12px;
+  align-items:center;
+}
+.row > *{ flex:1; }
+
+.grid-2{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.grid-3{
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+pre{
+  background: #f9fafb;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  overflow:auto;
+}
+
+/* Boot-card: göm om tom */
+#bootCard:empty{ display:none; }
+
+/* Mobile tweaks */
+@media (max-width: 700px){
+  .hero-title{ font-size: 38px; }
+  .grid-2{ grid-template-columns: 1fr; }
+  .grid-3{ grid-template-columns: 1fr; }
+  .row{ flex-direction:column; align-items:stretch; }
 }
