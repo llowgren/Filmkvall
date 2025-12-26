@@ -1,6 +1,5 @@
 /** =======================
  *  Filmkväll – Google Apps Script API (code.gs)
- *  Uppdaterad från Github
  *  Blad:
  *   - Config   : Key | Value              (nextIndex, people)
  *   - Wishlists: Person | R1..R5
@@ -11,11 +10,30 @@
  *   - Standardläge: AUTH_REQUIRED=0 => ingen auth (familje-app / GitHub Pages)
  *   - Skärpning: sätt Script Property AUTH_REQUIRED=1 och använd API_TOKEN (och ev PW fallback)
  *   - (Valfritt) ENFORCE_POST=1 för att kräva POST för muterande anrop
+ *
+ *  Nytt:
+ *   - actions: autocomplete, lookupMovie, streaming (för att slippa nycklar i index.html)
  */
+
+/** =========================================================
+ *  ONE-TIME SETUP (kör en gång manuellt)
+ *  - Sätter Script Properties: TMDB_KEY, OMDB_KEY, WATCHMODE_KEY
+ *  - Efter körning: du kan radera funktionen (valfritt).
+ * ========================================================= */
+function SETUP_SECRETS_ONCE(){
+  const props = PropertiesService.getScriptProperties();
+
+  // Dessa tre nycklar kommer från dig.
+  // Efter att de är satta i Script Properties behöver de INTE finnas i koden.
+  props.setProperty('TMDB_KEY', 'e207103e8a03559e4be5970b8c899122');
+  props.setProperty('OMDB_KEY', 'b6f3e48');
+  props.setProperty('WATCHMODE_KEY', '6fs0TqcE6LrZttIvVKKJ1Heg97B161Ay1HntH9Vq');
+
+  Logger.log('OK: TMDB_KEY/OMDB_KEY/WATCHMODE_KEY satta i Script Properties.');
+}
 
 /** ===== Security helpers ===== */
 function secureEq_(a,b){
-  // Constant-time-ish compare to reduce timing leakage.
   a = String(a || '');
   b = String(b || '');
   const len = Math.max(a.length, b.length);
@@ -29,8 +47,6 @@ function secureEq_(a,b){
 }
 
 function getPw_(){
-  // Password must live in Script Properties.
-  // Key: PW
   const v = PropertiesService.getScriptProperties().getProperty('PW');
   const pw = (v && String(v).trim()) ? String(v) : '';
   if (!pw) throw new Error('PW not configured (set Script Property PW)');
@@ -38,8 +54,6 @@ function getPw_(){
 }
 
 function getApiToken_(){
-  // Primary auth secret.
-  // Key: API_TOKEN
   const v = PropertiesService.getScriptProperties().getProperty('API_TOKEN');
   const t = (v && String(v).trim()) ? String(v) : '';
   if (!t) throw new Error('API_TOKEN not configured (set Script Property API_TOKEN)');
@@ -47,13 +61,10 @@ function getApiToken_(){
 }
 
 function getDebugToken_(){
-  // Optional: if set, debug requires this token.
-  // Key: DEBUG_TOKEN
   return PropertiesService.getScriptProperties().getProperty('DEBUG_TOKEN') || '';
 }
 
 function redactSecrets_(obj){
-  // Avoid reflecting secrets back to client.
   const out = {};
   Object.keys(obj || {}).forEach(k => {
     if (k === 'pw' || k === 'token' || k === 'debugToken') return;
@@ -63,37 +74,29 @@ function redactSecrets_(obj){
 }
 
 function isDebugEnabled_(){
-  // Optional kill-switch for debug without removing the action.
-  // Set Script Property DEBUG_ENABLED = '0' to disable.
   const v = PropertiesService.getScriptProperties().getProperty('DEBUG_ENABLED');
   return String(v == null ? '1' : v) !== '0';
 }
 
 function shouldEnforcePost_(){
-  // Optional hardening: set Script Property ENFORCE_POST = '1' to require POST for mutating actions.
   const v = PropertiesService.getScriptProperties().getProperty('ENFORCE_POST');
   return String(v || '') === '1';
 }
 
 function isWriteAction_(action){
-  // Actions that mutate sheets.
   return ['saveScores','saveWishlist','skipNext','saveNight'].indexOf(action) >= 0;
 }
 
 function isPost_(e){
-  // For doPost, e.postData is present; for doGet, it is not.
   return !!(e && e.postData && typeof e.postData.contents === 'string');
 }
 
 function isAuthRequired_(){
-  // Default: NO auth (family app). Set AUTH_REQUIRED=1 to enforce.
   const v = PropertiesService.getScriptProperties().getProperty('AUTH_REQUIRED');
   return String(v || '0') === '1';
 }
 
 function tooManyBadPw_(){
-  // Light global rate-limit for bad auth attempts (per minute).
-  // Robust: JSON.parse can’t crash the whole API.
   const props = PropertiesService.getScriptProperties();
   const key = 'BAD_AUTH_MINUTE';
   const nowMin = Math.floor(Date.now() / 60000);
@@ -109,21 +112,28 @@ function tooManyBadPw_(){
   if (state.min !== nowMin) state = { min: nowMin, n: 0 };
   state.n++;
   props.setProperty(key, JSON.stringify(state));
-  return state.n > 20; // allow up to 20 bad attempts per minute
+  return state.n > 20;
 }
-
 
 const PEOPLE_DEFAULT = ['Hannah','Maria','Tuva','Alva','Lars'];
 const TZ = 'Europe/Stockholm';
+
+/** ===== External API keys (Script Properties) ===== */
+function getTmdbKey_(){
+  return (PropertiesService.getScriptProperties().getProperty('TMDB_KEY') || '').trim();
+}
+function getOmdbKey_(){
+  return (PropertiesService.getScriptProperties().getProperty('OMDB_KEY') || '').trim();
+}
+function getWatchmodeKey_(){
+  return (PropertiesService.getScriptProperties().getProperty('WATCHMODE_KEY') || '').trim();
+}
 
 /** ===== HTTP entry ===== */
 function doGet(e){ return handle_(e); }
 function doPost(e){ return handle_(e); }
 
 function getParams_(e){
-  // Support both query params and POST body without changing the API contract.
-  // - For form-encoded POST, Apps Script populates e.parameter.
-  // - For JSON POST, parse e.postData.contents.
   const base = (e && e.parameter) ? e.parameter : {};
   const out = {};
   Object.keys(base || {}).forEach(k => out[k] = base[k]);
@@ -135,13 +145,10 @@ function getParams_(e){
         const obj = JSON.parse(e.postData.contents);
         if (obj && typeof obj === 'object') {
           Object.keys(obj).forEach(k => {
-            // Do not overwrite explicit query params if present
             if (!(k in out)) out[k] = obj[k];
           });
         }
-      } catch (_) {
-        // Ignore invalid JSON to preserve current behavior.
-      }
+      } catch (_) {}
     }
   }
   return out;
@@ -151,7 +158,6 @@ function handle_(e) {
   try {
     const p = getParams_(e);
     const action = String(p.action || '').trim();
-
     if (!action) return json_({ ok:false, error:'action required' });
 
     const allowedActions = {
@@ -159,19 +165,17 @@ function handle_(e) {
       getCurrent:1, getScores:1, saveScores:1,
       getWishlist:1, saveWishlist:1,
       getTops:1, getHistory:1,
-      skipNext:1, saveNight:1
+      skipNext:1, saveNight:1,
+
+      // NEW:
+      autocomplete:1, lookupMovie:1, streaming:1
     };
     if (!allowedActions[action]) return json_({ ok:false, error:'unknown action', got:action });
 
-    // Optional: require POST for mutating calls
     if (shouldEnforcePost_() && isWriteAction_(action) && !isPost_(e)) {
       return json_({ ok:false, error:'POST required' });
     }
 
-    // Auth:
-    // - ping always open
-    // - if AUTH_REQUIRED=0 => open (familje-app)
-    // - if AUTH_REQUIRED=1 => token (API_TOKEN) OR pw fallback (PW) must match
     if (action !== 'ping' && isAuthRequired_()) {
       const tokenOk = secureEq_(p.token || '', getApiToken_());
       const pwOk = (p.pw != null && p.pw !== '') ? secureEq_(p.pw || '', getPw_()) : false;
@@ -182,7 +186,6 @@ function handle_(e) {
       }
     }
 
-    // Ensure schema
     ensureSheets_();
 
     switch (action) {
@@ -192,6 +195,7 @@ function handle_(e) {
         const dbg = getDebugToken_();
         if (dbg && !secureEq_(p.debugToken || '', dbg)) return json_({ ok:false, error:'bad debug token' });
         return json_({ ok:true, received: redactSecrets_(p) });
+
       case 'getCurrent':   return json_(getCurrent_());
       case 'getScores':    return json_(getScores_());
       case 'saveScores':   return json_(saveScores_(p));
@@ -201,6 +205,12 @@ function handle_(e) {
       case 'getHistory':   return json_(getHistory_(p));
       case 'skipNext':     return json_(skipNext_());
       case 'saveNight':    return json_(saveNight_(p));
+
+      // NEW:
+      case 'autocomplete': return json_(autocomplete_(p));
+      case 'lookupMovie':  return json_(lookupMovie_(p));
+      case 'streaming':    return json_(streaming_(p));
+
       default:             return json_({ ok:false, error:'unknown action', got:action });
     }
   } catch (err) {
@@ -236,13 +246,11 @@ function getPeople_(){
 function ensureSheets_(){
   const PEOPLE = getPeople_();
 
-  // Config
   const shC = getOrCreateSheet_('Config');
   if (shC.getLastRow() === 0) shC.getRange(1,1,1,2).setValues([['Key','Value']]);
   if (getConfig_('people') === null) setConfig_('people', PEOPLE_DEFAULT.join(','));
   if (getConfig_('nextIndex') === null) setConfig_('nextIndex', '0');
 
-  // Wishlists
   const shW = getOrCreateSheet_('Wishlists');
   if (shW.getLastRow() === 0){
     shW.getRange(1,1,1,6).setValues([['Person','R1','R2','R3','R4','R5']]);
@@ -256,7 +264,6 @@ function ensureSheets_(){
     PEOPLE.forEach(p=>{ if (!existing.includes(p)) shW.appendRow([p,'','','','','']); });
   }
 
-  // Scores
   const shS = getOrCreateSheet_('Scores');
   const headS = PEOPLE.slice();
   if (shS.getLastRow() === 0){
@@ -273,7 +280,6 @@ function ensureSheets_(){
     }
   }
 
-  // History
   const shH = getOrCreateSheet_('History');
   const headH = ['Datum','Film','Vem valde','Kommentar'].concat(PEOPLE);
   if (shH.getLastRow() === 0){
@@ -522,11 +528,9 @@ function saveNight_(p){
     });
     shH.appendRow(row);
 
-    // Clear scores row
     const shS = ss_().getSheetByName('Scores');
     shS.getRange(2,1,1,PEOPLE.length).setValues([PEOPLE.map(_=>'')]);
 
-    // Shift wishlist up for chooser
     const shW = ss_().getSheetByName('Wishlists');
     const lastRow = shW.getLastRow();
     if (lastRow >= 2){
@@ -540,7 +544,6 @@ function saveNight_(p){
       }
     }
 
-    // Advance turn deterministically from who
     const whoIdx = PEOPLE.indexOf(who);
     const nextIdx = whoIdx >= 0
       ? (whoIdx+1)%PEOPLE.length
@@ -551,4 +554,245 @@ function saveNight_(p){
   } finally {
     lock.releaseLock();
   }
+}
+
+/** =========================================================
+ *  NEW: autocomplete (TMDb)
+ *  Request: { q: "matrix" }
+ *  Response: { ok:true, items:[{title,year},...] }
+ * ========================================================= */
+function autocomplete_(p){
+  const q = trim_(p.q);
+  if (q.length < 2) return { ok:true, items: [] };
+
+  const key = getTmdbKey_();
+  if (!key) return { ok:true, items: [] };
+
+  try{
+    const url = 'https://api.themoviedb.org/3/search/movie'
+      + '?api_key=' + encodeURIComponent(key)
+      + '&language=sv-SE'
+      + '&include_adult=false'
+      + '&query=' + encodeURIComponent(q);
+
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions:true });
+    if (res.getResponseCode() !== 200) return { ok:true, items: [] };
+
+    const j = JSON.parse(res.getContentText() || '{}');
+    const results = Array.isArray(j.results) ? j.results : [];
+    const items = results.slice(0, 8).map(it => ({
+      title: it.title || it.original_title || '',
+      year: (it.release_date || '').slice(0,4) || ''
+    })).filter(x => x.title);
+
+    return { ok:true, items: items };
+  }catch(e){
+    return { ok:true, items: [] };
+  }
+}
+
+/** =========================================================
+ *  NEW: lookupMovie (OMDb-first, TMDb fallback)
+ *  Request: { q: "The Matrix (1999)" }
+ *  Response: { ok:true, data:{Title,Year,Poster,imdbID,imdbRating} }
+ * ========================================================= */
+function lookupMovie_(p){
+  const q0 = trim_(p.q);
+  if (!q0) return { ok:true, data: null };
+
+  // 1) OMDb först
+  const om = omdbLookup_(q0);
+  if (om) return { ok:true, data: om };
+
+  // 2) TMDb fallback: hitta film, plocka imdb_id via external_ids, sen OMDb igen om möjligt
+  const tm = tmdbBestHit_(q0);
+  if (!tm) return { ok:true, data: null };
+
+  if (tm.imdbID){
+    const om2 = omdbLookup_(tm.imdbID);
+    if (om2) return { ok:true, data: om2 };
+  }
+
+  // 3) Returnera “OMDb-lik” från TMDb
+  return { ok:true, data: {
+    Title: tm.Title || '',
+    Year: tm.Year || '',
+    Poster: tm.Poster || 'N/A',
+    imdbID: tm.imdbID || '',
+    imdbRating: tm.imdbRating || '-'
+  }};
+}
+
+function omdbLookup_(query){
+  const key = getOmdbKey_();
+  if (!key) return null;
+
+  let q = String(query || '').trim();
+  if (!q) return null;
+
+  // (1999) parsing
+  let year = '';
+  const mYear = q.match(/\((\d{4})\)\s*$/);
+  if (mYear){
+    year = mYear[1];
+    q = q.replace(/\s*\(\d{4}\)\s*$/,'').trim();
+  }
+
+  // imdb id in query
+  const mTT = q.match(/tt\d{7,}/i);
+  if (mTT){
+    const id = mTT[0];
+    const url = 'https://www.omdbapi.com/?apikey=' + encodeURIComponent(key)
+      + '&i=' + encodeURIComponent(id) + '&plot=short';
+    try{
+      const res = UrlFetchApp.fetch(url, { muteHttpExceptions:true });
+      const j = JSON.parse(res.getContentText() || '{}');
+      if (j && j.Response !== 'False') return j;
+    }catch(e){}
+    return null;
+  }
+
+  // title lookup
+  try{
+    const urlT = 'https://www.omdbapi.com/?apikey=' + encodeURIComponent(key)
+      + '&t=' + encodeURIComponent(q)
+      + (year ? '&y=' + encodeURIComponent(year) : '')
+      + '&type=movie&plot=short';
+    const resT = UrlFetchApp.fetch(urlT, { muteHttpExceptions:true });
+    const jT = JSON.parse(resT.getContentText() || '{}');
+    if (jT && jT.Response !== 'False') return jT;
+  }catch(e){}
+
+  // search fallback
+  try{
+    const urlS = 'https://www.omdbapi.com/?apikey=' + encodeURIComponent(key)
+      + '&s=' + encodeURIComponent(q) + '&type=movie';
+    const resS = UrlFetchApp.fetch(urlS, { muteHttpExceptions:true });
+    const jS = JSON.parse(resS.getContentText() || '{}');
+    if (jS && jS.Response !== 'False' && Array.isArray(jS.Search) && jS.Search.length){
+      return omdbLookup_(jS.Search[0].Title);
+    }
+  }catch(e){}
+
+  return null;
+}
+
+function tmdbBestHit_(query){
+  const key = getTmdbKey_();
+  if (!key) return null;
+
+  const q = String(query || '').trim();
+  if (!q) return null;
+
+  try{
+    const url = 'https://api.themoviedb.org/3/search/movie'
+      + '?api_key=' + encodeURIComponent(key)
+      + '&language=sv-SE'
+      + '&include_adult=false'
+      + '&query=' + encodeURIComponent(q);
+
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions:true });
+    if (res.getResponseCode() !== 200) return null;
+    const j = JSON.parse(res.getContentText() || '{}');
+    const results = Array.isArray(j.results) ? j.results : [];
+    if (!results.length) return null;
+
+    // välj första träffen (enkel och stabil)
+    const best = results[0];
+
+    let imdbID = '';
+    try{
+      const idsUrl = 'https://api.themoviedb.org/3/movie/' + encodeURIComponent(best.id)
+        + '/external_ids?api_key=' + encodeURIComponent(key);
+      const res2 = UrlFetchApp.fetch(idsUrl, { muteHttpExceptions:true });
+      if (res2.getResponseCode() === 200){
+        const ids = JSON.parse(res2.getContentText() || '{}');
+        imdbID = ids.imdb_id || '';
+      }
+    }catch(e){}
+
+    const poster = best.poster_path ? ('https://image.tmdb.org/t/p/w92' + best.poster_path) : 'N/A';
+    const year = (best.release_date || '').slice(0,4) || '';
+    return { Title: best.title || best.original_title || '', Year: year, Poster: poster, imdbID: imdbID, imdbRating: '-' };
+  }catch(e){
+    return null;
+  }
+}
+
+/** =========================================================
+ *  NEW: streaming (Watchmode)
+ *  Request: { imdbID: "tt0133093" }
+ *  Response: { ok:true, items:[{service,quality,region,link}...] }  (eller null)
+ * ========================================================= */
+function streaming_(p){
+  const imdbID = trim_(p.imdbID);
+  if (!imdbID) return { ok:true, items: null };
+
+  const key = getWatchmodeKey_();
+  if (!key) return { ok:true, items: null };
+
+  try{
+    const titleId = watchmodeTitleIdFromImdb_(key, imdbID);
+    if (!titleId) return { ok:true, items: null };
+
+    const url = 'https://api.watchmode.com/v1/title/' + encodeURIComponent(titleId)
+      + '/sources/?apiKey=' + encodeURIComponent(key);
+
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions:true });
+    if (res.getResponseCode() !== 200) return { ok:true, items: null };
+
+    const data = JSON.parse(res.getContentText() || '[]');
+    if (!Array.isArray(data)) return { ok:true, items: null };
+
+    const seen = {};
+    function normName_(s){ return String(s||'').replace(/\s*\(with Ads\)$/i,'').replace(/\s+HD$/,'').trim(); }
+
+    const items = data
+      .filter(s => s && s.type === 'sub' && s.name)
+      .map(s => ({
+        service: normName_(s.name),
+        quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
+        region: s.region || '',
+        link: s.web_url || ''
+      }))
+      .filter(s => {
+        const k = s.service + '|' + s.quality + '|' + s.region;
+        if (seen[k]) return false;
+        seen[k] = true;
+        return true;
+      })
+      .sort((a,b)=>(a.service+a.region+a.quality).localeCompare(b.service+b.region+b.quality));
+
+    return { ok:true, items: items.length ? items : null };
+  }catch(e){
+    return { ok:true, items: null };
+  }
+}
+
+function watchmodeTitleIdFromImdb_(apiKey, imdbID){
+  // 1) find
+  try{
+    const u1 = 'https://api.watchmode.com/v1/find/?apiKey=' + encodeURIComponent(apiKey)
+      + '&source=imdb&external_id=' + encodeURIComponent(imdbID);
+    const r1 = UrlFetchApp.fetch(u1, { muteHttpExceptions:true });
+    if (r1.getResponseCode() === 200){
+      const j1 = JSON.parse(r1.getContentText() || '{}');
+      if (j1 && j1.title_id) return j1.title_id;
+    }
+  }catch(e){}
+
+  // 2) search fallback
+  try{
+    const u2 = 'https://api.watchmode.com/v1/search/?apiKey=' + encodeURIComponent(apiKey)
+      + '&search_field=imdb_id&search_value=' + encodeURIComponent(imdbID);
+    const r2 = UrlFetchApp.fetch(u2, { muteHttpExceptions:true });
+    if (r2.getResponseCode() === 200){
+      const j2 = JSON.parse(r2.getContentText() || '{}');
+      const arr = Array.isArray(j2.title_results) ? j2.title_results : [];
+      const hit = arr.find(x => String(x.imdb_id||'') === String(imdbID));
+      if (hit && hit.id) return hit.id;
+    }
+  }catch(e){}
+
+  return null;
 }
