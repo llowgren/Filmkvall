@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Filmkväll</title>
 
-  <link id="favicon" rel="icon" type="image/png" href="Logo.PNG">
+  <link rel="icon" type="image/png" href="Logo.PNG">
   <meta property="og:title" content="Filmkväll">
   <meta property="og:type" content="website">
   <meta property="og:image" content="Logo.PNG">
@@ -13,9 +13,20 @@
   <meta name="twitter:image" content="Logo.PNG">
 
   <style>
+    /* Wishlist reorder */
+    .wishlist-item{display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center}
+    .wishlist-move{display:flex; gap:8px; justify-content:flex-end}
+    .wishlist-move button{
+      width:42px; height:42px; padding:0;
+      border-radius:12px;
+      font-size:18px; line-height:1;
+      display:flex; align-items:center; justify-content:center;
+      touch-action:manipulation;
+    }
+
     :root{
       --bg:#0f1116; --panel:#161a22; --text:#e6e8ee; --muted:#9aa3b2;
-      --accent:#f6c247; --ok:#2ea86b; --err:#e5534b;
+      --accent:#f6c247; --accent-weak:#ffe399; --ok:#2ea86b; --err:#e5534b;
       --input:#0f1116; --border:#2a3140; --btn:#1f2533; --btn-text:#e6e8ee;
       --pill-bg:#1f2533;
     }
@@ -28,23 +39,22 @@
     *{box-sizing:border-box}
     body{background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0}
     .wrap{max-width:1100px; margin:24px auto; padding:0 16px;}
-    .muted{color:var(--muted)}
-    h3{margin:0 0 10px}
 
-    /* Hero */
-    .hero{display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px; margin:8px 0 20px}
-    .hero-logo{width:14%; max-width:180px; min-width:96px; height:auto}
-    .hero-title{font-size:34px; margin:0; letter-spacing:.08em}
+    /* Hero header */
+    .hero{display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px; margin:8px 0 14px}
+    .hero-logo{width:12%; max-width:150px; min-width:86px; height:auto}
+    .hero-title{font-size:30px; margin:0; letter-spacing:.08em}
     .hero-version{font-size:12px}
-    @media (max-width:520px){ .hero-logo{width:28%} .hero-title{font-size:26px} }
+    @media (max-width:520px){ .hero-logo{width:22%} .hero-title{font-size:24px} }
 
-    /* Layout */
+    h3{margin:0 0 10px}
+    .muted{color:var(--muted)}
     .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0}
     .row{display:flex; gap:12px; flex-wrap:wrap}
     .col{flex:1 1 220px; min-width:220px}
     .right{margin-left:auto}
-
     label{display:block; font-size:13px; color:var(--muted); margin:0 0 6px}
+
     input,select,textarea{
       width:100%; padding:10px 12px; border-radius:10px;
       border:1px solid var(--border); background:var(--input); color:var(--text);
@@ -55,28 +65,19 @@
       border:1px solid var(--border); padding:8px 12px; border-radius:9px; font-size:14px;
     }
     button:disabled{opacity:.55; cursor:not-allowed; filter:saturate(.6)}
+    button.primary:disabled{opacity:.55}
+
     .primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a}
     .ghost{background:transparent}
-
-    .pill{display:inline-block; padding:8px 12px; border-radius:999px; font-size:13px; background:var(--pill-bg); border:1px solid var(--border)}
-    .ok{color:var(--ok)} .err{color:var(--err)}
+    .ok{color:var(--ok)}
+    .err{color:var(--err)}
+    .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px; background:var(--pill-bg); border:1px solid var(--border)}
+    #apiStatus.pill{padding:8px 12px; display:inline-block; line-height:1.2}
 
     .flash{animation:flash 700ms ease}
     @keyframes flash{0%{box-shadow:0 0 0 0 rgba(246,194,71,0)}40%{box-shadow:0 0 0 6px rgba(246,194,71,.25)}100%{box-shadow:0 0 0 0 rgba(246,194,71,0)}}
 
-    /* Scores */
-    #scoresRow{display:flex; gap:8px; align-items:flex-end; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
-    .score-col{min-width:100px; flex:1 1 0}
-    .score-col label{margin-bottom:4px}
-    .score-col select{padding:8px 10px; border-radius:8px; text-align:center; text-align-last:center}
-
-    /* Lookup + autocomplete */
-    .lookup-wrap{display:flex; gap:6px; align-items:center; flex-wrap:nowrap}
-    .lookup-input{flex:1 1 auto; min-width:0; padding:10px 12px}
-    .lookup-btn{
-      flex:0 0 auto; width:auto; padding:6px 10px; font-size:12px; line-height:1; white-space:nowrap;
-      border-radius:8px; border:1px solid var(--border); background:var(--btn); color:var(--btn-text);
-    }
+    /* Autocomplete */
     .ac-wrap{ position:relative; }
     .ac-list{
       position:absolute; left:0; right:0; top:100%;
@@ -87,12 +88,24 @@
       margin-top:6px;
       overflow:hidden;
     }
-    .ac-item{ padding:10px 12px; cursor:pointer; border-top:1px solid var(--border); font-size:14px; }
+    .ac-item{
+      padding:10px 12px;
+      cursor:pointer;
+      border-top:1px solid var(--border);
+      font-size:14px;
+    }
     .ac-item:first-child{ border-top:none; }
     .ac-item:hover{ filter:brightness(1.08); }
     .ac-muted{ color:var(--muted); font-size:12px; }
 
-    /* OMDb info */
+    /* Lookup rows */
+    .lookup-wrap{display:flex; gap:6px; align-items:center; flex-wrap:nowrap}
+    .lookup-input{flex:1 1 auto; min-width:0; padding:10px 12px}
+    .lookup-btn{
+      flex:0 0 auto; width:auto; padding:6px 10px; font-size:12px; line-height:1; white-space:nowrap;
+      border-radius:8px; border:1px solid var(--border); background:var(--btn); color:var(--btn-text);
+    }
+
     .omdb-info{
       margin:6px 0 8px; font-size:13px; color:var(--muted);
       display:flex; align-items:flex-start; gap:8px;
@@ -100,7 +113,6 @@
     .omdb-info img{ width:64px; height:auto; border-radius:6px; border:1px solid var(--border); }
     .omdb-info a{ color:inherit; text-decoration:underline; }
 
-    /* Streaming pills */
     .streaming-wrap{margin-top:8px}
     .streaming-row{display:flex; flex-wrap:wrap; gap:4px}
     .streaming-row.collapsed{max-height:34px; overflow:hidden}
@@ -121,73 +133,58 @@
       .lookup-btn{margin-top:4px}
     }
 
-    /* Wishlist reorder */
-    .wishlist-item{display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center}
-    .wishlist-move{display:flex; gap:8px; justify-content:flex-end}
-    .wishlist-move button{
-      width:42px; height:42px; padding:0;
-      border-radius:12px;
-      font-size:18px; line-height:1;
-      display:flex; align-items:center; justify-content:center;
-      touch-action:manipulation;
-    }
+    /* Scores */
+    #scoresRow{display:flex; gap:8px; align-items:flex-end; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
+    .score-col{min-width:100px; flex:1 1 0}
+    .score-col label{margin-bottom:4px}
+    .score-col select{padding:8px 10px; border-radius:8px; text-align:center; text-align-last:center}
 
     /* Tops */
     #tops .row{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
     #tops .col{ display:flex; flex-direction:column; gap:6px; }
     @media (max-width:640px){ #tops .row{ grid-template-columns:1fr; } }
 
-    /* Compact login (not dominating) */
-    details.login{ margin:10px 0 0; }
-    details.login > summary{ cursor:pointer; user-select:none; }
-    .login-grid{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:10px }
-    .login-grid .col{ min-width:220px }
-    .login-row{ display:flex; gap:8px; align-items:center }
-    .login-row input,.login-row select,.login-row button{ height:42px }
-    .login-row input,.login-row select{ flex:1 1 auto; min-width:0 }
-    .login-row button{ flex:0 0 auto; white-space:nowrap }
+    /* Login bar (compact) */
+    .loginbar{padding:10px 12px}
+    .loginbar .row{align-items:flex-end}
+    .pw-row{display:flex; gap:8px; align-items:center}
+    .pw-row input,.pw-row select,.pw-row button{height:42px}
+    .pw-row input,.pw-row select{flex:1 1 auto; min-width:0}
+    .pw-row button{flex:0 0 auto; white-space:nowrap}
   </style>
 </head>
 
 <body>
   <div class="wrap">
     <header class="hero">
-      <img id="logoImg" src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
+      <img src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
       <h1 class="hero-title">Filmkväll</h1>
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
+    </header>
 
-      <!-- “Lägre och mindre dominerande”: inloggning som expanderbar -->
-      <details class="login" id="loginDetails">
-        <summary class="muted">
-          Inloggning & användare
-          <span id="authPill" class="pill" style="margin-left:8px; padding:4px 10px">Ej inloggad</span>
-        </summary>
+    <!-- Kompakt login (synlig men dominerar inte) -->
+    <div class="card loginbar" id="loginCard">
+      <div class="row">
+        <div class="col" style="max-width:260px">
+          <label for="who">Användare</label>
+          <select id="who" aria-label="Användare"></select>
+        </div>
 
-        <div class="login-grid">
-          <div class="col" style="max-width:260px">
-            <label for="who">Användare</label>
-            <div class="login-row">
-              <select id="who" aria-label="Användare"></select>
-            </div>
-          </div>
-
-          <div class="col" style="max-width:360px">
-            <label for="pwInput">Lösenord</label>
-            <div class="login-row">
-              <input id="pwInput" type="password" autocomplete="current-password" placeholder="ange lösenord" />
-              <button id="togglePw" type="button" class="ghost" aria-label="Visa/Dölj lösenord">Visa</button>
-              <button id="loginBtn" type="button" class="primary">Logga in</button>
-            </div>
-          </div>
-
-          <div class="col" style="min-width:220px; flex:1 1 260px">
-            <div class="muted" style="font-size:12px">
-              Efter inloggning låses knappar/poäng upp.
-            </div>
+        <div class="col" style="max-width:360px">
+          <label for="pwInput">Lösenord</label>
+          <div class="pw-row">
+            <input id="pwInput" type="password" autocomplete="current-password" placeholder="ange lösenord" />
+            <button id="togglePw" type="button" class="ghost" aria-label="Visa/Dölj lösenord">Visa</button>
+            <button id="loginBtn" type="button" class="primary">Logga in</button>
           </div>
         </div>
-      </details>
-    </header>
+
+        <div class="col">
+          <label>Status</label>
+          <div id="apiStatus" class="pill">Init…</div>
+        </div>
+      </div>
+    </div>
 
     <!-- På tur nu -->
     <div class="card" id="nowCard">
@@ -201,17 +198,11 @@
 
         <div class="col">
           <label>Film (förslag från #1 i listan)</label>
+
           <div class="lookup-wrap ac-wrap">
-            <input
-              id="suggested"
-              class="lookup-input"
-              type="text"
-              readonly
+            <input id="suggested" class="lookup-input" type="text"
               placeholder="Skriv film här om listan är tom…"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck="false"
-            >
+              autocomplete="off" autocapitalize="off" spellcheck="false">
             <button class="lookup-btn" data-lookup="suggested" type="button">Sök</button>
             <div class="ac-list" id="ac-suggested" style="display:none"></div>
           </div>
@@ -220,7 +211,6 @@
         </div>
       </div>
 
-      <!-- Poäng -->
       <div id="scoresRow"></div>
 
       <div class="row">
@@ -257,7 +247,7 @@
       <h3>Mina kommande (1–5)</h3>
 
       <div class="wishlist-col" id="wishlistCol">
-        <!-- w1..w5 -->
+        <!-- Rader byggs statiskt (som förr) -->
         <div class="wishlist-item">
           <div class="lookup-wrap ac-wrap">
             <input id="w1" class="lookup-input" placeholder="#1 – högst upp" autocomplete="off">
@@ -342,9 +332,9 @@
       <div id="history"></div>
     </div>
 
-    <!-- Tema + Status + Felsök (längst ner) -->
-    <div class="card" id="bottomCard">
-      <div class="row" style="align-items:flex-end">
+    <!-- Tema + Felsök längst ner -->
+    <div class="card">
+      <div class="row">
         <div class="col" style="max-width:260px">
           <label for="theme">Tema</label>
           <select id="theme">
@@ -354,8 +344,10 @@
           </select>
         </div>
         <div class="col">
-          <label>Status</label>
-          <div id="apiStatus" class="pill">Init…</div>
+          <label> </label>
+          <div class="muted" style="font-size:12px; margin-top:10px">
+            Tips: om autocomplete/metadata inte funkar än, kan du tillfälligt lägga API-nycklar i felsök nedan tills backend är klar.
+          </div>
         </div>
       </div>
 
@@ -363,10 +355,6 @@
         <summary class="muted">Felsök (visa teknisk info)</summary>
 
         <div class="row" style="margin-top:10px">
-          <div class="col" style="min-width:220px">
-            <label for="backendToken">Backend-token (valfritt, lagras lokalt)</label>
-            <input id="backendToken" placeholder="token">
-          </div>
           <div class="col" style="min-width:220px">
             <label for="tmdbKey">TMDb-nyckel (valfritt, lagras lokalt)</label>
             <input id="tmdbKey" placeholder="tmdb api key">
@@ -389,27 +377,26 @@
 
 <script>
 /********************************************************************
- * Filmkväll – single file
- * Säkerhet:
- * - Inga hemligheter i repo: pw/token/externa nycklar lagras lokalt
- * - POST till Apps Script (pw/token i body, inte URL)
- * UX:
- * - SWR-cache + save-queue
- * - Autocomplete + OMDb/TMDb + valfri Watchmode (lazy)
- * - Topplistor: top 5 film + top 5 väljare
+ * Filmkväll – index.html
+ * - POST mot Apps Script
+ * - PW i localStorage (inte i repo)
+ * - Autocomplete + OMDb/TMDb/Watchmode (backend-first, fallback lokalt)
  ********************************************************************/
 
-// ===== KONFIG (publik) =====
+// ===== KONFIG =====
 const API_URL = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
-const PEOPLE  = ['Hannah','Maria','Tuva','Alva','Lars'];
+const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
 
 // ===== Version =====
-const APP_VERSION = (()=> {
+const APP_VERSION = (() => {
   try{
     const d = new Date(document.lastModified);
     if(isNaN(d)) return 'okänd';
-    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
-    const hh=String(d.getHours()).padStart(2,'0'), mm=String(d.getMinutes()).padStart(2,'0');
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
     return `${y}-${m}-${day} ${hh}:${mm}`;
   }catch{ return 'okänd'; }
 })();
@@ -418,35 +405,29 @@ const APP_VERSION = (()=> {
 const LS = {
   who: 'film_who',
   theme: 'film_theme',
-  pw: 'filmkvall_pw_v3',
-  token: 'filmkvall_backend_token_v1',
+  pw: 'filmkvall_pw_v2',
   tmdb: 'filmkvall_tmdb_key_v1',
   omdb: 'filmkvall_omdb_key_v1',
   watchmode: 'filmkvall_watchmode_key_v1',
-  savequeue: 'filmkvall_savequeue_v1',
   cachePrefix: 'filmkvall_cache_',
+  savequeue: 'filmkvall_savequeue_v1',
   lastNightSave: 'filmkvall_lastNightSave_v1',
 };
 
-const $  = (s)=>document.querySelector(s);
+// ===== Helpers =====
+const $ = (s)=>document.querySelector(s);
 const $$ = (s)=>document.querySelectorAll(s);
-const escapeHtml = (s)=>String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
-
-// ===== LocalStorage helpers =====
 function lsGet(k){ try{ return localStorage.getItem(k) || ''; } catch { return ''; } }
 function lsSet(k,v){ try{ localStorage.setItem(k, String(v ?? '')); } catch {} }
-function getSavedPw(){ return (lsGet(LS.pw) || '').trim(); }
-function setSavedPw(pw){ lsSet(LS.pw, String(pw||'').trim()); }
-function getSavedToken(){ return (lsGet(LS.token) || '').trim(); }
-function setSavedToken(t){ lsSet(LS.token, String(t||'').trim()); }
-function getKey(name){
-  if(name==='tmdb') return (lsGet(LS.tmdb)||'').trim();
-  if(name==='omdb') return (lsGet(LS.omdb)||'').trim();
-  if(name==='watchmode') return (lsGet(LS.watchmode)||'').trim();
-  return '';
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+function normLite(s){
+  return String(s||'').toLowerCase()
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9åäö\s:!?.\-]/g,'')
+    .trim();
 }
+function imdbUrlFrom(j){ return j?.imdbID ? `https://www.imdb.com/title/${j.imdbID}/` : ''; }
 
-// ===== Theme =====
 function applyTheme(){
   const sel = $('#theme')?.value || 'auto';
   const root = document.documentElement;
@@ -456,55 +437,34 @@ function applyTheme(){
   else root.removeAttribute('data-theme');
   root.style.colorScheme = (mode === 'light') ? 'light' : 'dark';
 }
-const _mqlLight = window.matchMedia('(prefers-color-scheme: light)');
-const _onSchemeChange = ()=>{ if(($('#theme')?.value || 'auto') === 'auto') applyTheme(); };
-_mqlLight.addEventListener?.('change', _onSchemeChange);
-_mqlLight.addListener?.(_onSchemeChange);
 
 // ===== Debug buffer =====
 const DBG = (window.__FILMKVALL_DEBUG__ = window.__FILMKVALL_DEBUG__ || []);
 function dbgPush(obj){
   try{
     DBG.push({ t: new Date().toISOString(), ...obj });
-    if(DBG.length > 200) DBG.splice(0, DBG.length - 200);
+    if(DBG.length > 250) DBG.splice(0, DBG.length - 250);
     const pre = $('#debugPre');
     if(pre) pre.textContent = JSON.stringify(DBG, null, 2);
   }catch{}
 }
 
-// ===== Status =====
-function pendingCount(){ return (SaveQueue.read() || []).length; }
-function setStatus(ok, msg){
-  const el = $('#apiStatus');
-  if(!el) return;
-  el.textContent = msg + (pendingCount() ? ` (${pendingCount()} i kö)` : '');
-  el.className = 'pill ' + (ok ? 'ok' : 'err');
-}
-function setAuthPill(isAuthed){
-  const el = $('#authPill');
-  if(!el) return;
-  el.textContent = isAuthed ? 'Inloggad' : 'Ej inloggad';
-  el.className = 'pill ' + (isAuthed ? 'ok' : 'err');
-  el.style.padding = '4px 10px';
-}
-
 // ===== Cache (local) =====
 const Cache = {
   key(k){ return LS.cachePrefix + k; },
-  get(k){ try { return JSON.parse(localStorage.getItem(this.key(k)) || 'null'); } catch { return null; } },
-  set(k, v){ try { localStorage.setItem(this.key(k), JSON.stringify(v)); } catch {} },
-  del(k){ try { localStorage.removeItem(this.key(k)); } catch {} },
+  get(k){ try{ return JSON.parse(localStorage.getItem(this.key(k)) || 'null'); } catch { return null; } },
+  set(k,v){ try{ localStorage.setItem(this.key(k), JSON.stringify(v)); } catch {} },
+  del(k){ try{ localStorage.removeItem(this.key(k)); } catch {} },
 };
 
 async function fetchJsonSWR({ key, fetcher, maxAgeMs=30_000, onFresh, fingerprint }){
   const cached = Cache.get(key);
   const now = Date.now();
 
-  if (cached?.data){
-    if (!cached.savedAt || (now - cached.savedAt) > maxAgeMs) refresh();
+  if(cached?.data){
+    if(!cached.savedAt || (now - cached.savedAt) > maxAgeMs) refresh();
     return cached.data;
   }
-
   const data = await fetcher();
   Cache.set(key, {savedAt: Date.now(), data, fp: safeFp(data)});
   return data;
@@ -525,13 +485,6 @@ async function fetchJsonSWR({ key, fetcher, maxAgeMs=30_000, onFresh, fingerprin
         const bp = Array.isArray(x.bestPickers) ? x.bestPickers[0] : null;
         return `tops:${x.ok?'1':'0'}:${bf?.film||''}:${bf?.avg||''}:${bp?.who||''}:${bp?.avg||''}`;
       }
-      if ('R1' in x || 'R2' in x || 'R3' in x || 'R4' in x || 'R5' in x){
-        return `wl:${x.ok?'1':'0'}:${x.R1||''}:${x.R2||''}:${x.R3||''}:${x.R4||''}:${x.R5||''}`;
-      }
-      if ('next' in x || 'suggestion' in x){
-        const sc = PEOPLE.map(p=>x?.scores?.[p] ?? '').join(',');
-        return `cur:${x.ok?'1':'0'}:${x.next||''}:${x.suggestion||''}:${sc}`;
-      }
       return 'o:' + Object.keys(x).length;
     }catch{ return 'x'; }
   }
@@ -547,10 +500,10 @@ async function fetchJsonSWR({ key, fetcher, maxAgeMs=30_000, onFresh, fingerprin
   }
 }
 
-// ===== SaveQueue =====
+// ===== SaveQueue (offline-ish) =====
 const SaveQueue = {
   read(){ try{ return JSON.parse(localStorage.getItem(LS.savequeue) || '[]'); } catch { return []; } },
-  write(q){ try{ localStorage.setItem(LS.savequeue, JSON.stringify(q || [])); } catch {} },
+  write(q){ try{ localStorage.setItem(LS.savequeue, JSON.stringify(q||[])); } catch {} },
   enqueue(job){
     const q = this.read();
     q.push({ ...job, ts: Date.now() });
@@ -575,7 +528,6 @@ const SaveQueue = {
     updatePendingBadge();
   }
 };
-
 let flushTimer = null;
 function scheduleFlush(flusher, delayMs=700){
   clearTimeout(flushTimer);
@@ -587,30 +539,97 @@ function scheduleFlush(flusher, delayMs=700){
 window.addEventListener('online', ()=>scheduleFlush(sendJobToServer, 200));
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') scheduleFlush(sendJobToServer, 200); });
 
+function pendingCount(){ return (SaveQueue.read()||[]).length; }
 function updatePendingBadge(){
-  const n = pendingCount();
   const el = $('#apiStatus');
   if(!el) return;
+  const n = pendingCount();
   el.textContent = (el.textContent || '').replace(/\s*\(\d+ i kö\)\s*$/,'') + (n>0 ? ` (${n} i kö)` : '');
 }
-
 let softReloadTimer = null;
 function scheduleSoftReload(){
   clearTimeout(softReloadTimer);
   softReloadTimer = setTimeout(()=>loadAll({useCache:true}), 400);
 }
+function setStatus(ok, msg){
+  const el = $('#apiStatus');
+  if(!el) return;
+  el.textContent = msg + (pendingCount() ? ` (${pendingCount()} i kö)` : '');
+  el.className = 'pill ' + (ok ? 'ok' : 'err');
+}
+
+// ===== Auth (pw local) =====
+function getSavedPw(){ return (lsGet(LS.pw)||'').trim(); }
+function setSavedPw(pw){ lsSet(LS.pw, String(pw||'').trim()); }
+
+// ===== Optional local keys (fallback) =====
+function getKeyLocal(name){
+  if(name === 'tmdb') return (lsGet(LS.tmdb)||'').trim();
+  if(name === 'omdb') return (lsGet(LS.omdb)||'').trim();
+  if(name === 'watchmode') return (lsGet(LS.watchmode)||'').trim();
+  return '';
+}
+
+// ===== Backend API (POST form) =====
+async function apiCall(action, payload = {}){
+  const pw = getSavedPw();
+  const bodyObj = { action, pw, ...payload };
+  const params = new URLSearchParams();
+  for(const [k,v] of Object.entries(bodyObj)){
+    if(v === undefined) continue;
+    if(v && typeof v === 'object') params.set(k, JSON.stringify(v));
+    else params.set(k, String(v));
+  }
+
+  dbgPush({ kind:'request', action, payload: { ...bodyObj, pw: pw ? '***' : '' } });
+
+  let res, text='';
+  try{
+    res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8' },
+      cache: 'no-store',
+      body: params.toString(),
+    });
+
+    text = await res.text().catch(()=> '');
+    let data = null;
+    try{ data = text ? JSON.parse(text) : null; }catch{}
+
+    dbgPush({ kind:'response', action, status: res.status, ok: res.ok, data, raw: data ? undefined : text.slice(0,1200) });
+
+    if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    if(!data || typeof data !== 'object') throw new Error('Bad JSON from backend');
+    if(data.ok !== true) throw new Error(data.error || 'API error');
+    return data;
+  }catch(err){
+    dbgPush({ kind:'error', action, message: String(err), status: res && res.status, raw: text.slice(0,1200) });
+    throw err;
+  }
+}
+
+async function sendJobToServer(job){
+  const { action, payload } = job || {};
+  return await apiCall(action, payload || {});
+}
+function enqueueAndSync(action, payload){
+  SaveQueue.enqueue({ action, payload });
+  scheduleFlush(sendJobToServer, 700);
+}
 
 // ===== NightSaveGuard =====
 const NightSaveGuard = {
   getLocalDateISO(){
-    const d=new Date();
-    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
     return `${y}-${m}-${day}`;
   },
   normFilm(s){ return String(s||'').trim().toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' '); },
   getScoresObj(){
     const scores = {};
-    for(const p of PEOPLE){ scores[p] = ($('#s-'+p)?.value || '').trim(); }
+    for(const p of PEOPLE) scores[p] = ($('#s-'+p)?.value || '').trim();
     return scores;
   },
   snapshot(){
@@ -636,69 +655,41 @@ const NightSaveGuard = {
   markSaved(snap){ this.write({ key: snap.key, scoresHash: snap.scoresHash, commentHash: snap.commentHash, savedAt: Date.now() }); }
 };
 
-// ===== Backend API (POST) =====
-async function apiCallRaw(action, payload = {}){
-  const pw = getSavedPw();
-  const token = getSavedToken();
-
-  const bodyObj = { action, pw, ...(token ? { token } : {}), ...payload };
-  const params = new URLSearchParams();
-  for(const [k,v] of Object.entries(bodyObj)){
-    if(v === undefined) continue;
-    if(v && typeof v === 'object') params.set(k, JSON.stringify(v));
-    else params.set(k, String(v));
-  }
-
-  dbgPush({ kind:'request', action, payload: { ...bodyObj, pw: pw ? '***' : '', token: token ? '***' : '' } });
-
-  let res, text = '';
-  try{
-    res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8' },
-      cache: 'no-store',
-      body: params.toString(),
-    });
-
-    text = await res.text().catch(()=> '');
-    let data = null;
-    try{ data = text ? JSON.parse(text) : null; }catch{}
-    dbgPush({ kind:'response', action, status: res.status, ok: res.ok, data, raw: data ? undefined : text.slice(0,2000) });
-
-    if(!res.ok) return { ok:false, error:`HTTP ${res.status} ${res.statusText}` };
-    if(!data || typeof data !== 'object') return { ok:false, error:'Bad JSON from backend' };
-    return data;
-  }catch(err){
-    dbgPush({ kind:'error', action, message: String(err), status: res && res.status, raw: text.slice(0,2000) });
-    return { ok:false, error: String(err) };
-  }
-}
-
-async function apiCallOk(action, payload = {}){
-  const j = await apiCallRaw(action, payload);
-  if(!j || j.ok !== true) throw new Error(j?.error || 'API error');
-  return j;
-}
-
-async function sendJobToServer(job){
-  const { action, payload } = job || {};
-  return await apiCallOk(action, payload || {});
-}
-function enqueueAndSync(action, payload){
-  SaveQueue.enqueue({ action, payload });
-  scheduleFlush(sendJobToServer, 700);
-}
-
-// ===== Auth gating =====
+// ===== UI state =====
 let IS_AUTHED = false;
 function setAuthedUI(isAuthed){
   IS_AUTHED = !!isAuthed;
-  setAuthPill(IS_AUTHED);
 
+  // Knappar som kräver login
   const ids = ['saveNight','loadList','saveList','toggleAdvanced','doJump'];
-  ids.forEach(id=>{ const el = document.getElementById(id); if(el) el.disabled = !IS_AUTHED; });
+  ids.forEach(id => { const el = document.getElementById(id); if(el) el.disabled = !IS_AUTHED; });
 
-  document.querySelectorAll('#scoresRow select').forEach(sel=> sel.disabled = !IS_AUTHED);
+  // Scores selects
+  document.querySelectorAll('#scoresRow select').forEach(sel => sel.disabled = !IS_AUTHED);
+
+  // Wishlist move buttons
+  document.querySelectorAll('[data-move]').forEach(btn => btn.disabled = !IS_AUTHED || btn.disabled /* behåll edge-disable */);
+}
+
+// ===== Render =====
+function round1(x){ return Math.round((Number(x)||0)*10)/10; }
+
+function renderScoresRow(){
+  const row = $('#scoresRow');
+  row.innerHTML = '';
+  for(const p of PEOPLE){
+    const col = document.createElement('div');
+    col.className = 'score-col';
+    const lab = document.createElement('label');
+    lab.textContent = p;
+    const sel = document.createElement('select');
+    sel.id = 's-' + p;
+    sel.className = 'score-select';
+    sel.innerHTML = `<option value="">–</option>` + Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}">${n}</option>`).join('');
+    col.appendChild(lab);
+    col.appendChild(sel);
+    row.appendChild(col);
+  }
 }
 
 function setSuggestedEditable(isEditable){
@@ -708,7 +699,183 @@ function setSuggestedEditable(isEditable){
   el.placeholder = isEditable ? 'Skriv film här om listan är tom…' : '';
 }
 
-// ===== Helpers for turns =====
+function applyCurrent(cur, {quiet=false}={}){
+  if(!cur || !cur.ok){
+    if(!quiet) setStatus(false, cur?.error || 'getCurrent');
+    return;
+  }
+  $('#nextName').value = cur.next || '';
+
+  const suggestedEl = $('#suggested');
+  const serverSuggestion = (cur.suggestion || '').trim();
+
+  // Om suggestion finns från server: använd den och gör readonly.
+  // Om tomt: gör fältet skrivbart.
+  const userHasTyped = (suggestedEl.value || '').trim().length > 0 && document.activeElement === suggestedEl;
+  if(!userHasTyped){
+    suggestedEl.value = serverSuggestion;
+    setSuggestedEditable(serverSuggestion.length === 0);
+  } else {
+    setSuggestedEditable(true);
+  }
+
+  if(cur.scores){
+    for(const p of PEOPLE){
+      const el = $('#s-'+p);
+      if(el) el.value = cur.scores[p] ?? '';
+    }
+  }
+  updateJumpOptions({preserveSelection: ($('#advancedRow')?.style.display !== 'none')});
+}
+
+function renderHistory(hist){
+  const box = $('#history');
+  if(!hist?.ok){ box.innerHTML = '<div class="muted">Kunde inte hämta historik.</div>'; return; }
+
+  const rows = (hist.rows||[]).map(r=>{
+    const nums = PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
+    const avg = nums.length ? round1(nums.reduce((a,b)=>a+b,0)/nums.length) : '-';
+    const per = PEOPLE.map(p=>`${p}: ${r[p]||'-'}`).join(' • ');
+    return `<div class="pill" style="display:block;margin:6px 0;padding:10px 12px">
+      <strong>${escapeHtml(r['Film']||'–')}</strong> — ${escapeHtml(r['Datum']||'')}
+      <span class="muted"> (val: ${escapeHtml(r['Vem valde']||'-')}, Snitt: ${escapeHtml(avg)})</span><br/>
+      <span class="muted">${escapeHtml(per)}</span>
+    </div>`;
+  }).join('');
+
+  box.innerHTML = rows || '<div class="muted">Tomt.</div>';
+}
+
+function renderTops(tops){
+  const box = $('#tops');
+  if(!tops?.ok){ box.innerHTML = '<div class="muted">Kunde inte hämta topplistor.</div>'; return; }
+
+  const films = (tops.bestFilms||[]).slice(0,5).map(x =>
+    `<div class="pill">${escapeHtml(x.film)} — <strong>${escapeHtml(x.avg)}</strong> <span class="muted">(${escapeHtml(x.who)})</span></div>`
+  ).join('') || '<div class="muted">–</div>';
+
+  const pickers = (tops.bestPickers||[]).slice(0,5).map(x =>
+    `<div class="pill">${escapeHtml(x.who)} — <strong>${escapeHtml(x.avg)}</strong> <span class="muted">(${escapeHtml(x.n)} filmer)</span></div>`
+  ).join('') || '<div class="muted">–</div>';
+
+  box.innerHTML = `
+    <div class="row">
+      <div class="col">
+        <label>Top 5 filmer</label>
+        ${films}
+      </div>
+      <div class="col">
+        <label>Top 5 väljare</label>
+        ${pickers}
+      </div>
+    </div>`;
+}
+
+// ===== Wishlist load/save + autosave =====
+const WishlistAutoSave = {
+  timer: null,
+  delayMs: 1400,
+  applying: false,
+  lastSigByPerson: Object.create(null),
+
+  sig(person){
+    const v = (id)=> ($('#'+id)?.value || '').trim();
+    return [person, v('w1'), v('w2'), v('w3'), v('w4'), v('w5')].join('␟');
+  },
+
+  schedule(reason=''){
+    if(this.applying || !IS_AUTHED) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(()=>this.commit(reason), this.delayMs);
+  },
+
+  commit(reason=''){
+    if(this.applying || !IS_AUTHED) return;
+    const person = $('#who')?.value || '';
+    if(!person) return;
+
+    const sig = this.sig(person);
+    if(this.lastSigByPerson[person] === sig) return;
+
+    const hasAny = sig.split('␟').slice(1).some(x=>x && x.length);
+    if(!hasAny) return;
+
+    this.lastSigByPerson[person] = sig;
+
+    const body = {
+      person,
+      R1: $('#w1').value, R2: $('#w2').value, R3: $('#w3').value, R4: $('#w4').value, R5: $('#w5').value,
+    };
+
+    Cache.set(`api_getWishlist_v1_${person}`, {savedAt: Date.now(), data: {ok:true, ...body}});
+    if(reason && reason !== 'skriver') setStatus(true, `lista autosparad (${reason}), synkar…`);
+    enqueueAndSync('saveWishlist', body);
+  }
+};
+
+async function loadMyList({useCache=true}={}){
+  const who = $('#who').value;
+
+  const apply = async (j)=>{
+    if(!j || !j.ok) return;
+
+    WishlistAutoSave.applying = true;
+    $('#w1').value = j.R1 || '';
+    $('#w2').value = j.R2 || '';
+    $('#w3').value = j.R3 || '';
+    $('#w4').value = j.R4 || '';
+    $('#w5').value = j.R5 || '';
+    WishlistAutoSave.applying = false;
+
+    WishlistAutoSave.lastSigByPerson[who] = WishlistAutoSave.sig(who);
+
+    // Uppdatera metadata parallellt (utan streaming för wishlist)
+    const tasks = [];
+    for(let i=1;i<=5;i++){
+      const q = ($('#w'+i).value || '').trim();
+      const infoId = `w${i}-info`;
+      if(!q){ $('#'+infoId).innerHTML=''; continue; }
+      tasks.push((async ()=>{
+        const data = await smartLookup(q);
+        await renderOmdbInfo(infoId, data, q, {withStreaming:false});
+      })());
+    }
+    await Promise.allSettled(tasks);
+  };
+
+  let j;
+  if(useCache){
+    j = await fetchJsonSWR({
+      key: `api_getWishlist_v1_${who}`,
+      maxAgeMs: 30_000,
+      fingerprint: (x)=> `${x?.ok?'1':'0'}|${x?.R1||''}|${x?.R2||''}|${x?.R3||''}|${x?.R4||''}|${x?.R5||''}`,
+      onFresh: (fresh)=>apply(fresh),
+      fetcher: ()=>apiCall('getWishlist', {person: who})
+    });
+  }else{
+    j = await apiCall('getWishlist', {person: who});
+  }
+  await apply(j);
+}
+
+async function saveMyList(){
+  const who = $('#who').value;
+  const body = {
+    person: who,
+    R1: $('#w1').value, R2: $('#w2').value, R3: $('#w3').value, R4: $('#w4').value, R5: $('#w5').value,
+  };
+
+  Cache.set(`api_getWishlist_v1_${who}`, {savedAt: Date.now(), data: {ok:true, ...body}});
+  setStatus(true, 'lista sparad (lokalt), synkar…');
+
+  enqueueAndSync('saveWishlist', body);
+
+  const box = $('#wishlistCol');
+  box?.classList.add('flash');
+  setTimeout(()=>box?.classList.remove('flash'), 700);
+}
+
+// ===== Advanced skip/jump =====
 function orderedTurnList(){
   const cur = ($('#nextName')?.value || '').trim();
   const n = PEOPLE.length;
@@ -740,328 +907,128 @@ function updateJumpOptions({preserveSelection=true, forceDefault=false} = {}){
 
   btn.disabled = !IS_AUTHED || (stepsToPerson(sel.value) === 0);
 }
+async function jumpToSelected(){
+  const target = ($('#jumpTo')?.value || '').trim();
+  if(!target) return;
 
-// ===== Load / render =====
-function buildScoresUI(){
-  const row = $('#scoresRow');
-  row.innerHTML = '';
-  for(const p of PEOPLE){
-    const col = document.createElement('div');
-    col.className = 'score-col';
-    const lab = document.createElement('label');
-    lab.textContent = p;
-    const sel = document.createElement('select');
-    sel.id = `s-${p}`;
-    sel.className = 'score-select';
-    sel.innerHTML = `<option value="">–</option>` + Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}">${n}</option>`).join('');
-    col.appendChild(lab);
-    col.appendChild(sel);
-    row.appendChild(col);
-  }
+  const steps = stepsToPerson(target);
+  if(steps === 0){ setStatus(true, 'redan på tur.'); return; }
+
+  setStatus(true, `byter tur → ${target} (synkar ${steps} steg)…`);
+
+  // Optimistiskt UI
+  $('#nextName').value = target;
+  $('#suggested').value = '';
+  setSuggestedEditable(true);
+  $('#suggested-info').innerHTML = '';
+
+  // enqueue skipNext N gånger
+  for(let i=0;i<steps;i++) enqueueAndSync('skipNext', {});
+  updateJumpOptions({preserveSelection:true, forceDefault:false});
+  scheduleSoftReload();
 }
 
-function round1(x){ return Math.round((Number(x)||0)*10)/10; }
+// ===== SaveNight =====
+async function saveNight(){
+  const { block, snap } = NightSaveGuard.shouldBlockSave();
 
-function applyCurrent(cur, {quiet=false}={}){
-  if(!cur || cur.ok !== true){
-    if(!quiet) setStatus(false, cur?.error || 'getCurrent');
-    return;
+  if(!snap.who || !snap.film){
+    NightSaveGuard.unlockButton();
+    return setStatus(false,'saknar “Nästa i tur” eller film');
+  }
+  if(block){
+    NightSaveGuard.lockButton('Kväll redan sparad');
+    return setStatus(true, 'Redan sparad (ändra poäng/kommentar/film för att spara igen).');
   }
 
-  $('#nextName').value = cur.next || '';
+  NightSaveGuard.lockButton('Sparar…');
+  setStatus(true, 'sparar kväll (synkar)…');
 
-  const suggestedEl = $('#suggested');
-  if(suggestedEl){
-    const serverSuggestion = (cur.suggestion || '').trim();
-    const userTyped = !suggestedEl.readOnly && (suggestedEl.value || '').trim().length > 0;
-    if(!userTyped){
-      suggestedEl.value = serverSuggestion;
-      setSuggestedEditable(serverSuggestion.length === 0);
-    }else{
-      setSuggestedEditable(true);
-    }
-  }
+  enqueueAndSync('saveNight', { who: snap.who, film: snap.film, comment: snap.comment });
+  NightSaveGuard.markSaved(snap);
 
-  if(cur.scores){
-    for(const p of PEOPLE){
-      const el = document.getElementById(`s-${p}`);
-      if(el) el.value = cur.scores[p] ?? '';
-    }
-  }
+  // Optimistiskt: gå vidare i tur
+  const nextIdx = PEOPLE.indexOf(snap.who);
+  const optimisticNext = (nextIdx >= 0) ? PEOPLE[(nextIdx + 1) % PEOPLE.length] : '';
+  $('#nextName').value = optimisticNext;
+  $('#suggested').value = '';
+  setSuggestedEditable(true);
+  $('#suggested-info').innerHTML = '';
+  $('#comment').value = '';
+  updateJumpOptions();
 
-  const advOpen = ($('#advancedRow')?.style.display !== 'none');
-  updateJumpOptions({preserveSelection: advOpen, forceDefault: false});
+  scheduleSoftReload();
+  setTimeout(()=>NightSaveGuard.lockButton('Kväll sparad'), 400);
 }
 
-function renderTops(tops){
-  const box = $('#tops');
-  if(!box) return;
+// ===== Lookup / metadata / streaming =====
+// Backend-first:
+// - autocomplete: action=autocomplete {q}
+// - lookupMovie: action=lookupMovie {q} -> OMDb-ish object (Title,Year,Poster,imdbID,imdbRating)
+// - streaming: action=streaming {imdbID} -> [{service,quality,region,link}] or null
+//
+// Fallback (lokala nycklar):
+// - TMDb search för autocomplete
+// - OMDb lookup för metadata
+// - Watchmode för streaming
 
-  if(!tops || tops.ok !== true){
-    box.innerHTML = '<div class="muted">Kunde inte hämta topplistor.</div>';
-    return;
-  }
-
-  const films = (tops.bestFilms || tops.bestfilms || tops.films || []).slice(0,5);
-  const pickers = (tops.bestPickers || tops.bestpickers || tops.pickers || []).slice(0,5);
-
-  const filmsHtml = films.length
-    ? films.map(x=>`<div class="pill">${escapeHtml(x.film || x.Film || '')} — <strong>${escapeHtml(x.avg ?? x.snitt ?? '')}</strong> <span class="muted">(${escapeHtml(x.who || x.Vem || '')})</span></div>`).join('')
-    : '<div class="muted">–</div>';
-
-  const pickersHtml = pickers.length
-    ? pickers.map(x=>`<div class="pill">${escapeHtml(x.who || x.Vem || '')} — <strong>${escapeHtml(x.avg ?? x.snitt ?? '')}</strong> <span class="muted">(${escapeHtml(x.n ?? x.antal ?? '')} filmer)</span></div>`).join('')
-    : '<div class="muted">–</div>';
-
-  box.innerHTML = `
-    <div class="row">
-      <div class="col">
-        <label>Top 5 film</label>
-        ${filmsHtml}
-      </div>
-      <div class="col">
-        <label>Top 5 väljare</label>
-        ${pickersHtml}
-      </div>
-    </div>
-  `;
-}
-
-function renderHistory(hist){
-  const box = $('#history');
-  if(!box) return;
-
-  if(!hist || hist.ok !== true){
-    box.innerHTML = '<div class="muted">Kunde inte hämta historik.</div>';
-    return;
-  }
-
-  const rows = Array.isArray(hist.rows) ? hist.rows : [];
-  box.innerHTML = rows.map(r=>{
-    const nums = PEOPLE.map(p=>Number(r[p])||0).filter(x=>x>0);
-    const avg = nums.length ? round1(nums.reduce((a,b)=>a+b,0)/nums.length) : '-';
-    const per = PEOPLE.map(p=>`${p}: ${r[p]||'-'}`).join(' • ');
-    return `
-      <div class="pill" style="display:block;margin:6px 0;padding:10px 12px">
-        <strong>${escapeHtml(r['Film']||r.Film||'–')}</strong> — ${escapeHtml(r['Datum']||r.Datum||'')}
-        <span class="muted"> (val: ${escapeHtml(r['Vem valde']||r['Vem']||r.Vem||'-')}, Snitt: ${escapeHtml(avg)})</span><br/>
-        <span class="muted">${escapeHtml(per)}</span>
-      </div>
-    `;
-  }).join('') || '<div class="muted">Tomt.</div>';
-}
-
-async function loadMyList({useCache=true}={}){
-  const who = $('#who')?.value || PEOPLE[0];
-
-  const apply = async (j)=>{
-    if(!j || j.ok !== true) return;
-
-    WishlistAutoSave.applying = true;
-    $('#w1').value = j.R1 || '';
-    $('#w2').value = j.R2 || '';
-    $('#w3').value = j.R3 || '';
-    $('#w4').value = j.R4 || '';
-    $('#w5').value = j.R5 || '';
-    WishlistAutoSave.applying = false;
-
-    WishlistAutoSave.lastSigByPerson[who] = WishlistAutoSave.sig(who);
-
-    // metadata parallellt
-    const tasks = [];
-    for(let i=1;i<=5;i++){
-      const q = $(`#w${i}`)?.value || '';
-      const infoId = `w${i}-info`;
-      if(!q){ const el = document.getElementById(infoId); if(el) el.innerHTML=''; continue; }
-      tasks.push((async ()=>{
-        const data = await smartLookup(q);
-        renderOmdbInfo(infoId, data, q, {withStreaming:false});
-      })());
-    }
-    await Promise.allSettled(tasks);
-  };
-
-  let j;
-  if(useCache){
-    j = await fetchJsonSWR({
-      key: `api_getWishlist_v1_${who}`,
-      maxAgeMs: 30_000,
-      fingerprint: (x)=> `${x?.ok?'1':'0'}|${x?.R1||''}|${x?.R2||''}|${x?.R3||''}|${x?.R4||''}|${x?.R5||''}`,
-      onFresh: (fresh)=>apply(fresh),
-      fetcher: ()=>apiCallRaw('getWishlist', { person: who })
-    });
-  }else{
-    j = await apiCallRaw('getWishlist', { person: who });
-  }
-
-  if(j?.ok !== true) throw new Error(j?.error || 'getWishlist');
-  await apply(j);
-}
-
-async function loadAll({useCache=true}={}){
-  const now = new Date().toLocaleTimeString('sv-SE', {hour:'2-digit', minute:'2-digit'});
-
-  // getCurrent
-  const cur = useCache
-    ? await fetchJsonSWR({
-        key:'api_getCurrent_v1',
-        maxAgeMs: 20_000,
-        fetcher: ()=>apiCallRaw('getCurrent', {}),
-        onFresh: (fresh)=>applyCurrent(fresh, {quiet:true})
-      })
-    : await apiCallRaw('getCurrent', {});
-  applyCurrent(cur, {quiet:true});
-
-  // wishlist
-  await loadMyList({useCache});
-
-  // tops
-  const tops = useCache
-    ? await fetchJsonSWR({
-        key:'api_getTops_v1_5',
-        maxAgeMs: 5*60_000,
-        fetcher: ()=>apiCallRaw('getTops', { limit: 5 }),
-        onFresh: (fresh)=>renderTops(fresh)
-      })
-    : await apiCallRaw('getTops', { limit: 5 });
-  renderTops(tops);
-
-  // history
-  const hist = useCache
-    ? await fetchJsonSWR({
-        key:'api_getHistory_v1_10',
-        maxAgeMs: 60_000,
-        fetcher: ()=>apiCallRaw('getHistory', { limit: 10 }),
-        onFresh: (fresh)=>renderHistory(fresh)
-      })
-    : await apiCallRaw('getHistory', { limit: 10 });
-  renderHistory(hist);
-
-  // suggested info
-  await updateSuggestedInfo();
-
-  setStatus(true, `Uppdaterad ${now}`);
-}
-
-// ===== Login =====
-async function tryAutoLogin(){
-  if(!getSavedPw() && !getSavedToken()) return false;
-  const j = await apiCallRaw('getCurrent', {});
-  return j?.ok === true;
-}
-
-async function doLogin(){
-  setStatus(true, 'Loggar in…');
-
-  const pw = ($('#pwInput')?.value || '').trim();
-  setSavedPw(pw);
-
+async function backendAutocomplete(q){
   try{
-    // validera
-    await apiCallOk('getCurrent', {});
-    setAuthedUI(true);
-
-    // ladda allt
-    await loadAll({useCache:true});
-    setStatus(true, 'Redo');
-    // stäng detaljer om man vill (känns mindre dominerande efter login)
-    try{ $('#loginDetails').open = false; }catch{}
-  }catch(e){
-    setAuthedUI(false);
-    setStatus(false, e?.message || 'Inloggning misslyckades');
-  }
+    const j = await apiCall('autocomplete', { q });
+    if(j?.ok && Array.isArray(j.items)) return j.items;
+  }catch{}
+  return null;
+}
+async function backendLookupMovie(q){
+  try{
+    const j = await apiCall('lookupMovie', { q });
+    if(j?.ok && j.data) return j.data;
+  }catch{}
+  return null;
+}
+async function backendStreaming(imdbID){
+  try{
+    const j = await apiCall('streaming', { imdbID });
+    if(j?.ok) return j.items || null;
+  }catch{}
+  return null;
 }
 
-// ===== Lookup / metadata =====
-function imdbUrlFrom(j){ return j?.imdbID ? `https://www.imdb.com/title/${j.imdbID}/` : ''; }
-function normLite(s){
-  return String(s||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
-    .replace(/[^a-z0-9åäö\s:!?.\-]/g,'').trim();
-}
-async function getMetaCached(key, fetcher, ttlMs){
-  const cached = Cache.get(key);
-  const now = Date.now();
-  if(cached?.data && cached.savedAt && (now - cached.savedAt) < ttlMs) return cached.data;
-  const data = await fetcher();
-  Cache.set(key, {savedAt: now, data});
-  return data;
-}
-
-async function tmdbSearchMovies(query, limit=8){
-  const key = getKey('tmdb');
-  if(!key || !query) return [];
-  const url = `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(key)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(query)}`;
+async function tmdbSearchMovies(q, limit=8){
+  const key = getKeyLocal('tmdb');
+  if(!key || !q) return [];
+  const url = `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(key)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`;
   const r = await fetch(url, {cache:'no-store'}).catch(()=>null);
   if(!r || !r.ok) return [];
   const j = await r.json();
   const res = Array.isArray(j?.results) ? j.results : [];
   return res.slice(0, limit).map(it=>({ title: it.title || it.original_title || '', year: (it.release_date||'').slice(0,4) || '' }));
 }
-async function tmdbLookup(query){
-  const key = getKey('tmdb');
-  if(!key || !query) return null;
 
-  const url = `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(key)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(query)}`;
-  const r = await fetch(url, {cache:'no-store'}).catch(()=>null);
-  if(!r || !r.ok) return null;
-  const j = await r.json();
-  const results = Array.isArray(j?.results) ? j.results : [];
-  if(!results.length) return null;
+async function omdbLookup(q){
+  const key = getKeyLocal('omdb');
+  if(!key || !q) return null;
+  let query = q.trim(), year = null;
+  const mYear = query.match(/\((\d{4})\)$/);
+  if(mYear){ year = mYear[1]; query = query.replace(/\s*\(\d{4}\)\s*$/,''); }
 
-  const qn = normLite(query);
-  const best = results
-    .map(it=>{
-      const tn = normLite(it.title || it.original_title);
-      let score = 0;
-      if(tn === qn) score = 100;
-      else if(tn.startsWith(qn)) score = 80;
-      else if(tn.includes(qn)) score = 60;
-      score += Math.min(20, (it.vote_count||0)/1000);
-      return {score, it};
-    })
-    .sort((a,b)=>b.score-a.score)[0]?.it;
-
-  if(!best) return null;
-
-  let imdbID = '';
-  try{
-    const idsUrl = `https://api.themoviedb.org/3/movie/${best.id}/external_ids?api_key=${encodeURIComponent(key)}`;
-    const r2 = await fetch(idsUrl, {cache:'no-store'}).catch(()=>null);
-    if(r2 && r2.ok){
-      const ids = await r2.json();
-      imdbID = ids?.imdb_id || '';
-    }
-  }catch{}
-
-  const poster = best.poster_path ? `https://image.tmdb.org/t/p/w92${best.poster_path}` : 'N/A';
-  const year = (best.release_date||'').slice(0,4) || '';
-  return { Title: best.title || best.original_title || '', Year: year, Poster: poster, imdbID, imdbRating: '-' };
-}
-async function omdbLookup(query){
-  const key = getKey('omdb');
-  if(!key || !query) return null;
-
-  let q = query.trim(), year = null;
-  const mYear = q.match(/\((\d{4})\)$/);
-  if(mYear){ year = mYear[1]; q = q.replace(/\s*\(\d{4}\)\s*$/,''); }
-
-  const tt = (q.match(/tt\d{7,}/i) || q.match(/imdb\.com\/title\/(tt\d+)/i));
+  const tt = (query.match(/tt\d{7,}/i) || query.match(/imdb\.com\/title\/(tt\d+)/i));
   if(tt){
     const id = (tt[1] || tt[0]).replace(/^.*(tt\d+).*$/,'$1');
-    const r = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&i=${encodeURIComponent(id)}&plot=short`,{cache:'no-store'}).catch(()=>null);
+    const r = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&i=${encodeURIComponent(id)}&plot=short`, {cache:'no-store'}).catch(()=>null);
     const j = r ? await r.json() : null;
     if(j && j.Response !== 'False') return j;
     return null;
   }
 
   try{
-    const r1 = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&t=${encodeURIComponent(q)}${year?`&y=${year}`:''}&type=movie&plot=short`,{cache:'no-store'});
+    const r1 = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&t=${encodeURIComponent(query)}${year?`&y=${year}`:''}&type=movie&plot=short`, {cache:'no-store'});
     const j1 = await r1.json();
     if(j1 && j1.Response !== 'False') return j1;
   }catch{}
 
   try{
-    const r2 = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&s=${encodeURIComponent(q)}&type=movie`,{cache:'no-store'});
+    const r2 = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&s=${encodeURIComponent(query)}&type=movie`, {cache:'no-store'});
     const j2 = await r2.json();
     if(j2 && j2.Response !== 'False' && Array.isArray(j2.Search) && j2.Search.length){
       return await omdbLookup(j2.Search[0].Title);
@@ -1071,62 +1038,69 @@ async function omdbLookup(query){
   return null;
 }
 
-async function smartLookup(query){
-  if(!query) return null;
-  const q = query.trim();
-  const cacheKey = `smartLookup_v1_${normLite(q)}`;
-  return getMetaCached(cacheKey, async ()=>{
-    if(/\btt\d{7,}\b/i.test(q) || /imdb\.com\/title\/tt\d+/i.test(q)){
-      const om = await omdbLookup(q);
-      if(om) return om;
-    }
-    const tm = await tmdbLookup(q);
-    if(tm){
-      if(tm.imdbID) return tm;
-      const tryOm = await omdbLookup(`${tm.Title} (${tm.Year||''})`);
-      return tryOm || tm;
-    }
+async function getMetaCached(key, fetcher, ttlMs){
+  const cached = Cache.get(key);
+  const now = Date.now();
+  if(cached?.data && cached.savedAt && (now - cached.savedAt) < ttlMs) return cached.data;
+  const data = await fetcher();
+  Cache.set(key, {savedAt: now, data});
+  return data;
+}
+
+async function smartLookup(q){
+  if(!q) return null;
+  const key = `smartLookup_v2_${normLite(q)}`;
+  return getMetaCached(key, async ()=>{
+    // backend först
+    const be = await backendLookupMovie(q);
+    if(be) return be;
+
+    // fallback
     return await omdbLookup(q);
   }, 30*24*3600_000);
 }
 
-// Watchmode (valfritt, lazy)
-const _wmIdCache = new Map();
-async function wmTitleIdFromImdb(imdbID){
-  const key = getKey('watchmode');
-  if(!key || !imdbID) return null;
-  try{
-    const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(key)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
-    let r = await fetch(u1, {cache:'no-store'});
-    if(r.ok){ const j = await r.json(); if(j && j.title_id) return j.title_id; }
-    const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(key)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
-    r = await fetch(u2, {cache:'no-store'});
-    if(r.ok){
-      const j = await r.json();
-      const hit = Array.isArray(j?.title_results) ? j.title_results.find(t => String(t.imdb_id) === String(imdbID)) : null;
-      if(hit?.id) return hit.id;
-    }
-  }catch{}
-  return null;
-}
-async function getWmIdCached(imdbID){
-  if(_wmIdCache.has(imdbID)) return _wmIdCache.get(imdbID);
-  const id = await wmTitleIdFromImdb(imdbID);
-  _wmIdCache.set(imdbID, id);
-  return id;
-}
 async function getStreamingInfo(imdbID){
-  const key = getKey('watchmode');
-  if(!key || !imdbID) return null;
+  if(!imdbID) return null;
+  const cacheKey = `wm_sources_${imdbID}`;
 
-  return getMetaCached(`wm_sources_${imdbID}`, async ()=>{
+  return getMetaCached(cacheKey, async ()=>{
+    // backend först
+    const be = await backendStreaming(imdbID);
+    if(be) return be;
+
+    // fallback lokalt
+    const key = getKeyLocal('watchmode');
+    if(!key) return null;
+
+    // Find title id via Watchmode find/search
+    async function wmTitleIdFromImdb(id){
+      try{
+        const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(key)}&source=imdb&external_id=${encodeURIComponent(id)}`;
+        let r = await fetch(u1, {cache:'no-store'});
+        if(r.ok){
+          const j = await r.json();
+          if(j && j.title_id) return j.title_id;
+        }
+        const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(key)}&search_field=imdb_id&search_value=${encodeURIComponent(id)}`;
+        r = await fetch(u2, {cache:'no-store'});
+        if(r.ok){
+          const j = await r.json();
+          const hit = Array.isArray(j?.title_results) ? j.title_results.find(t => String(t.imdb_id) === String(id)) : null;
+          if(hit?.id) return hit.id;
+        }
+      }catch{}
+      return null;
+    }
+
+    const wmId = await wmTitleIdFromImdb(imdbID);
+    if(!wmId) return null;
+
     try{
-      const wmId = await getWmIdCached(imdbID);
-      if(!wmId) return null;
       const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${encodeURIComponent(key)}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, {cache:'no-store'});
       const data = await res.json();
-      if (!Array.isArray(data)) return null;
+      if(!Array.isArray(data)) return null;
 
       const seen = new Set();
       const normalizeName = s => String(s || '').replace(/\s*\(with Ads\)$/i, '').replace(/\s+HD$/,'').trim();
@@ -1141,24 +1115,26 @@ async function getStreamingInfo(imdbID){
         }))
         .filter(s => {
           const k = `${s.service}|${s.quality}|${s.region}`;
-          if (seen.has(k)) return false;
+          if(seen.has(k)) return false;
           seen.add(k);
           return true;
         })
-        .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
+        .sort((a,b)=>(a.service+a.region+a.quality).localeCompare(b.service+b.region+b.quality));
 
       return filtered.length ? filtered : null;
-    }catch{ return null; }
+    }catch{
+      return null;
+    }
   }, 7*24*3600_000);
 }
 
 async function renderOmdbInfo(containerId, data, query, opts = {}){
   const withStreaming = (opts.withStreaming !== false);
   const el = document.getElementById(containerId);
-  if (!el) return;
+  if(!el) return;
 
-  if (!data) {
-    el.innerHTML = query ? `<div style="color:var(--muted)">Hittade inget för: ${escapeHtml(query || '')}</div>` : '';
+  if(!data){
+    el.innerHTML = query ? `<div style="color:var(--muted)">Hittade inget för: ${escapeHtml(query||'')}</div>` : '';
     return;
   }
 
@@ -1171,20 +1147,18 @@ async function renderOmdbInfo(containerId, data, query, opts = {}){
     : '';
 
   let streamingHtml = '';
-  if (withStreaming && data.imdbID && getKey('watchmode')) {
-    const cacheKey = `wm_sources_${data.imdbID}`;
-    const cached = Cache.get(cacheKey)?.data || null;
+  if(withStreaming && data.imdbID){
+    const cached = Cache.get(`wm_sources_${data.imdbID}`)?.data || null;
 
-    const buildPills = (options) => {
-      if (!options || !options.length) {
+    const buildPills = (options)=>{
+      if(!options || !options.length){
         return `<div style="margin-top:6px; color:var(--muted); font-size:12px">Inget abonnemang hittades just nu.</div>`;
       }
-      const pills = options.map(opt => {
-        const label = [opt.service, opt.quality ? ` ${opt.quality}` : '', opt.region ? ` · ${opt.region}` : ''].join('');
+      const pills = options.map(opt=>{
+        const label = [opt.service, opt.quality?` ${opt.quality}`:'', opt.region?` · ${opt.region}`:''].join('');
         const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
         return `<a ${href} class="pill" style="text-decoration:none">${escapeHtml(label)} (ingår)</a>`;
       }).join('');
-
       return `
         <div class="streaming-wrap" data-imdb="${escapeHtml(data.imdbID)}">
           <strong>Tillgängligt i abonnemang (globalt):</strong>
@@ -1193,9 +1167,9 @@ async function renderOmdbInfo(containerId, data, query, opts = {}){
         </div>`;
     };
 
-    if (cached) {
+    if(cached){
       streamingHtml = buildPills(cached);
-    } else {
+    }else{
       streamingHtml = `
         <div class="streaming-wrap" data-imdb="${escapeHtml(data.imdbID)}">
           <strong>Tillgängligt i abonnemang (globalt):</strong>
@@ -1216,7 +1190,7 @@ async function renderOmdbInfo(containerId, data, query, opts = {}){
   const wrap = el.querySelector('.streaming-wrap');
   const row = el.querySelector('.streaming-row');
   const toggle = el.querySelector('.streaming-toggle');
-  if (!wrap || !toggle) return;
+  if(!wrap || !toggle) return;
 
   const imdbID = wrap.getAttribute('data-imdb') || '';
 
@@ -1229,25 +1203,30 @@ async function renderOmdbInfo(containerId, data, query, opts = {}){
     });
   };
 
-  if (row) {
+  if(row){
     ensureToggleVisibility(row);
-    toggle.addEventListener('click', () => {
+    toggle.addEventListener('click', ()=>{
       const collapsed = row.classList.toggle('collapsed');
       toggle.textContent = collapsed ? '…' : 'visa färre';
     });
     return;
   }
 
-  toggle.addEventListener('click', async () => {
-    if (!imdbID) return;
+  toggle.addEventListener('click', async ()=>{
+    if(!imdbID) return;
     toggle.disabled = true;
     toggle.textContent = 'hämtar…';
+
     const options = await getStreamingInfo(imdbID);
+
+    // ta bort hint
+    const hint = wrap.querySelector('div[style*="klicka för att hämta"]');
+    hint?.remove();
 
     const html = (options && options.length)
       ? (() => {
-          const pills = options.map(opt => {
-            const label = [opt.service, opt.quality ? ` ${opt.quality}` : '', opt.region ? ` · ${opt.region}` : ''].join('');
+          const pills = options.map(opt=>{
+            const label = [opt.service, opt.quality?` ${opt.quality}`:'', opt.region?` · ${opt.region}`:''].join('');
             const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
             return `<a ${href} class="pill" style="text-decoration:none">${escapeHtml(label)} (ingår)</a>`;
           }).join('');
@@ -1256,29 +1235,35 @@ async function renderOmdbInfo(containerId, data, query, opts = {}){
       : `<div style="margin-top:6px; color:var(--muted); font-size:12px">Inget abonnemang hittades just nu.</div>`;
 
     wrap.insertAdjacentHTML('beforeend', html);
+
     const newRow = wrap.querySelector('.streaming-row');
-    if (!newRow) { toggle.remove(); return; }
+    if(!newRow){
+      toggle.remove();
+      return;
+    }
 
     toggle.disabled = false;
     toggle.textContent = '…';
     ensureToggleVisibility(newRow);
-    toggle.onclick = () => {
+    toggle.onclick = ()=>{
       const collapsed = newRow.classList.toggle('collapsed');
       toggle.textContent = collapsed ? '…' : 'visa färre';
     };
   });
 }
 
-async function updateSuggestedInfo(){
-  const q = ($('#suggested')?.value || '').trim();
-  if(!q){ $('#suggested-info').innerHTML=''; return; }
-  const data = await smartLookup(q);
-  renderOmdbInfo('suggested-info', data, q, {withStreaming:true});
+// ===== Autocomplete =====
+function debounce(fn, ms=300){
+  let t;
+  return (...args)=>{
+    clearTimeout(t);
+    t = setTimeout(()=>fn(...args), ms);
+  };
 }
-
-// ===== Autocomplete (TMDb) =====
-function debounce(fn, ms=250){ let t; return (...args)=>{ clearTimeout(t); t = setTimeout(()=>fn(...args), ms); }; }
-function hideAc(id){ const box = document.getElementById(`ac-${id}`); if(box){ box.style.display='none'; box.innerHTML=''; } }
+function hideAc(id){
+  const box = document.getElementById(`ac-${id}`);
+  if(box){ box.style.display = 'none'; box.innerHTML = ''; }
+}
 function showAc(id, items, onPick){
   const box = document.getElementById(`ac-${id}`);
   if(!box) return;
@@ -1286,7 +1271,7 @@ function showAc(id, items, onPick){
 
   box.innerHTML = items.map((x,i)=>`
     <div class="ac-item" data-i="${i}">
-      <div><strong>${escapeHtml(x.title)}</strong> <span class="ac-muted">${escapeHtml(x.year)}</span></div>
+      <div><strong>${escapeHtml(x.title)}</strong> <span class="ac-muted">${escapeHtml(x.year||'')}</span></div>
     </div>
   `).join('');
   box.style.display = 'block';
@@ -1304,14 +1289,15 @@ function showAc(id, items, onPick){
     el.addEventListener('click', pickHandler);
   });
 }
+
 function bindAutocomplete(id){
   const input = document.getElementById(id);
   const box = document.getElementById(`ac-${id}`);
   if(!input || !box) return;
 
   let composing = false;
-  input.addEventListener('compositionstart', ()=>{ composing=true; });
-  input.addEventListener('compositionend', ()=>{ composing=false; });
+  input.addEventListener('compositionstart', ()=>{ composing = true; });
+  input.addEventListener('compositionend', ()=>{ composing = false; });
 
   const doSearch = debounce(async ()=>{
     if(composing) return;
@@ -1320,7 +1306,15 @@ function bindAutocomplete(id){
     const q = (input.value || '').trim();
     if(q.length < 3){ hideAc(id); return; }
 
-    const hits = await tmdbSearchMovies(q, 8);
+    // backend först
+    let hits = await backendAutocomplete(q);
+
+    // fallback lokalt (TMDb) om backend saknas
+    if(!hits){
+      const tm = await tmdbSearchMovies(q, 8);
+      hits = tm && tm.length ? tm : [];
+    }
+
     if(document.activeElement !== input) return;
 
     showAc(id, hits, (pick)=>{
@@ -1331,60 +1325,23 @@ function bindAutocomplete(id){
   }, 380);
 
   input.addEventListener('input', doSearch);
-  input.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') hideAc(id); });
-  input.addEventListener('blur', ()=>{ setTimeout(()=>hideAc(id), 150); });
+
+  input.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape') hideAc(id);
+  });
+
+  input.addEventListener('blur', ()=>{
+    setTimeout(()=>hideAc(id), 150);
+  });
 }
+
+// Stäng alla autocomplete om man klickar utanför
 document.addEventListener('click', (e)=>{
-  if (e.target?.closest?.('.ac-wrap')) return;
+  if(e.target?.closest?.('.ac-wrap')) return;
   ['w1','w2','w3','w4','w5','suggested'].forEach(hideAc);
 });
 
-// ===== Wishlist autosave + reorder =====
-const WishlistAutoSave = {
-  timer: null,
-  delayMs: 1600,
-  applying: false,
-  lastSigByPerson: Object.create(null),
-
-  sig(person){
-    const v = (id)=> (document.getElementById(id)?.value || '').trim();
-    return [person, v('w1'), v('w2'), v('w3'), v('w4'), v('w5')].join('␟');
-  },
-
-  schedule(reason=''){
-    if(this.applying || !IS_AUTHED) return;
-    clearTimeout(this.timer);
-    this.timer = setTimeout(()=>this.commit(reason), this.delayMs);
-  },
-
-  commit(reason=''){
-    if(this.applying || !IS_AUTHED) return;
-    const person = $('#who')?.value || '';
-    if(!person) return;
-
-    const sig = this.sig(person);
-    if(this.lastSigByPerson[person] === sig) return;
-
-    const hasAny = sig.split('␟').slice(1).some(x=>x && x.length);
-    if(!hasAny) return;
-
-    this.lastSigByPerson[person] = sig;
-
-    const body = {
-      person,
-      R1: $('#w1').value, R2: $('#w2').value, R3: $('#w3').value, R4: $('#w4').value, R5: $('#w5').value,
-    };
-
-    // Optimistisk cache
-    Cache.set(`api_getWishlist_v1_${person}`, {savedAt: Date.now(), data: {ok:true, ...body}});
-
-    if(reason && reason !== 'skriver'){
-      setStatus(true, `lista autosparad (${reason}), synkar…`);
-    }
-    enqueueAndSync('saveWishlist', body);
-  }
-};
-
+// ===== Wishlist move (FIX: fungerar) =====
 function updateWishlistMoveButtons(){
   document.querySelectorAll('[data-move][data-i]').forEach(btn=>{
     const i = Number(btn.getAttribute('data-i'));
@@ -1392,37 +1349,42 @@ function updateWishlistMoveButtons(){
     btn.disabled = !IS_AUTHED || (dir === 'up' && i === 1) || (dir === 'down' && i === 5);
   });
 }
+
 async function refreshWishlistMetas(indices){
   const tasks = [];
-  for (const i of indices){
-    const q = ($(`#w${i}`)?.value || '').trim();
+  for(const i of indices){
+    const q = ($('#w'+i)?.value || '').trim();
     const infoId = `w${i}-info`;
-    const infoEl = document.getElementById(infoId);
-    if(!q){ if(infoEl) infoEl.innerHTML = ''; continue; }
+    if(!q){ $('#'+infoId).innerHTML=''; continue; }
     tasks.push((async ()=>{
       const data = await smartLookup(q);
-      renderOmdbInfo(infoId, data, q, {withStreaming:false});
+      await renderOmdbInfo(infoId, data, q, {withStreaming:false});
     })());
   }
   await Promise.allSettled(tasks);
 }
+
 function swapWishlist(i, j){
   if(i === j) return;
-  const a = document.getElementById(`w${i}`);
-  const b = document.getElementById(`w${j}`);
+  const a = $('#w'+i);
+  const b = $('#w'+j);
   if(!a || !b) return;
 
   WishlistAutoSave.applying = true;
-  const tmp = a.value; a.value = b.value; b.value = tmp;
+  const tmp = a.value;
+  a.value = b.value;
+  b.value = tmp;
   WishlistAutoSave.applying = false;
 
   refreshWishlistMetas([i,j]);
   WishlistAutoSave.schedule('ordning');
 }
-const wishlistMoveCooldown = { last: 0, delayMs: 450 };
+
+const wishlistMoveCooldown = { last: 0, delayMs: 420 };
 document.addEventListener('click', (e)=>{
   const btn = e.target?.closest?.('[data-move][data-i]');
   if(!btn) return;
+
   if(!IS_AUTHED) return;
 
   const now = Date.now();
@@ -1435,196 +1397,165 @@ document.addEventListener('click', (e)=>{
   if(dir === 'down' && i < 5) swapWishlist(i, i+1);
 });
 
-// ===== Actions =====
-async function saveMyList(){
-  if(!IS_AUTHED) return;
-  const person = $('#who')?.value || '';
-  const body = { person, R1:$('#w1').value, R2:$('#w2').value, R3:$('#w3').value, R4:$('#w4').value, R5:$('#w5').value };
-
-  Cache.set(`api_getWishlist_v1_${person}`, {savedAt: Date.now(), data: {ok:true, ...body}});
-  setStatus(true, 'lista sparad (lokalt), synkar…');
-
-  enqueueAndSync('saveWishlist', body);
-  $('#wishlistCol')?.classList.add('flash');
-  setTimeout(()=>$('#wishlistCol')?.classList.remove('flash'), 700);
-}
-
-async function skipNext(){
-  if(!IS_AUTHED) return;
-  setStatus(true, 'hoppar över (synkar)…');
-  enqueueAndSync('skipNext', {});
-  scheduleSoftReload();
-}
-
-async function jumpToSelected(){
-  if(!IS_AUTHED) return;
-  const target = ($('#jumpTo')?.value || '').trim();
-  if(!target) return;
-
-  const steps = stepsToPerson(target);
-  if(steps === 0){
-    setStatus(true, 'redan på tur.');
-    return;
-  }
-
-  setStatus(true, `byter tur → ${target} (synkar ${steps} steg)…`);
-
-  // Optimistiskt UI
-  $('#nextName').value = target;
-  $('#suggested').value = '';
-  setSuggestedEditable(true);
-  $('#suggested-info').innerHTML = '';
-
-  // Uppdatera cache getCurrent
-  try{
-    const curKey = 'api_getCurrent_v1';
-    const cached = Cache.get(curKey);
-    if(cached?.data?.ok){
-      cached.data.next = target;
-      cached.data.suggestion = '';
-      Cache.set(curKey, {savedAt: Date.now(), data: cached.data, fp: cached.fp});
-    }
-  }catch{}
-
-  for(let i=0;i<steps;i++) enqueueAndSync('skipNext', {});
-  updateJumpOptions({preserveSelection:true, forceDefault:false});
-  scheduleSoftReload();
-}
-
-async function saveNight(){
-  if(!IS_AUTHED) return;
-
-  const { block, snap } = NightSaveGuard.shouldBlockSave();
-
-  if(!snap.who || !snap.film){
-    NightSaveGuard.unlockButton();
-    return setStatus(false,'saknar “Nästa i tur” eller film');
-  }
-  if(block){
-    NightSaveGuard.lockButton('Kväll redan sparad');
-    return setStatus(true, 'Redan sparad (ändra poäng/kommentar/film för att spara igen).');
-  }
-
-  NightSaveGuard.lockButton('Sparar…');
-
-  setStatus(true, 'sparar kväll (synkar)…');
-
-  // scores som objekt (backend kan acceptera object eller JSON-sträng; vi skickar object)
-  const scores = {};
-  for(const p of PEOPLE){
-    scores[p] = ($('#s-'+p)?.value || '').trim();
-  }
-
-  enqueueAndSync('saveNight', { who: snap.who, film: snap.film, comment: snap.comment, scores });
-  NightSaveGuard.markSaved(snap);
-
-  // Optimistiskt nästa
-  const idx = PEOPLE.indexOf(snap.who);
-  const optimisticNext = (idx >= 0) ? PEOPLE[(idx + 1) % PEOPLE.length] : '';
-  $('#nextName').value = optimisticNext;
-  $('#suggested').value = '';
-  setSuggestedEditable(true);
-  $('#suggested-info').innerHTML = '';
-  $('#comment').value = '';
-  updateJumpOptions();
-
-  // cache getCurrent
-  try{
-    const curKey = 'api_getCurrent_v1';
-    const cached = Cache.get(curKey);
-    if(cached?.data?.ok){
-      cached.data.next = optimisticNext;
-      cached.data.suggestion = '';
-      Cache.set(curKey, {savedAt: Date.now(), data: cached.data, fp: cached.fp});
-    }
-  }catch{}
-
-  scheduleSoftReload();
-  setTimeout(()=>NightSaveGuard.lockButton('Kväll sparad'), 400);
-}
-
+// ===== Lookup bindings =====
 function bindLookupUI(){
   document.querySelectorAll('button[data-lookup]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const id = btn.getAttribute('data-lookup');
-      const q  = document.getElementById(id)?.value || '';
+      const q = ($('#'+id)?.value || '').trim();
       const data = await smartLookup(q);
-      renderOmdbInfo(`${id}-info`, data, q, {withStreaming: id === 'suggested'});
+      await renderOmdbInfo(`${id}-info`, data, q, {withStreaming: id === 'suggested'});
     });
   });
 
   ['w1','w2','w3','w4','w5','suggested'].forEach(id=>{
-    const el = document.getElementById(id);
+    const el = $('#'+id);
     if(!el) return;
-
     el.addEventListener('keydown', async (e)=>{
       if(e.key === 'Enter'){
         e.preventDefault();
-        const data = await smartLookup(el.value);
-        renderOmdbInfo(`${id}-info`, data, el.value, {withStreaming: id === 'suggested'});
+        const q = (el.value || '').trim();
+        const data = await smartLookup(q);
+        await renderOmdbInfo(`${id}-info`, data, q, {withStreaming: id === 'suggested'});
       }
     });
-
     el.addEventListener('change', async ()=>{
-      const data = await smartLookup(el.value);
-      renderOmdbInfo(`${id}-info`, data, el.value, {withStreaming: id === 'suggested'});
-      if(id === 'suggested') NightSaveGuard.unlockButton();
+      const q = (el.value || '').trim();
+      if(!q){ $('#'+id+'-info').innerHTML=''; return; }
+      const data = await smartLookup(q);
+      await renderOmdbInfo(`${id}-info`, data, q, {withStreaming: id === 'suggested'});
     });
   });
 }
 
-// ===== UI bind =====
-function getParam(name){ return new URLSearchParams(location.search).get(name); }
-
-function initUI(){
-  $('#appVersion').textContent = APP_VERSION;
-
-  // people
-  $('#who').innerHTML = PEOPLE.map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
-  const urlWho = getParam('who');
-  const savedWho = lsGet(LS.who);
-  const fallbackWho = 'Lars';
-  const initialWho = [urlWho, savedWho, fallbackWho].find(w => PEOPLE.includes(w)) || PEOPLE[0];
-  $('#who').value = initialWho;
-  if(!savedWho) lsSet(LS.who, initialWho);
-
-  // theme
-  $('#theme').value = lsGet(LS.theme) || 'auto';
-  applyTheme();
-
-  // saved pw/token/keys
-  $('#pwInput').value = getSavedPw();
-  $('#backendToken').value = getSavedToken();
-  $('#tmdbKey').value = getKey('tmdb');
-  $('#omdbKey').value = getKey('omdb');
-  $('#watchmodeKey').value = getKey('watchmode');
-
-  // scores UI
-  buildScoresUI();
-
-  // initial authed false
-  setAuthedUI(false);
-  setStatus(true, 'Init…');
-
-  // disable inputs until authed
-  updateWishlistMoveButtons();
-  updateJumpOptions({preserveSelection:false, forceDefault:true});
+async function updateSuggestedInfo(){
+  const q = ($('#suggested')?.value || '').trim();
+  if(!q){ $('#suggested-info').innerHTML=''; return; }
+  const data = await smartLookup(q);
+  await renderOmdbInfo('suggested-info', data, q, {withStreaming:true});
 }
 
+// ===== Load all =====
+async function loadAll({useCache=true}={}){
+  try{
+    const now = new Date().toLocaleTimeString('sv-SE', {hour:'2-digit', minute:'2-digit'});
+
+    const cur = useCache
+      ? await fetchJsonSWR({
+          key:'api_getCurrent_v2',
+          maxAgeMs: 20_000,
+          fingerprint: (j)=> `${j?.ok?'1':'0'}|${j?.next||''}|${j?.suggestion||''}|${PEOPLE.map(p=>j?.scores?.[p]??'').join(',')}`,
+          onFresh: (fresh)=>applyCurrent(fresh, {quiet:true}),
+          fetcher: ()=>apiCall('getCurrent', {})
+        })
+      : await apiCall('getCurrent', {});
+
+    applyCurrent(cur, {quiet:true});
+
+    // wishlist
+    await loadMyList({useCache});
+
+    // tops
+    const tops = useCache
+      ? await fetchJsonSWR({
+          key:'api_getTops_v2_5',
+          maxAgeMs: 5*60_000,
+          fingerprint: (j)=>{
+            const bf = (j?.bestFilms||[]).map(x=>`${x.film}:${x.avg}:${x.who}`).join('|');
+            const bp = (j?.bestPickers||[]).map(x=>`${x.who}:${x.avg}:${x.n}`).join('|');
+            return `${j?.ok?'1':'0'}|${bf}|${bp}`;
+          },
+          onFresh: (fresh)=>renderTops(fresh),
+          fetcher: ()=>apiCall('getTops', {limit:5})
+        })
+      : await apiCall('getTops', {limit:5});
+
+    renderTops(tops);
+
+    // history
+    const hist = useCache
+      ? await fetchJsonSWR({
+          key:'api_getHistory_v2_10',
+          maxAgeMs: 60_000,
+          fingerprint: (j)=>{
+            const r = j?.rows || [];
+            const last = r[0] || r[r.length-1] || {};
+            return `${j?.ok?'1':'0'}|${r.length}|${last['Datum']||''}|${last['Film']||''}`;
+          },
+          onFresh: (fresh)=>renderHistory(fresh),
+          fetcher: ()=>apiCall('getHistory', {limit:10})
+        })
+      : await apiCall('getHistory', {limit:10});
+
+    renderHistory(hist);
+
+    await updateSuggestedInfo();
+    updateWishlistMoveButtons();
+
+    setStatus(true, `API svarar – uppdaterat ${now}`);
+  }catch(err){
+    console.error('loadAll error', err);
+    setStatus(false, 'Fel vid laddning');
+  }
+}
+
+// ===== Login flow =====
+async function tryLogin(){
+  const pw = ($('#pwInput')?.value || '').trim();
+  setSavedPw(pw);
+
+  setStatus(true, 'Loggar in…');
+  try{
+    await apiCall('getCurrent', {});
+    IS_AUTHED = true;
+    setAuthedUI(true);
+    await loadAll({useCache:true});
+    setStatus(true, 'Redo');
+    return true;
+  }catch(e){
+    IS_AUTHED = false;
+    setAuthedUI(false);
+    setStatus(false, (e && e.message) ? e.message : 'Inloggning misslyckades');
+    return false;
+  }
+}
+
+// ===== Bind UI =====
 function bindUI(){
-  // theme
+  // version
+  $('#appVersion').textContent = APP_VERSION;
+
+  // People
+  $('#who').innerHTML = PEOPLE.map(p=>`<option value="${p}">${p}</option>`).join('');
+  const savedWho = lsGet(LS.who);
+  $('#who').value = PEOPLE.includes(savedWho) ? savedWho : PEOPLE[0];
+  $('#who').addEventListener('change', ()=>{
+    lsSet(LS.who, $('#who').value);
+    if(IS_AUTHED) loadMyList({useCache:true});
+  });
+
+  // Theme
+  $('#theme').value = lsGet(LS.theme) || 'auto';
+  applyTheme();
   $('#theme').addEventListener('change', ()=>{
     lsSet(LS.theme, $('#theme').value);
     applyTheme();
   });
+  const mql = window.matchMedia('(prefers-color-scheme: light)');
+  const onScheme = ()=>{ if($('#theme')?.value === 'auto') applyTheme(); };
+  mql.addEventListener?.('change', onScheme);
+  mql.addListener?.(onScheme);
 
-  // who
-  $('#who').addEventListener('change', ()=>{
-    lsSet(LS.who, $('#who').value);
-    if(IS_AUTHED) loadMyList({useCache:true}).catch(()=>{});
-  });
+  // Debug keys inputs (fallback keys)
+  $('#tmdbKey').value = getKeyLocal('tmdb');
+  $('#omdbKey').value = getKeyLocal('omdb');
+  $('#watchmodeKey').value = getKeyLocal('watchmode');
+  $('#tmdbKey').addEventListener('change', ()=>lsSet(LS.tmdb, $('#tmdbKey').value.trim()));
+  $('#omdbKey').addEventListener('change', ()=>lsSet(LS.omdb, $('#omdbKey').value.trim()));
+  $('#watchmodeKey').addEventListener('change', ()=>lsSet(LS.watchmode, $('#watchmodeKey').value.trim()));
 
-  // toggle pw
+  // Password input
+  $('#pwInput').value = getSavedPw();
   $('#togglePw').addEventListener('click', ()=>{
     const inp = $('#pwInput');
     const btn = $('#togglePw');
@@ -1632,38 +1563,38 @@ function bindUI(){
     inp.type = show ? 'text' : 'password';
     btn.textContent = show ? 'Dölj' : 'Visa';
   });
+  $('#loginBtn').addEventListener('click', tryLogin);
+  $('#pwInput').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') tryLogin(); });
 
-  // login
-  $('#loginBtn').addEventListener('click', doLogin);
-  $('#pwInput').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') doLogin(); });
-
-  // debug keys save-on-blur
-  $('#backendToken').addEventListener('blur', ()=> setSavedToken($('#backendToken').value));
-  $('#tmdbKey').addEventListener('blur', ()=> lsSet(LS.tmdb, $('#tmdbKey').value.trim()));
-  $('#omdbKey').addEventListener('blur', ()=> lsSet(LS.omdb, $('#omdbKey').value.trim()));
-  $('#watchmodeKey').addEventListener('blur', ()=> lsSet(LS.watchmode, $('#watchmodeKey').value.trim()));
-
-  // copy debug
-  $('#copyDebug').addEventListener('click', async ()=>{
-    const txt = $('#debugPre').textContent || '';
-    try{ await navigator.clipboard.writeText(txt); setStatus(true,'Felsökning kopierad'); }
-    catch{ setStatus(false,'Kunde inte kopiera (markera texten manuellt)'); }
+  // Buttons
+  $('#loadList').addEventListener('click', async ()=>{
+    setStatus(true,'Laddar…');
+    try{ await loadMyList({useCache:true}); setStatus(true,'Redo'); }
+    catch(e){ setStatus(false, e?.message || 'Fel'); }
+  });
+  $('#saveList').addEventListener('click', async ()=>{
+    setStatus(true,'Sparar…');
+    try{ await saveMyList(); setStatus(true,'Lista sparad'); }
+    catch(e){ setStatus(false, e?.message || 'Fel'); }
   });
 
-  // advanced
+  $('#saveNight').addEventListener('click', async ()=>{
+    try{ await saveNight(); }
+    catch(e){ setStatus(false, e?.message || 'Fel'); NightSaveGuard.unlockButton(); }
+  });
+
   $('#toggleAdvanced').addEventListener('click', ()=>{
-    if(!IS_AUTHED) return;
     const row = $('#advancedRow');
     const on = row.style.display !== 'none';
     row.style.display = on ? 'none' : 'flex';
     if(!on) updateJumpOptions({preserveSelection:false, forceDefault:true});
   });
+
   $('#jumpTo').addEventListener('change', ()=>{
-    const target = $('#jumpTo')?.value || '';
-    $('#doJump').disabled = !IS_AUTHED || (stepsToPerson(target) === 0);
+    $('#doJump').disabled = !IS_AUTHED || (stepsToPerson($('#jumpTo').value) === 0);
   });
+
   $('#doJump').addEventListener('click', async ()=>{
-    if(!IS_AUTHED) return;
     const btn = $('#doJump');
     if(btn.disabled) return;
     btn.disabled = true;
@@ -1677,104 +1608,56 @@ function bindUI(){
     }
   });
 
-  // save night
-  $('#saveNight').addEventListener('click', saveNight);
-
-  // unlock save-night when relevant changes
-  $('#comment')?.addEventListener('input', ()=>NightSaveGuard.unlockButton());
-  $$('.score-select').forEach(sel=> sel.addEventListener('change', ()=>NightSaveGuard.unlockButton()));
-  $('#suggested')?.addEventListener('input', ()=>NightSaveGuard.unlockButton());
-
-  // scores: direct save (queued)
-  $$('.score-select').forEach(sel=>{
-    sel.addEventListener('change', ()=>{
-      if(!IS_AUTHED) return;
-      const who = sel.id.replace('s-','');
-      const val = (sel.value || '').trim();
-
-      // optimistic cache getCurrent
-      try{
-        const curKey = 'api_getCurrent_v1';
-        const cached = Cache.get(curKey)?.data;
-        if(cached?.ok){
-          cached.scores = cached.scores || {};
-          cached.scores[who] = val;
-          Cache.set(curKey, {savedAt: Date.now(), data: cached, fp: Cache.get(curKey)?.fp});
-        }
-      }catch{}
-
-      setStatus(true, `poäng sparad för ${who} (synkar)…`);
-      enqueueAndSync('saveScores', { scores: { [who]: val } });
-    });
+  // Unlock saveNight if changed
+  const unlockOnChange = ()=>NightSaveGuard.unlockButton();
+  $('#comment').addEventListener('input', unlockOnChange);
+  $('#suggested').addEventListener('input', unlockOnChange);
+  document.addEventListener('change', (e)=>{
+    if(e.target?.classList?.contains('score-select')) unlockOnChange();
   });
 
-  // wishlist load/save
-  $('#loadList').addEventListener('click', async ()=>{
-    if(!IS_AUTHED) return;
-    setStatus(true,'Laddar…');
-    try{ await loadMyList({useCache:true}); setStatus(true,'Redo'); }
-    catch(e){ setStatus(false, e?.message || 'Fel'); }
-  });
-  $('#saveList').addEventListener('click', async ()=>{
-    if(!IS_AUTHED) return;
-    setStatus(true,'Sparar…');
-    try{ await saveMyList(); setStatus(true,'Lista sparad'); }
-    catch(e){ setStatus(false, e?.message || 'Fel'); }
+  // Copy debug
+  $('#copyDebug').addEventListener('click', async ()=>{
+    const txt = $('#debugPre').textContent || '';
+    try{ await navigator.clipboard.writeText(txt); setStatus(true,'Felsökning kopierad'); }
+    catch{ setStatus(false,'Kunde inte kopiera (markera texten manuellt)'); }
   });
 
-  // autosave wishlist
+  // Wishlist autosave triggers
   ['w1','w2','w3','w4','w5'].forEach(id=>{
-    const el = document.getElementById(id);
-    if(!el) return;
+    const el = $('#'+id);
     el.addEventListener('input', ()=>WishlistAutoSave.schedule('skriver'));
-    el.addEventListener('blur',  ()=>WishlistAutoSave.commit('klar'));
+    el.addEventListener('blur', ()=>WishlistAutoSave.commit('klar'));
   });
-
-  // lookup
-  bindLookupUI();
-
-  // autocomplete
-  ['w1','w2','w3','w4','w5','suggested'].forEach(bindAutocomplete);
 }
 
-async function boot(){
-  initUI();
+// ===== Init =====
+(async function boot(){
   bindUI();
-
-  // flush queue if any
-  if(pendingCount() > 0) scheduleFlush(sendJobToServer, 200);
-
-  setStatus(true, 'Laddar…');
-
-  // försök “auto-login” (om pw/token finns)
-  const ok = await tryAutoLogin();
-  if(ok){
-    setAuthedUI(true);
-    try{
-      await loadAll({useCache:true});
-      setStatus(true, 'Redo');
-      // dölj inloggningsdetalj om den var öppen
-      try{ $('#loginDetails').open = false; }catch{}
-      updateWishlistMoveButtons();
-      return;
-    }catch{
-      // om något faller, låt användaren logga in manuellt
-    }
-  }
+  renderScoresRow();
+  bindLookupUI();
+  ['w1','w2','w3','w4','w5','suggested'].forEach(bindAutocomplete);
 
   setAuthedUI(false);
-  updateWishlistMoveButtons();
+  setStatus(true, 'Init…');
 
-  // vi kan fortfarande visa cached data utan auth (om det finns), men knapparna är låsta
+  // testa ping utan auth
   try{
-    await loadAll({useCache:true});
-    setStatus(false, 'Logga in för att spara/ändra');
+    await apiCall('ping', {});
   }catch{
-    setStatus(false, 'Logga in för att fortsätta');
+    setStatus(false, 'Ingen kontakt med backend (ping misslyckades)');
+    return;
   }
-}
 
-boot();
+  // försök auto-login om pw finns
+  if(getSavedPw()){
+    $('#pwInput').value = getSavedPw();
+    const ok = await tryLogin();
+    if(ok) return;
+  }
+
+  setStatus(false, 'Logga in för att fortsätta');
+})();
 </script>
 </body>
 </html>
