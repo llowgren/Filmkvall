@@ -1,21 +1,19 @@
 // film-login.js
-// Central source of truth for API URL, authentication, and external API tokens
+// Central source of truth + Login UI (person selector)
 
-import { setAuth } from './store.js';
+import { setAuth, getWho, setWho, on } from './store.js';
 
 // ================================
-// CONFIG (centralised here on purpose)
+// CONFIG
 // ================================
+const API_URL =
+  'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
 
-// Backend Web App URL (Google Apps Script)
-const API_URL = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec'
-// Authentication towards backend (legacy pw and/or token)
 const AUTH = {
   pw: 'Look4fun',
   token: '__TOKEN__'
 };
 
-// External movie data providers
 const TOKENS = {
   tmdb: 'e207103e8a03559e4be5970b8c899122',
   omdb: 'b6f3e48',
@@ -23,22 +21,67 @@ const TOKENS = {
 };
 
 // ================================
-// Public API (used by other modules)
+// Exports used by other modules
 // ================================
-
-// Used by api.js
 export function getApiUrl() {
   return API_URL;
 }
 
-// Used by lookup / wishlist / now modules
 export function getMovieTokens() {
   return { ...TOKENS };
 }
 
-// ================================
-// Initialization
-// ================================
-
-// Write auth once on load so all modules can read from store
+// Init auth early
 setAuth(AUTH);
+
+// ================================
+// Web Component: <film-login>
+// ================================
+const PEOPLE = ['Maria', 'Lars', 'Hannah', 'Tuva', 'Alva'];
+
+class FilmLogin extends HTMLElement {
+  connectedCallback() {
+    this.render();
+
+    // uppdatera dropdown om "who" ändras någon annanstans
+    this._off = on?.('who', (w) => {
+      const sel = this.querySelector('select');
+      if (sel && sel.value !== w) sel.value = w;
+      const whoEl = this.querySelector('[data-who]');
+      if (whoEl) whoEl.textContent = w;
+    });
+  }
+
+  disconnectedCallback() {
+    if (this._off) this._off();
+  }
+
+  render() {
+    const current = getWho?.() || 'Maria';
+
+    this.innerHTML = `
+      <section class="card">
+        <div class="row" style="align-items:center; justify-content:space-between; gap:12px;">
+          <div>
+            <h3 style="margin:0;">Login</h3>
+            <div class="muted">Inloggad: <span data-who>${current}</span></div>
+          </div>
+
+          <label class="muted" style="display:flex; align-items:center; gap:8px;">
+            Person
+            <select id="whoSelect">
+              ${PEOPLE.map(p => `<option ${p === current ? 'selected' : ''}>${p}</option>`).join('')}
+            </select>
+          </label>
+        </div>
+      </section>
+    `;
+
+    const sel = this.querySelector('#whoSelect');
+    sel.addEventListener('change', () => setWho(sel.value));
+  }
+}
+
+if (!customElements.get('film-login')) {
+  customElements.define('film-login', FilmLogin);
+}
