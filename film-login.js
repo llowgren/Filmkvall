@@ -35,33 +35,6 @@ export function getApiUrl() {
 export function getMovieTokens() {
   return { ...TOKENS };
 }
-import { setAuth, setPerson, getPerson } from './store.js';
-
-const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars'];
-
-customElements.define('film-login', class extends HTMLElement {
-  connectedCallback(){
-    setAuth(AUTH); // som idag
-    this.render();
-  }
-
-  render(){
-    const current = getPerson();
-    this.innerHTML = `
-      <div class="card" style="padding:8px 12px; max-width:260px">
-        <label>Vem är du?</label>
-        <select id="who">
-          ${PEOPLE.map(p=>`<option ${p===current?'selected':''}>${p}</option>`).join('')}
-        </select>
-      </div>
-    `;
-
-    this.querySelector('#who')?.addEventListener('change', (e)=>{
-      setPerson(e.target.value);
-      window.dispatchEvent(new CustomEvent('film:personChanged', { detail:{ person: e.target.value } }));
-    });
-  }
-});
 
 // ================================
 // Initialization
