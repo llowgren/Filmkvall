@@ -1,636 +1,786 @@
 // film-now.js
-// <film-now> – “På tur nu”-modulen (UI + API-koppling)
-// Mål: samma beteende som gamla singelfilen, men fristående.
-//
-// Viktigt beteende:
-// - "Hoppa över" öppnar avancerad vy där man kan välja vem som ska vara näst på tur.
-// - När man sparar en kväll eller byter tur (hoppa/byt tur), nollställs poäng (UI + backend).
-// - Thumbnail liten. Streaming visas kollapsat (bara första raden) tills man expanderar.
-// - Knappar gråas ut och låses under pågående kommando för att undvika dubbeltryck.
+// <film-now> – På tur nu (film + betyg + spara kväll + hoppa över / byt tur)
 
 import { api } from './api.js';
-import { getWho, on } from './store.js';
+import { getWho, on as onStore } from './store.js';
 import { getMovieTokens } from './film-login.js';
 
 const PEOPLE = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
 
-// --- små helpers
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
-const debounce = (fn, ms = 250) => {
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+function debounce(fn, ms = 420) {
   let t;
   return (...args) => {
     clearTimeout(t);
     t = setTimeout(() => fn(...args), ms);
   };
-};
-
-function orderedFrom(next) {
-  const i = Math.max(0, PEOPLE.indexOf(next));
-  return [...PEOPLE.slice(i), ...PEOPLE.slice(0, i)];
 }
 
-function stepsToTarget(currentNext, target) {
-  const a = PEOPLE.indexOf(currentNext);
-  const b = PEOPLE.indexOf(target);
-  if (a < 0 || b < 0) return 0;
-  const n = PEOPLE.length;
-  return (b - a + n) % n;
+function normLite(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9åäö\s:!?.\-]/g, '')
+    .trim();
 }
 
-async function omdbLookup(titleOrId) {
-  const { omdb } = getMovieTokens();
-  if (!omdb) return null;
-  const q = String(titleOrId || '').trim();
+async function smartLookupMovie(query) {
+  const q = (query || '').trim();
   if (!q) return null;
 
-  // stöd: "Titel (År)" => plocka år
-  let title = q;
-  let year = '';
-  const m = title.match(/\((\d{4})\)\s*$/);
-  if (m) {
-    year = m[1];
-    title = title.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+  const { tmdb, omdb } = getMovieTokens();
+
+  // 1) TMDb search (sv-SE) -> imdb_id -> OMDb
+  try {
+    if (tmdb) {
+      const r = await fetch(
+        `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(tmdb)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`,
+        { cache: 'no-store' }
+      );
+      if (r.ok) {
+        const j = await r.json();
+        const res = Array.isArray(j?.results) ? j.results : [];
+        if (res.length) {
+          const qn = normLite(q);
+          const best = res
+            .map((it) => {
+              const tn = normLite(it.title || it.original_title);
+              let score = 0;
+              if (tn === qn) score = 100;
+              else if (tn.startsWith(qn)) score = 80;
+              else if (tn.includes(qn)) score = 60;
+              score += Math.min(20, (it.vote_count || 0) / 1000);
+              return { score, it };
+            })
+            .sort((a, b) => b.score - a.score)[0]?.it;
+
+          if (best?.id) {
+            const idsR = await fetch(
+              `https://api.themoviedb.org/3/movie/${best.id}/external_ids?api_key=${encodeURIComponent(tmdb)}`,
+              { cache: 'no-store' }
+            );
+            const ids = idsR.ok ? await idsR.json() : null;
+            const imdbID = ids?.imdb_id || '';
+
+            if (omdb && imdbID) {
+              const om = await fetch(
+                `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&i=${encodeURIComponent(imdbID)}&plot=short`,
+                { cache: 'no-store' }
+              );
+              const omj = om.ok ? await om.json() : null;
+              if (omj && omj.Response !== 'False') return omj;
+            }
+
+            // fallback object
+            const year = (best.release_date || '').slice(0, 4) || '';
+            const poster = best.poster_path ? `https://image.tmdb.org/t/p/w154${best.poster_path}` : 'N/A';
+            return {
+              Title: best.title || best.original_title || q,
+              Year: year,
+              Poster: poster,
+              imdbID,
+              imdbRating: '-'
+            };
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 2) OMDb direct title search
+  try {
+    if (omdb) {
+      let title = q;
+      let year = '';
+      const m = title.match(/\((\d{4})\)\s*$/);
+      if (m) {
+        year = m[1];
+        title = title.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+      }
+      const r = await fetch(
+        `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&t=${encodeURIComponent(title)}${year ? `&y=${encodeURIComponent(year)}` : ''}&type=movie&plot=short`,
+        { cache: 'no-store' }
+      );
+      const j = r.ok ? await r.json() : null;
+      if (j && j.Response !== 'False') return j;
+    }
+  } catch (_) {}
+
+  return null;
+}
+
+async function tmdbAutocomplete(query, limit = 8) {
+  const q = (query || '').trim();
+  if (q.length < 3) return [];
+  const { tmdb } = getMovieTokens();
+  if (!tmdb) return [];
+  try {
+    const r = await fetch(
+      `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(tmdb)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`,
+      { cache: 'no-store' }
+    );
+    if (!r.ok) return [];
+    const j = await r.json();
+    const res = Array.isArray(j?.results) ? j.results : [];
+    return res.slice(0, limit).map((it) => ({
+      title: it.title || it.original_title || '',
+      year: (it.release_date || '').slice(0, 4) || ''
+    }));
+  } catch {
+    return [];
   }
-
-  // om någon klistrar in tt123...
-  const tt = (q.match(/tt\d{7,}/i) || q.match(/imdb\.com\/title\/(tt\d+)/i));
-  const url = tt
-    ? `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&i=${encodeURIComponent(tt[1] || tt[0])}&plot=short`
-    : `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&t=${encodeURIComponent(title)}${year ? `&y=${encodeURIComponent(year)}` : ''}&type=movie&plot=short`;
-
-  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
-  if (!r || !r.ok) return null;
-  const j = await r.json().catch(() => null);
-  if (!j || j.Response === 'False') return null;
-  return j;
 }
 
 async function watchmodeSources(imdbID) {
   const { watchmode } = getMovieTokens();
   if (!watchmode || !imdbID) return null;
 
-  // 1) hitta title_id
-  const findUrl = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(watchmode)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
-  const r1 = await fetch(findUrl, { cache: 'no-store' }).catch(() => null);
-  const j1 = r1 && r1.ok ? await r1.json().catch(() => null) : null;
-  const titleId = j1?.title_id;
-  if (!titleId) return null;
+  // cache 7 days
+  const k = `wm_sources_${imdbID}`;
+  try {
+    const cached = JSON.parse(localStorage.getItem(k) || 'null');
+    if (cached?.savedAt && Date.now() - cached.savedAt < 7 * 24 * 3600_000) return cached.data;
+  } catch (_) {}
 
-  // 2) sources
-  const srcUrl = `https://api.watchmode.com/v1/title/${encodeURIComponent(titleId)}/sources/?apiKey=${encodeURIComponent(watchmode)}`;
-  const r2 = await fetch(srcUrl, { cache: 'no-store' }).catch(() => null);
-  const j2 = r2 && r2.ok ? await r2.json().catch(() => null) : null;
-  if (!Array.isArray(j2)) return null;
+  const findTitleId = async () => {
+    const f1 = await fetch(
+      `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(watchmode)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`,
+      { cache: 'no-store' }
+    ).catch(() => null);
+    if (f1?.ok) {
+      const j = await f1.json();
+      if (j?.title_id) return j.title_id;
+    }
+    const f2 = await fetch(
+      `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(watchmode)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`,
+      { cache: 'no-store' }
+    ).catch(() => null);
+    if (f2?.ok) {
+      const j = await f2.json();
+      const hit = Array.isArray(j?.title_results) ? j.title_results.find((t) => String(t.imdb_id) === String(imdbID)) : null;
+      if (hit?.id) return hit.id;
+    }
+    return null;
+  };
 
-  // visa bara abonnemang (“sub”)
-  const seen = new Set();
-  const clean = (s) => String(s || '').replace(/\s*\(with Ads\)$/i, '').trim();
-  const out = j2
-    .filter((x) => x && x.type === 'sub' && x.name)
-    .map((x) => ({
-      service: clean(x.name),
-      region: x.region || '',
-      quality: (x.format === '4K' || x.format === 'HD') ? x.format : '',
-      url: x.web_url || ''
-    }))
-    .filter((x) => {
-      const k = `${x.service}|${x.region}|${x.quality}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    })
-    .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
+  try {
+    const titleId = await findTitleId();
+    if (!titleId) return null;
 
-  return out.length ? out : null;
-}
+    const r = await fetch(
+      `https://api.watchmode.com/v1/title/${encodeURIComponent(titleId)}/sources/?apiKey=${encodeURIComponent(watchmode)}`,
+      { cache: 'no-store' }
+    );
+    if (!r.ok) return null;
 
-function buildStreamPills(sources) {
-  if (!sources?.length) {
-    return '<div class="muted" style="font-size:12px">Inget abonnemang hittades just nu.</div>';
+    const data = await r.json();
+    if (!Array.isArray(data)) return null;
+
+    const seen = new Set();
+    const normalizeName = (s) => String(s || '').replace(/\s*\(with Ads\)$/i, '').replace(/\s+HD$/, '').trim();
+
+    const filtered = data
+      .filter((s) => s.type === 'sub' && s.name)
+      .map((s) => ({
+        service: normalizeName(s.name),
+        quality: s.format === '4K' || s.format === 'HD' ? s.format : '',
+        region: s.region || '',
+        link: s.web_url || ''
+      }))
+      .filter((s) => {
+        const key = `${s.service}|${s.quality}|${s.region}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
+
+    const out = filtered.length ? filtered : null;
+    try {
+      localStorage.setItem(k, JSON.stringify({ savedAt: Date.now(), data: out }));
+    } catch (_) {}
+    return out;
+  } catch {
+    return null;
   }
-
-  const pills = sources.map((s) => {
-    const label = `${s.service}${s.quality ? ` ${s.quality}` : ''}${s.region ? ` · ${s.region}` : ''}`;
-    const href = s.url ? `href="${esc(s.url)}" target="_blank" rel="noopener"` : '';
-    return `<a ${href} class="pill" style="text-decoration:none">${esc(label)} (ingår)</a>`;
-  }).join('');
-
-  // collapsed visar bara första raden
-  return `
-    <div class="streaming-wrap">
-      <div class="muted" style="font-size:12px;margin:6px 0 6px">Tillgängligt i abonnemang (globalt):</div>
-      <div class="streaming-row collapsed">${pills}</div>
-      <button type="button" class="streaming-toggle" style="display:none">…</button>
-    </div>
-  `;
 }
 
-function applyStreamingToggle(root) {
-  const row = root.querySelector('.streaming-row');
-  const btn = root.querySelector('.streaming-toggle');
-  if (!row || !btn) return;
-
-  // visa knappen bara om det finns fler rader
-  requestAnimationFrame(() => {
-    const needs = row.scrollHeight > row.clientHeight + 2;
-    btn.style.display = needs ? 'inline-block' : 'none';
-    btn.textContent = '…';
-  });
-
-  btn.addEventListener('click', () => {
-    const collapsed = row.classList.toggle('collapsed');
-    btn.textContent = collapsed ? '…' : 'visa färre';
-  });
-}
-
-export class FilmNow extends HTMLElement {
+class FilmNow extends HTMLElement {
   constructor() {
     super();
-    this.state = {
-      current: null,
-      info: null,
-      sources: null,
-      advancedOpen: false,
-      busy: false,
-    };
-
-    this._unsub = [];
-    this._onWhoChange = this._onWhoChange.bind(this);
-
-    this._bound = false;
-    this._onJumpSelChange = null;
+    this._unsubs = [];
+    this._busy = false;
+    this._cooldownUntil = 0;
+    this._lastCurrent = null;
   }
 
   connectedCallback() {
     this.render();
-
-    // re-render när "vem är inloggad" ändras
-    this._unsub.push(on('who', this._onWhoChange));
-
-    // initial laddning
+    this.wire();
     this.refresh();
+
+    this._unsubs.push(
+      onStore('who', () => {
+        // When user changes: refresh block
+        this.refresh();
+      })
+    );
   }
 
   disconnectedCallback() {
-    for (const u of this._unsub) {
-      try { u(); } catch { }
+    for (const u of this._unsubs) try { u(); } catch (_) {}
+    this._unsubs = [];
+  }
+
+  $(sel) {
+    return this.querySelector(sel);
+  }
+
+  _canRun() {
+    if (this._busy) return false;
+    if (Date.now() < this._cooldownUntil) return false;
+    return true;
+  }
+
+  async runLocked(fn, cooldownMs = 650) {
+    if (!this._canRun()) return;
+    this.setBusy(true);
+    this._cooldownUntil = Date.now() + cooldownMs;
+    try {
+      await fn();
+    } finally {
+      this.setBusy(false);
     }
-    this._unsub = [];
   }
 
-  _onWhoChange() {
-    // UI-texten "Inloggad" ska uppdateras direkt
-    const whoEl = this.querySelector('[data-now-who]');
-    if (whoEl) whoEl.textContent = getWho();
-    // refresh så vi får uppdaterad suggestion för ny användare
-    this.refresh();
-  }
-
-  // --- Busy / dubbeltrycksskydd
-  setBusy(on, { onlyButtons = null, labelWhileBusy = '…' } = {}) {
-    this.state.busy = !!on;
-
-    const btns = (onlyButtons && onlyButtons.length)
-      ? onlyButtons
-      : Array.from(this.querySelectorAll('button'));
-
-    for (const b of btns) {
+  setBusy(on) {
+    this._busy = !!on;
+    const buttons = [this.$('#btnRefresh'), this.$('#btnSkip'), this.$('#btnLookup'), this.$('#btnSave'), this.$('#btnDoJump'), this.$('#btnSkipOne')];
+    for (const b of buttons) {
       if (!b) continue;
-      if (this.state.busy) {
-        b.disabled = true;
-        b.classList.add('is-busy');
-        if (!b.dataset.originalText) b.dataset.originalText = b.textContent;
-        b.textContent = labelWhileBusy;
-      } else {
-        b.disabled = false;
-        b.classList.remove('is-busy');
-        if (b.dataset.originalText) {
-          b.textContent = b.dataset.originalText;
-          delete b.dataset.originalText;
-        }
-      }
+      b.disabled = this._busy;
+      b.classList.toggle('is-busy', this._busy);
     }
-
-    this.toggleAttribute('aria-busy', this.state.busy);
-  }
-
-  _allActionButtons() {
-    const ids = ['#now-refresh', '#now-skip', '#now-lookup', '#now-saveNight', '#now-doJump'];
-    return ids.map((id) => this.querySelector(id)).filter(Boolean);
   }
 
   resetScoresUI() {
-    PEOPLE.forEach((p) => {
-      const el = this.querySelector(`#now-s-${CSS.escape(p)}`);
-      if (el) el.value = '';
-    });
-  }
-
-  async resetScoresOnServer() {
-    // nollställ alla poäng i backend
-    const empty = {};
-    PEOPLE.forEach((p) => (empty[p] = ''));
-    try {
-      await api('saveScores', { scores: JSON.stringify(empty) });
-    } catch { }
+    this.querySelectorAll('.score-select').forEach((s) => (s.value = ''));
   }
 
   async refresh() {
-    if (this.state.busy) return;
-
-    const btn = this.querySelector('#now-refresh');
-    this.setBusy(true, { onlyButtons: [btn], labelWhileBusy: '…' });
-
-    try {
+    await this.runLocked(async () => {
       const cur = await api('getCurrent');
-      this.state.current = cur?.ok ? cur : null;
-
-      this.applyCurrentToUI();
-      await this.updatePreview();
-      this.updateAdvancedOptions({ preserveSelection: true });
-    } finally {
-      this.setBusy(false, { onlyButtons: [btn] });
-    }
+      this._lastCurrent = cur;
+      this.applyCurrent(cur);
+      await this.updateSuggestedInfo();
+    }, 350);
   }
 
-  applyCurrentToUI() {
-    const cur = this.state.current;
+  applyCurrent(cur) {
+    if (!cur?.ok) return;
 
-    const nextName = this.querySelector('#now-nextName');
-    const film = this.querySelector('#now-film');
+    // Filmväljare
+    const picker = (cur.next || '').trim();
+    const whoEl = this.$('#picker');
+    if (whoEl) whoEl.value = picker;
 
-    if (nextName) nextName.value = cur?.next || '';
-
-    // suggested film = serverförslag
-    if (film) {
-      film.value = (cur?.suggestion || '').trim();
+    // suggested title
+    const sug = (cur.suggestion || '').trim();
+    const input = this.$('#suggested');
+    if (input) {
+      input.value = sug;
+      // Tillåt edit, men håll det lugnt: autocomplete dyker bara upp om man börjar skriva
+      input.readOnly = false;
     }
 
     // scores
-    PEOPLE.forEach((p) => {
-      const el = this.querySelector(`#now-s-${CSS.escape(p)}`);
-      if (!el) return;
-      const v = cur?.scores?.[p];
-      el.value = (v === 0 ? '' : (v ?? ''));
-    });
+    if (cur.scores) {
+      for (const p of PEOPLE) {
+        const el = this.$(`#s-${p}`);
+        if (el) el.value = (cur.scores[p] ?? '') === '' ? '' : String(cur.scores[p]);
+      }
+    }
 
-    // text "Inloggad"
-    const whoEl = this.querySelector('[data-now-who]');
-    if (whoEl) whoEl.textContent = getWho();
-
-    // advanced-knappen "Byt tur" ska spegla vald person
-    this.syncJumpButton();
+    // jump list (håll i sync)
+    this.updateJumpOptions({ forceDefault: true });
   }
 
-  async updatePreview() {
-    const film = (this.querySelector('#now-film')?.value || '').trim();
-    const box = this.querySelector('#now-preview');
-    if (!box) return;
-
-    if (!film) {
-      box.innerHTML = '';
-      return;
-    }
-
-    box.innerHTML = '<div class="muted" style="font-size:12px">Hämtar…</div>';
-
-    const info = await omdbLookup(film);
-    this.state.info = info;
-
-    if (!info) {
-      box.innerHTML = `<div class="muted" style="font-size:12px">Hittade inget för: ${esc(film)}</div>`;
-      return;
-    }
-
-    const poster = (info.Poster && info.Poster !== 'N/A')
-      ? `<img class="now-poster" src="${esc(info.Poster)}" alt="poster" loading="lazy" decoding="async">`
-      : '';
-
-    const imdbLink = info.imdbID ? `https://www.imdb.com/title/${esc(info.imdbID)}/` : '';
-    const imdbTxt = (info.imdbRating && info.imdbRating !== 'N/A') ? `IMDb ${esc(info.imdbRating)}` : 'IMDb';
-
-    // lazy streaming
-    box.innerHTML = `
-      <div class="now-previewRow">
-        <div class="now-previewLeft">
-          ${poster}
-        </div>
-        <div class="now-previewRight">
-          <div class="now-previewTitle">
-            <strong>${esc(info.Title || film)}</strong>${info.Year ? ` (${esc(info.Year)})` : ''}
-          </div>
-          <div class="now-previewMeta">
-            ${imdbLink ? `${imdbTxt} — <a href="${imdbLink}" target="_blank" rel="noopener">Öppna på IMDb</a>` : imdbTxt}
-          </div>
-        </div>
-        <div class="now-previewStreams">
-          <div class="muted" style="font-size:12px">Tillgängligt i abonnemang:</div>
-          <div class="muted" style="font-size:12px;margin-top:6px">(klicka för att hämta)</div>
-          <button type="button" class="streaming-toggle" style="display:inline-block">…</button>
-        </div>
-      </div>
-    `;
-
-    const streamBox = box.querySelector('.now-previewStreams');
-    const btn = streamBox?.querySelector('.streaming-toggle');
-
-    if (btn && streamBox) {
-      btn.addEventListener('click', async () => {
-        // Om vi redan har pills: toggla collapse
-        const row = streamBox.querySelector('.streaming-row');
-        if (row) {
-          const collapsed = row.classList.toggle('collapsed');
-          btn.textContent = collapsed ? '…' : 'visa färre';
-          return;
-        }
-
-        // Annars: hämta sources
-        btn.disabled = true;
-        btn.classList.add('is-busy');
-        btn.textContent = 'hämtar…';
-
-        const sources = await watchmodeSources(info.imdbID);
-        this.state.sources = sources;
-
-        streamBox.innerHTML = buildStreamPills(sources);
-        applyStreamingToggle(streamBox);
-
-        // knappen kan ha dolts om det inte finns overflow — okej.
-      });
-    }
+  orderedTurnList() {
+    const cur = (this.$('#picker')?.value || '').trim();
+    const idx = Math.max(0, PEOPLE.indexOf(cur));
+    const order = [];
+    for (let k = 0; k < PEOPLE.length; k++) order.push(PEOPLE[(idx + k) % PEOPLE.length]);
+    return order;
   }
 
-  updateAdvancedOptions({ preserveSelection = true } = {}) {
-    const curNext = (this.querySelector('#now-nextName')?.value || '').trim();
-    const sel = this.querySelector('#now-jumpTo');
-    if (!sel) return;
+  updateJumpOptions({ preserveSelection = true, forceDefault = false } = {}) {
+    const sel = this.$('#jumpTo');
+    const btn = this.$('#btnDoJump');
+    if (!sel || !btn) return;
 
+    const order = this.orderedTurnList();
     const prev = (sel.value || '').trim();
-    const list = orderedFrom(curNext);
-    sel.innerHTML = list.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+    sel.innerHTML = order.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
 
-    const nextVal = (preserveSelection && prev && list.includes(prev)) ? prev : (list[0] || '');
+    let nextVal = order[0] || '';
+    if (!forceDefault && preserveSelection && prev && order.includes(prev)) nextVal = prev;
     sel.value = nextVal;
 
-    this.syncJumpButton();
-
-    // bind onchange exakt en gång
-    if (!this._onJumpSelChange) {
-      this._onJumpSelChange = () => this.syncJumpButton();
-      sel.addEventListener('change', this._onJumpSelChange);
-    }
+    btn.disabled = this.stepsToPerson(sel.value) === 0;
   }
 
-  syncJumpButton() {
-    const curNext = (this.querySelector('#now-nextName')?.value || '').trim();
-    const sel = this.querySelector('#now-jumpTo');
-    const btn = this.querySelector('#now-doJump');
-    if (!sel || !btn) return;
-    const steps = stepsToTarget(curNext, sel.value);
-    btn.disabled = (steps === 0) || this.state.busy;
+  stepsToPerson(target) {
+    const cur = (this.$('#picker')?.value || '').trim();
+    const a = PEOPLE.indexOf(cur);
+    const b = PEOPLE.indexOf(target);
+    if (a < 0 || b < 0) return 0;
+    const n = PEOPLE.length;
+    return (b - a + n) % n;
   }
 
-  async doJump() {
-    if (this.state.busy) return;
+  toggleSkipPanel() {
+    const row = this.$('#advancedRow');
+    if (!row) return;
+    const open = row.style.display !== 'none';
+    row.style.display = open ? 'none' : 'block';
+    if (!open) this.updateJumpOptions({ preserveSelection: false, forceDefault: true });
+  }
 
-    const curNext = (this.querySelector('#now-nextName')?.value || '').trim();
-    const target = (this.querySelector('#now-jumpTo')?.value || '').trim();
-    const steps = stepsToTarget(curNext, target);
-    if (steps <= 0) return;
-
-    const btns = this._allActionButtons();
-    this.setBusy(true, { onlyButtons: btns, labelWhileBusy: '…' });
-
-    try {
-      for (let i = 0; i < steps; i++) await api('skipNext');
-
-      // Efter hopp: nollställ poäng (UI + backend)
+  async doSkipOne() {
+    await this.runLocked(async () => {
+      await api('skipNext');
       this.resetScoresUI();
-      await this.resetScoresOnServer();
-
       await this.refresh();
-
-      // Stäng avancerat efter utfört hopp
-      this.state.advancedOpen = false;
-      const row = this.querySelector('#now-advancedRow');
-      if (row) row.style.display = 'none';
-    } finally {
-      this.setBusy(false, { onlyButtons: btns });
-      this.syncJumpButton();
-    }
+    });
   }
 
-  toggleAdvanced(forceOpen = null) {
-    if (forceOpen === true) this.state.advancedOpen = true;
-    else if (forceOpen === false) this.state.advancedOpen = false;
-    else this.state.advancedOpen = !this.state.advancedOpen;
+  async doJumpToSelected() {
+    const target = (this.$('#jumpTo')?.value || '').trim();
+    if (!target) return;
+    const steps = this.stepsToPerson(target);
+    if (steps === 0) return;
 
-    const row = this.querySelector('#now-advancedRow');
-    if (row) row.style.display = this.state.advancedOpen ? 'flex' : 'none';
+    await this.runLocked(async () => {
+      for (let i = 0; i < steps; i++) await api('skipNext');
+      this.resetScoresUI();
+      await this.refresh();
+      const row = this.$('#advancedRow');
+      if (row) row.style.display = 'none';
+    });
+  }
 
-    // se till att listan är korrekt när man öppnar
-    if (this.state.advancedOpen) {
-      this.updateAdvancedOptions({ preserveSelection: false });
+  getScoresPayload() {
+    const scores = {};
+    for (const p of PEOPLE) {
+      const val = (this.$(`#s-${p}`)?.value || '').trim();
+      scores[p] = val;
     }
+    return scores;
   }
 
   async saveNight() {
-    if (this.state.busy) return;
+    await this.runLocked(async () => {
+      const who = (this.$('#picker')?.value || '').trim();
+      const film = (this.$('#suggested')?.value || '').trim();
+      const comment = (this.$('#comment')?.value || '').trim();
+      if (!who || !film) return;
 
-    const curNext = (this.querySelector('#now-nextName')?.value || '').trim();
-    const film = (this.querySelector('#now-film')?.value || '').trim();
-    const comment = (this.querySelector('#now-comment')?.value || '').trim();
+      await api('saveScores', { scores: JSON.stringify(this.getScoresPayload()) });
+      await api('saveNight', { who, film, comment });
 
-    if (!curNext || !film) return;
-
-    const btns = this._allActionButtons();
-    this.setBusy(true, { onlyButtons: btns, labelWhileBusy: '…' });
-
-    try {
-      await api('saveNight', { who: curNext, film, comment });
-
-      // Efter spara: nollställ poäng (UI + backend) + rensa kommentar
+      // Nollställ poäng och kommentar efter spar/hopp enligt krav
       this.resetScoresUI();
-      await this.resetScoresOnServer();
-      const c = this.querySelector('#now-comment');
+      const c = this.$('#comment');
       if (c) c.value = '';
 
       await this.refresh();
-    } finally {
-      this.setBusy(false, { onlyButtons: btns });
-      this.syncJumpButton();
+    });
+  }
+
+  async updateSuggestedInfo() {
+    const q = (this.$('#suggested')?.value || '').trim();
+    const info = this.$('#suggested-info');
+    if (!info) return;
+    if (!q) {
+      info.innerHTML = '';
+      return;
     }
+
+    const data = await smartLookupMovie(q);
+    info.innerHTML = this.renderMovieMeta(data, q);
+    this.wireStreamingLazy();
   }
 
-  async saveScore(person, value) {
-    // sparar en person i taget
-    try {
-      await api('saveScores', { scores: JSON.stringify({ [person]: value || '' }) });
-    } catch { }
+  renderMovieMeta(data, query) {
+    if (!data) {
+      return `<div class="muted">Hittade inget för: ${escapeHtml(query)}</div>`;
+    }
+
+    const rating = escapeHtml(data.imdbRating || '-');
+    const imdbID = data.imdbID || '';
+    const imdbUrl = imdbID ? `https://www.imdb.com/title/${imdbID}/` : '';
+
+    const poster = data.Poster && data.Poster !== 'N/A'
+      ? `<img class="thumb" src="${escapeHtml(data.Poster)}" alt="poster" loading="lazy" decoding="async">`
+      : `<div class="thumb ph" aria-hidden="true"></div>`;
+
+    // Layout enligt önskemål:
+    // Rad 1: thumbnail (vänster), IMDb (mitten), streaming (höger)
+    return `
+      <div class="metaGrid">
+        <div class="metaThumb">${poster}</div>
+        <div class="metaImdb">
+          <div><strong>IMDb</strong> ${rating}</div>
+          ${imdbUrl ? `<a href="${imdbUrl}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
+        </div>
+        <div class="metaStream">
+          <div class="muted" style="font-size:12px">Tillgängligt i abonnemang (globalt):</div>
+          <div class="streamWrap" data-imdb="${escapeHtml(imdbID)}">
+            <div class="streamRow collapsed" style="display:none"></div>
+            <button type="button" class="streamToggle">…</button>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
-  bindEvents() {
-    if (this._bound) return;
-    this._bound = true;
+  wireStreamingLazy() {
+    const wrap = this.$('.streamWrap');
+    if (!wrap) return;
 
-    // update
-    this.querySelector('#now-refresh')?.addEventListener('click', () => this.refresh());
+    const imdbID = wrap.getAttribute('data-imdb') || '';
+    const row = wrap.querySelector('.streamRow');
+    const toggle = wrap.querySelector('.streamToggle');
+    if (!toggle) return;
 
-    // hoppa över = öppna avancerat (inte direkt hoppa!)
-    this.querySelector('#now-skip')?.addEventListener('click', () => this.toggleAdvanced(true));
+    let loaded = false;
 
-    // byt tur
-    this.querySelector('#now-doJump')?.addEventListener('click', () => this.doJump());
+    const applyPills = (options) => {
+      if (!row) return;
 
-    // spara kväll
-    this.querySelector('#now-saveNight')?.addEventListener('click', () => this.saveNight());
+      if (!options || !options.length) {
+        row.style.display = 'none';
+        toggle.style.display = 'none';
+        wrap.insertAdjacentHTML('afterbegin', `<div class="muted" style="font-size:12px">Inget abonnemang hittades just nu.</div>`);
+        return;
+      }
 
-    // sök/preview
-    this.querySelector('#now-lookup')?.addEventListener('click', () => this.updatePreview());
+      const pills = options
+        .map((opt) => {
+          const label = `${opt.service}${opt.quality ? ` ${opt.quality}` : ''}${opt.region ? ` · ${opt.region}` : ''}`;
+          const href = opt.link ? `href="${escapeHtml(opt.link)}"` : '';
+          return `<a class="pill" ${href} target="_blank" rel="noopener">${escapeHtml(label)} (ingår)</a>`;
+        })
+        .join('');
 
-    // score change
-    PEOPLE.forEach((p) => {
-      const el = this.querySelector(`#now-s-${CSS.escape(p)}`);
-      if (!el) return;
-      el.addEventListener('change', () => this.saveScore(p, el.value));
+      row.innerHTML = pills;
+      row.style.display = 'flex';
+
+      // Visa ungefär 2 rader (låg höjd) tills man fäller ut
+      row.classList.add('collapsed');
+
+      requestAnimationFrame(() => {
+        const needs = row.scrollHeight > row.clientHeight + 2;
+        toggle.style.display = needs ? 'inline-block' : 'none';
+        toggle.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
+      });
+    };
+
+    const loadOnce = async () => {
+      if (!imdbID) return;
+      toggle.disabled = true;
+      toggle.textContent = 'hämtar…';
+      const options = await watchmodeSources(imdbID);
+      applyPills(options);
+      toggle.disabled = false;
+      toggle.textContent = '…';
+      loaded = true;
+    };
+
+    toggle.onclick = async () => {
+      if (!imdbID) return;
+
+      // Första klick = hämta + visa (som i gamla index)
+      if (!loaded) {
+        await loadOnce();
+        return;
+      }
+
+      if (!row) return;
+      row.classList.toggle('collapsed');
+      toggle.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
+    };
+  }
+
+  wireAutocomplete() {
+    const input = this.$('#suggested');
+    const box = this.$('#ac-suggested');
+    if (!input || !box) return;
+
+    let composing = false;
+    input.addEventListener('compositionstart', () => (composing = true));
+    input.addEventListener('compositionend', () => (composing = false));
+
+    const hide = () => {
+      box.style.display = 'none';
+      box.innerHTML = '';
+    };
+
+    const show = (items) => {
+      if (!items.length) return hide();
+      box.innerHTML = items
+        .map(
+          (x, i) => `
+        <div class="ac-item" data-i="${i}">
+          <div><strong>${escapeHtml(x.title)}</strong> <span class="ac-muted">${escapeHtml(x.year)}</span></div>
+        </div>`
+        )
+        .join('');
+      box.style.display = 'block';
+
+      box.querySelectorAll('.ac-item').forEach((el) => {
+        const pick = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const i = Number(el.getAttribute('data-i'));
+          const it = items[i];
+          input.value = it.year ? `${it.title} (${it.year})` : it.title;
+          hide();
+          this.updateSuggestedInfo();
+        };
+        el.addEventListener('pointerdown', pick, { passive: false });
+        el.addEventListener('touchstart', pick, { passive: false });
+        el.addEventListener('click', pick);
+      });
+    };
+
+    const doSearch = debounce(async () => {
+      if (composing) return;
+      if (document.activeElement !== input) return;
+      const q = (input.value || '').trim();
+      if (q.length < 3) return hide();
+      const items = await tmdbAutocomplete(q, 8);
+      if (document.activeElement !== input) return;
+      show(items);
+    }, 520);
+
+    // Visa autocomplete bara när användaren faktiskt skriver (lugnt)
+    input.addEventListener('input', doSearch);
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') hide();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        hide();
+        this.updateSuggestedInfo();
+      }
     });
 
-    // film input: debounce preview
-    const film = this.querySelector('#now-film');
-    if (film) {
-      const upd = debounce(() => this.updatePreview(), 350);
-      film.addEventListener('input', upd);
-    }
+    input.addEventListener('blur', () => setTimeout(hide, 180));
+
+    document.addEventListener('click', (e) => {
+      if (e.target?.closest?.('.ac-wrap')) return;
+      hide();
+    });
+  }
+
+  wire() {
+    // logged in
+    const logged = this.$('#loggedIn');
+    if (logged) logged.textContent = getWho();
+
+    // Keep updated if store changes
+    this._unsubs.push(
+      onStore('who', (w) => {
+        const l = this.$('#loggedIn');
+        if (l) l.textContent = w;
+      })
+    );
+
+    // Buttons
+    this.$('#btnRefresh')?.addEventListener('click', () => this.refresh());
+
+    // Hoppa över => öppna panel (inte direkt hoppa)
+    this.$('#btnSkip')?.addEventListener('click', () => this.toggleSkipPanel());
+
+    this.$('#btnSkipOne')?.addEventListener('click', () => this.doSkipOne());
+
+    this.$('#jumpTo')?.addEventListener('change', () => {
+      const t = (this.$('#jumpTo')?.value || '').trim();
+      this.$('#btnDoJump').disabled = this.stepsToPerson(t) === 0;
+    });
+
+    this.$('#btnDoJump')?.addEventListener('click', () => this.doJumpToSelected());
+
+    // Sök ska vara på samma rad som titel (UI), och funka både klick och Enter
+    this.$('#btnLookup')?.addEventListener('click', () => this.runLocked(() => this.updateSuggestedInfo(), 450));
+    this.$('#suggested')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.runLocked(() => this.updateSuggestedInfo(), 450);
+      }
+    });
+
+    this.$('#btnSave')?.addEventListener('click', () => this.saveNight());
+
+    // Score save per change
+    this.querySelectorAll('.score-select').forEach((sel) => {
+      sel.addEventListener('change', async () => {
+        if (this._busy) return;
+        const who = sel.id.replace('s-', '');
+        const val = (sel.value || '').trim();
+        try {
+          await api('saveScores', { scores: JSON.stringify({ [who]: val }) });
+        } catch (e) {
+          console.error(e);
+        }
+      });
+    });
+
+    // Autocomplete (lugnt)
+    this.wireAutocomplete();
   }
 
   render() {
     this.innerHTML = `
-      <section class="card" id="nowCard">
-        <h3 style="margin:0 0 10px">På tur nu</h3>
+      <div class="card" id="nowCard">
 
-        <!-- Rad 1: Filmväljare vänster, knappar höger -->
-        <div class="now-topRow">
-          <div class="now-topLeft">
-            <div class="muted" style="font-size:13px">Inloggad: <strong data-now-who>${esc(getWho())}</strong></div>
-            <div class="now-chooser">
-              <label>Filmväljare</label>
-              <input id="now-nextName" type="text" readonly>
+        <!-- Rad 1: Filmväljare (vänster) + knappar (höger) -->
+        <div class="topRow">
+          <div class="topLeft">
+            <h3 style="margin:0">På tur nu</h3>
+            <div class="muted">Inloggad: <span id="loggedIn">–</span></div>
+          </div>
+          <div class="topRight">
+            <button id="btnRefresh" class="ghost">Uppdatera</button>
+            <button id="btnSkip" class="ghost">Hoppa över</button>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <div class="col" style="flex:1 1 340px">
+            <label>Filmväljare</label>
+            <input id="picker" type="text" readonly>
+          </div>
+        </div>
+
+        <!-- Rad 2: film + sök (samma rad) -->
+        <div class="row" style="margin-top:6px">
+          <div class="col" style="flex:1 1 520px">
+            <label>Film (förslag)</label>
+            <div class="filmRow ac-wrap">
+              <input id="suggested" class="lookup-input" autocomplete="off" autocapitalize="off" spellcheck="false">
+              <button id="btnLookup" class="lookup-btn">Sök</button>
+              <div class="ac-list" id="ac-suggested" style="display:none"></div>
             </div>
           </div>
-
-          <div class="now-topRight">
-            <button id="now-refresh" class="ghost">Uppdatera</button>
-            <button id="now-skip" class="ghost">Hoppa över</button>
-          </div>
         </div>
 
-        <!-- Rad 2: Film-titel -->
-        <div class="now-filmRow">
-          <label>Film (förslag)</label>
-          <div class="lookup-wrap">
-            <input id="now-film" class="lookup-input" type="text" autocomplete="off" spellcheck="false">
-            <button id="now-lookup" class="lookup-btn" type="button">Sök</button>
+        <!-- Rad 3: thumb / IMDb / streaming -->
+        <div id="suggested-info" class="omdb-info"></div>
+
+        <!-- Avancerat hoppa över-panel (välja nästa i tur) -->
+        <div id="advancedRow" class="advancedRow" style="display:none">
+          <div class="row" style="align-items:end">
+            <div class="col" style="min-width:260px; flex:0 0 300px">
+              <label>Hoppa till (nästa i tur överst)</label>
+              <select id="jumpTo"></select>
+            </div>
+            <div class="col" style="flex:0 0 auto">
+              <button id="btnDoJump" class="ghost" disabled>Byt tur</button>
+              <button id="btnSkipOne" class="ghost" style="margin-left:8px">Hoppa en</button>
+            </div>
+            <div class="col" style="flex:1 1 auto">
+              <div class="muted" style="font-size:12px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
+            </div>
           </div>
         </div>
-
-        <!-- Rad 3: Thumbnail vänster, streaming höger -->
-        <div id="now-preview" class="now-preview"></div>
 
         <!-- Poäng -->
-        <div style="margin-top:12px">
-          <label>Poäng</label>
-          <div id="now-scoresRow" class="now-scoresRow">
-            ${PEOPLE.map((p) => `
-              <div class="score-col" style="min-width:100px; flex:1 1 0">
-                <label style="margin:0 0 4px">${esc(p)}</label>
-                <select id="now-s-${esc(p)}" class="score-select">
-                  <option value="">–</option>
-                  <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
-                  <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
-                </select>
-              </div>
-            `).join('')}
+        <div class="row" style="margin-top:14px">
+          <div class="col" style="flex:1 1 100%">
+            <label>Poäng</label>
+            <div id="scoresRow" class="scoresRow">
+              ${PEOPLE.map(
+                (p) => `
+                <div class="score-col">
+                  <label>${escapeHtml(p)}</label>
+                  <select id="s-${escapeHtml(p)}" class="score-select">
+                    <option value="">–</option>
+                    <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+                    <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+                  </select>
+                </div>`
+              ).join('')}
+            </div>
           </div>
         </div>
 
-        <!-- Hoppa över / avancerat: välj vem som ska vara näst på tur -->
-        <div class="row" id="now-advancedRow" style="display:none; gap:10px; align-items:flex-end; margin-top:10px">
-          <div class="col" style="min-width:220px; flex:0 0 260px">
-            <label>Hoppa till (nästa i tur överst)</label>
-            <select id="now-jumpTo"></select>
+        <div class="row" style="align-items:end; margin-top:10px">
+          <div class="col">
+            <label>Kommentar</label>
+            <input id="comment" placeholder="valfritt">
           </div>
           <div class="col" style="flex:0 0 auto">
-            <button id="now-doJump" class="ghost" disabled>Byt tur</button>
-          </div>
-          <div class="col" style="flex:1 1 auto">
-            <div class="muted" style="font-size:12px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
+            <button id="btnSave" class="primary">Spara kväll</button>
           </div>
         </div>
+      </div>
 
-        <div class="row" style="align-items:flex-end; margin-top:10px">
-          <div class="col" style="flex:2 1 340px">
-            <label>Kommentar</label>
-            <input id="now-comment" placeholder="valfritt">
-          </div>
-          <div class="col" style="flex:0 0 auto; align-self:end">
-            <button id="now-saveNight" class="primary">Spara kväll</button>
-          </div>
-        </div>
-      </section>
+      <style>
+        .topRow{display:flex; align-items:flex-start; gap:12px}
+        .topRight{margin-left:auto; display:flex; gap:10px}
+
+        .filmRow{display:flex; gap:8px; align-items:center; position:relative}
+        .lookup-input{flex:1 1 auto; min-width:0}
+
+        .omdb-info{margin-top:10px}
+
+        /* Meta layout: thumb left, IMDb in middle, streaming right */
+        .metaGrid{
+          display:grid;
+          grid-template-columns:112px 1fr 1.6fr;
+          gap:14px;
+          align-items:start;
+        }
+        @media (max-width:760px){
+          .metaGrid{grid-template-columns:112px 1fr;}
+          .metaStream{grid-column:1 / -1;}
+        }
+
+        .thumb{width:112px; height:auto; border-radius:12px; border:1px solid var(--border, #dfe3ee)}
+        .thumb.ph{height:168px; background:rgba(0,0,0,.06)}
+
+        .metaImdb{display:flex; flex-direction:column; gap:4px; align-self:start}
+        .metaImdb a{ text-decoration:underline }
+
+        .metaStream{align-self:start}
+
+        /* Streaming: 2 rader tills expand */
+        .streamRow{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
+        .streamRow.collapsed{max-height:86px; overflow:hidden}
+        .streamToggle{margin-top:4px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted, #5b6475)}
+
+        /* Autocomplete */
+        .ac-list{position:absolute; left:0; right:0; top:100%; z-index:50; background:var(--panel, #fff); border:1px solid var(--border, #dfe3ee); border-radius:12px; margin-top:6px; overflow:hidden}
+        .ac-item{padding:10px 12px; cursor:pointer; border-top:1px solid var(--border, #dfe3ee); font-size:14px}
+        .ac-item:first-child{border-top:none}
+        .ac-item:hover{filter:brightness(1.03)}
+        .ac-muted{color:var(--muted, #5b6475); font-size:12px}
+
+        /* Scores row */
+        .scoresRow{display:flex; gap:10px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
+        .score-col{min-width:100px; flex:1 1 0}
+        .score-col select{padding:8px 10px; border-radius:10px; text-align:center; text-align-last:center}
+
+        /* Busy feel / dubbeltrycksskydd */
+        button.is-busy{opacity:.55; cursor:not-allowed}
+      </style>
     `;
-
-    // CSS som är specifik för just den här modulen
-    const style = document.createElement('style');
-    style.textContent = `
-      #nowCard .now-topRow{display:flex; align-items:flex-start; gap:16px;}
-      #nowCard .now-topLeft{flex:1 1 auto; min-width:260px;}
-      #nowCard .now-topRight{margin-left:auto; display:flex; gap:10px; justify-content:flex-end; align-items:flex-start;}
-
-      #nowCard .now-chooser{margin-top:8px; max-width:520px;}
-
-      #nowCard .now-filmRow{margin-top:10px;}
-
-      /* Preview-layout: thumbnail vänster, streams höger */
-      #nowCard .now-preview{margin-top:10px;}
-      #nowCard .now-previewRow{display:flex; align-items:flex-start; gap:12px;}
-      #nowCard .now-previewLeft{flex:0 0 auto;}
-      #nowCard .now-previewRight{flex:1 1 auto;}
-      #nowCard .now-previewStreams{flex:0 0 340px; text-align:right;}
-      #nowCard .now-previewTitle{font-size:13px; color:var(--muted);}
-      #nowCard .now-previewMeta{font-size:13px; color:var(--muted); margin-top:2px;}
-      #nowCard .now-previewMeta a{color:inherit; text-decoration:underline;}
-
-      /* Thumbnail mindre */
-      #nowCard .now-poster{width:44px; height:auto; border-radius:8px; border:1px solid var(--border);}
-
-      /* Streaming: visa bara första raden */
-      #nowCard .streaming-row{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end;}
-      #nowCard .streaming-row.collapsed{max-height:34px; overflow:hidden;}
-      #nowCard .streaming-toggle{margin-top:6px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted);}
-
-      /* Poängrad */
-      #nowCard .now-scoresRow{display:flex; gap:10px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px;}
-
-      /* Gråa ut knappar när kommandot kör */
-      #nowCard button.is-busy{opacity:.55; cursor:not-allowed;}
-
-      @media (max-width:980px){
-        #nowCard .now-previewStreams{flex-basis:260px;}
-      }
-      @media (max-width:820px){
-        #nowCard .now-topRow{flex-direction:column;}
-        #nowCard .now-topRight{width:100%; justify-content:flex-start;}
-        #nowCard .now-previewRow{flex-direction:column;}
-        #nowCard .now-previewStreams{text-align:left; width:100%;}
-        #nowCard .streaming-row{justify-content:flex-start;}
-      }
-    `;
-    this.appendChild(style);
-
-    this.bindEvents();
-
-    // bygg advanced dropdown direkt
-    this.updateAdvancedOptions({ preserveSelection: false });
   }
 }
 
