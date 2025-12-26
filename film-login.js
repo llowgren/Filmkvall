@@ -1,52 +1,45 @@
-import { getWho, setWho, getAuth, setAuth, on } from '../store.js';
+// film-login.js
+// Central source of truth for API URL, authentication, and external API tokens
 
-customElements.define('film-login', class extends HTMLElement {
-  connectedCallback(){
-    this.render();
-    this.bind();
-    this.syncFromStore();
-    this.unsub = on('who', ()=>this.syncFromStore());
-  }
-  disconnectedCallback(){
-    this.unsub?.();
-  }
+import { setAuth } from '../store.js';
 
-  render(){
-    this.innerHTML = `
-      <div class="card" id="userCard" style="padding:8px 12px; max-width:260px">
-        <label>Användare</label>
-        <select id="who"></select>
+// ================================
+// CONFIG (centralised here on purpose)
+// ================================
 
-        <!-- Auth-fält kan vara dolda/enkla nu. Vi gör dem “förberedda”. -->
-        <div style="margin-top:10px; display:none" id="authBox">
-          <label>Token</label>
-          <input id="token" autocomplete="off" />
-          <label style="margin-top:6px">PW</label>
-          <input id="pw" autocomplete="off" />
-        </div>
-      </div>
-    `;
-  }
+// Backend Web App URL (Google Apps Script)
+const API_URL = '__API_URL__';
 
-  bind(){
-    const whoSel = this.querySelector('#who');
-    whoSel.addEventListener('change', ()=> setWho(whoSel.value));
+// Authentication towards backend (legacy pw and/or token)
+const AUTH = {
+  pw: 'Look4fun',
+  token: '__TOKEN__'
+};
 
-    // Förberett: om ni senare visar authBox
-    const tokenEl = this.querySelector('#token');
-    const pwEl = this.querySelector('#pw');
-    tokenEl.addEventListener('change', ()=> setAuth({ token: tokenEl.value.trim() }));
-    pwEl.addEventListener('change', ()=> setAuth({ pw: pwEl.value.trim() }));
-  }
+// External movie data providers
+const TOKENS = {
+  tmdb: 'e207103e8a03559e4be5970b8c899122',
+  omdb: 'b6f3e48',
+  watchmode: '6fs0TqcE6LrZttIvVKKJ1Heg97B161Ay1HntH9Vq'
+};
 
-  syncFromStore(){
-    const PEOPLE = ['Hannah','Maria','Tuva','Alva','Lars']; // kan flyttas senare
-    const whoSel = this.querySelector('#who');
-    whoSel.innerHTML = PEOPLE.map(p=>`<option value="${p}">${p}</option>`).join('');
-    whoSel.value = getWho();
+// ================================
+// Public API (used by other modules)
+// ================================
 
-    const a = getAuth();
-    this.querySelector('#token').value = a.token || '';
-    this.querySelector('#pw').value = a.pw || '';
-  }
-});
+// Used by api.js
+export function getApiUrl() {
+  return API_URL;
+}
+
+// Used by lookup / wishlist / now modules
+export function getMovieTokens() {
+  return { ...TOKENS };
+}
+
+// ================================
+// Initialization
+// ================================
+
+// Write auth once on load so all modules can read from store
+setAuth(AUTH);
