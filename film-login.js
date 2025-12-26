@@ -1,15 +1,14 @@
 // film-login.js
 // Central source of truth for API URL, authentication, and external API tokens
 
-import { setAuth } from '../store.js';
+import { setAuth } from './store.js';
 
 // ================================
 // CONFIG (centralised here on purpose)
 // ================================
 
 // Backend Web App URL (Google Apps Script)
-const API_URL = '__API_URL__';
-
+const API_URL = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec'
 // Authentication towards backend (legacy pw and/or token)
 const AUTH = {
   pw: 'Look4fun',
