@@ -1,29 +1,4 @@
 <!doctype html>
-import { getTheme, on } from './store.js';
-
-function applyTheme(theme){
-  // theme: 'auto' | 'dark' | 'light'
-  const root = document.documentElement;
-
-  let mode = theme || 'auto';
-  if (mode === 'auto') {
-    mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  }
-
-  // Din CSS: [data-theme="light"] = ljus, annars mörk via :root
-  if (mode === 'light') root.setAttribute('data-theme', 'light');
-  else root.removeAttribute('data-theme');
-  root.style.colorScheme = (mode === 'light') ? 'light' : 'dark';
-}
-
-// init + lyssna
-applyTheme(getTheme());
-on('theme', applyTheme);
-
-// auto: uppdatera om systemtema ändras
-const mql = window.matchMedia('(prefers-color-scheme: light)');
-mql.addEventListener?.('change', () => { if (getTheme() === 'auto') applyTheme('auto'); });
-mql.addListener?.(() => { if (getTheme() === 'auto') applyTheme('auto'); });
 <html lang="sv">
 <head>
   <meta charset="utf-8" />
@@ -58,21 +33,49 @@ mql.addListener?.(() => { if (getTheme() === 'auto') applyTheme('auto'); });
   </div>
 
   <script type="module">
-    // Core (store first)
-    import './store.js';
+    // Theme-bridge: apply theme stored in store to the whole page
+    import { getTheme, on } from './store.js';
+
+    function applyTheme(theme){
+      const root = document.documentElement;
+
+      let mode = theme || 'auto';
+      if (mode === 'auto') {
+        mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+
+      // Your CSS: [data-theme="light"] = light, else dark via :root
+      if (mode === 'light') root.setAttribute('data-theme', 'light');
+      else root.removeAttribute('data-theme');
+
+      root.style.colorScheme = (mode === 'light') ? 'light' : 'dark';
+    }
+
+    // init + listen
+    applyTheme(getTheme());
+    on('theme', applyTheme);
+
+    // auto: re-apply when OS theme changes
+    const mql = window.matchMedia('(prefers-color-scheme: light)');
+    const onScheme = () => { if (getTheme() === 'auto') applyTheme('auto'); };
+    mql.addEventListener?.('change', onScheme);
+    mql.addListener?.(onScheme);
+
+    // Imports (store first)
+    await import('./store.js');
 
     // Login next (sets auth/who in store)
-    import './film-login.js';
+    await import('./film-login.js');
 
     // API after login (reads auth + apiUrl)
-    import './api.js';
+    await import('./api.js');
 
     // UI modules
-    import './film-now.js';
-    import './film-wishlist.js';
-    import './film-tops.js';
-    import './film-history.js';
-    import './film-system.js';
+    await import('./film-now.js');
+    await import('./film-wishlist.js');
+    await import('./film-tops.js');
+    await import('./film-history.js');
+    await import('./film-system.js');
 
     // Simple version stamp
     const verEl = document.getElementById('appVersion');
