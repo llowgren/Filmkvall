@@ -15,8 +15,8 @@
   --radius: 18px;
 
   /* surfaces */
-  --control: #0b1220;     /* inputs/buttons */
-  --control2: #0b1324;    /* pre/secondary panels */
+  --control: #0b1220;
+  --control2: #0b1324;
   --controlHover: #0f1a33;
 
   /* focus */
@@ -68,10 +68,8 @@ html[data-theme="light"]{
   --linkHover: #4338ca;
 }
 
-/* Optional: if you ever set explicit dark attribute */
-html[data-theme="dark"]{
-  /* keep same as :root (no-op), but explicit for clarity */
-}
+/* Optional explicit dark */
+html[data-theme="dark"]{}
 
 *{ box-sizing:border-box; }
 html,body{ height:100%; }
@@ -93,22 +91,43 @@ a:hover{ color: var(--linkHover); }
   padding: 22px 16px 60px;
 }
 
-/* Hero */
+/* =======================
+   Hero (UPDATED)
+   ======================= */
 .hero{
-  text-align:center;
+  text-align: left;
   padding: 6px 8px 18px;
 }
+
+.hero-main{
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap: 14px;
+}
+
+/* Gyllene snitt: logga ~38%, text ~62% */
 .hero-logo{
-  width: 84px;
+  flex: 0 0 38%;
+  width: 96px;
+  max-width: 96px;
   height: auto;
   display:block;
-  margin: 10px auto 10px;
+  margin: 0;
 }
+
+.hero-text{
+  flex: 1 1 62%;
+  min-width: 0;
+}
+
 .hero-title{
   font-size: 42px;
   letter-spacing: .2px;
   margin: 0;
+  line-height: 1.1;
 }
+
 .hero-version{
   margin-top: 6px;
   font-size: 15px;
