@@ -55,24 +55,27 @@ customElements.define('film-tops', class FilmTops extends HTMLElement {
           gap:10px;
           padding:6px 0;
           border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+          align-items:baseline;
         }
         .tops-row:first-child{ border-top:none; }
 
         /* Filmer: titel | poäng | (vem) */
         .tops-row.film{
-          grid-template-columns: 1fr 56px 90px;
+          grid-template-columns: 1fr 64px 96px;
         }
 
         /* Väljare: namn | snitt | (n filmer) */
         .tops-row.picker{
-          grid-template-columns: 1fr 56px 120px;
+          grid-template-columns: 1fr 64px 120px;
         }
 
         .tops-name{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-        /* Grönt/blått: poängen står på en lodrät linje */
+        /* VIKTIGT: poängen ska vara VÄNSTERSTÄLLD inom sin kolumn
+           så heltalen hamnar under varandra mot samma lodräta linje. */
         .tops-num{
-          text-align:right;
+          text-align:left;
+          justify-self:start;
           font-variant-numeric: tabular-nums;
           font-feature-settings: "tnum" 1;
           letter-spacing: .02em;
@@ -86,12 +89,6 @@ customElements.define('film-tops', class FilmTops extends HTMLElement {
           overflow:hidden;
           text-overflow:ellipsis;
           white-space:nowrap;
-        }
-
-        /* Lite mer luft mellan de två kolumnerna visuellt */
-        .tops-grid::before{
-          content:"";
-          display:none;
         }
       </style>
     `;
