@@ -17,10 +17,22 @@
 
 <body>
   <div class="wrap">
+
     <header class="hero">
-      <img src="Logo.PNG" alt="Filmkväll logotyp" class="hero-logo" />
-      <h1 class="hero-title">Filmkväll</h1>
-      <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
+      <div class="hero-main">
+        <img
+          src="Logo.PNG"
+          alt="Filmkväll logotyp"
+          class="hero-logo"
+        />
+
+        <div class="hero-text">
+          <h1 class="hero-title">Filmkväll</h1>
+          <div class="muted hero-version">
+            Kodversion: <span id="appVersion">–</span>
+          </div>
+        </div>
+      </div>
     </header>
 
     <!-- Moduler i ordning -->
@@ -30,6 +42,7 @@
     <film-tops></film-tops>
     <film-history></film-history>
     <film-system></film-system>
+
   </div>
 
   <script type="module">
