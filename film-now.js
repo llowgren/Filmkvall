@@ -278,12 +278,22 @@ class FilmNow extends HTMLElement {
     this.querySelectorAll('.score-select').forEach((s) => (s.value = ''));
   }
 
-  async refresh() {
+  // ✅ Ny: olåst refresh som kan köras inifrån runLocked
+  async _refreshUnlocked() {
+    const cur = await api('getCurrent');
+    this._lastCurrent = cur;
+    this.applyCurrent(cur);
+    await this.updateSuggestedInfo();
+  }
+
+  // ✅ Uppdaterad: refresh wrapper (låst som default)
+  async refresh({ locked = true } = {}) {
+    if (!locked) {
+      await this._refreshUnlocked();
+      return;
+    }
     await this.runLocked(async () => {
-      const cur = await api('getCurrent');
-      this._lastCurrent = cur;
-      this.applyCurrent(cur);
-      await this.updateSuggestedInfo();
+      await this._refreshUnlocked();
     }, 350);
   }
 
@@ -375,7 +385,8 @@ class FilmNow extends HTMLElement {
       this.setJumpMsg('Hoppar en…');
       await api('skipNext');
       this.resetScoresUI();
-      await this.refresh();
+      // ✅ olåst refresh här (vi är redan låsta)
+      await this.refresh({ locked: false });
       this.setJumpMsg('');
     });
   }
@@ -393,7 +404,8 @@ class FilmNow extends HTMLElement {
       for (let i = 0; i < steps; i++) await api('skipNext');
 
       this.resetScoresUI();
-      await this.refresh();
+      // ✅ olåst refresh här (vi är redan låsta)
+      await this.refresh({ locked: false });
 
       // Stäng panel + bekräftelse
       const row = this.$('#advancedRow');
@@ -427,7 +439,8 @@ class FilmNow extends HTMLElement {
       const c = this.$('#comment');
       if (c) c.value = '';
 
-      await this.refresh();
+      // ✅ olåst refresh här (vi är redan låsta)
+      await this.refresh({ locked: false });
     });
   }
 
