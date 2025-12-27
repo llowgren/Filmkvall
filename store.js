@@ -1,8 +1,13 @@
 // store.js
 // Global state + pub/sub.
-// Äger: who, auth, theme + applicerar theme på <html> så ALLA moduler följer.
+// Äger: who, auth, theme och applicerar theme på <html> så ALLA moduler följer.
+//
+// Viktigt: Vi sätter ALLTID html[data-theme="dark"|"light"] explicit.
+// Då slipper vi alla buggar kring "default = dark/light".
 
 const listeners = new Map(); // key -> Set<fn>
+
+const THEME_ALLOWED = new Set(['auto', 'dark', 'light']);
 
 const state = {
   who: (localStorage.getItem('film_who') || 'Maria').trim(),
@@ -21,6 +26,7 @@ export function on(key, fn) {
     try { listeners.get(key)?.delete(fn); } catch {}
   };
 }
+
 function emit(key, value) {
   const subs = listeners.get(key);
   if (!subs) return;
@@ -33,9 +39,11 @@ function emit(key, value) {
 export function getWho() {
   return state.who;
 }
+
 export function setWho(who) {
   const next = (who || '').trim();
   if (!next || next === state.who) return;
+
   state.who = next;
   try { localStorage.setItem('film_who', state.who); } catch {}
   emit('who', state.who);
@@ -45,6 +53,7 @@ export function setWho(who) {
 export function getAuth() {
   return { ...state.auth };
 }
+
 export function setAuth(partial) {
   const patch = partial || {};
   const next = {
@@ -55,6 +64,7 @@ export function setAuth(partial) {
   if (next.token === state.auth.token && next.pw === state.auth.pw) return;
 
   state.auth = next;
+
   try {
     if ('token' in patch) localStorage.setItem('film_token', state.auth.token);
     if ('pw' in patch)    localStorage.setItem('film_pw', state.auth.pw);
@@ -64,8 +74,6 @@ export function setAuth(partial) {
 }
 
 // ---------- THEME ----------
-const THEME_ALLOWED = new Set(['auto', 'dark', 'light']);
-
 export function getTheme() {
   return THEME_ALLOWED.has(state.theme) ? state.theme : 'auto';
 }
@@ -82,22 +90,11 @@ export function setTheme(theme) {
   emit('theme', state.theme);
 }
 
-export function applyThemeToDom() {
-  const root = document.documentElement;
-  const mode = resolveThemeMode(getTheme()); // light|dark
-
-  // Er CSS: dark = default (:root), light = [data-theme="light"]
-  if (mode === 'light') root.setAttribute('data-theme', 'light');
-  else root.removeAttribute('data-theme');
-
-  // Gör att inbyggda inputs matchar bättre
-  root.style.colorScheme = (mode === 'light') ? 'light' : 'dark';
-}
-
-function resolveThemeMode(sel) {
+// Resolve 'auto' -> ('light'|'dark'), annars returnera valt läge
+export function resolveThemeMode(sel = getTheme()) {
   if (sel === 'light') return 'light';
   if (sel === 'dark') return 'dark';
-  // auto:
+  // auto
   try {
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   } catch {
@@ -105,14 +102,30 @@ function resolveThemeMode(sel) {
   }
 }
 
+// Applicera på <html> så hela sidan följer (alla moduler)
+export function applyThemeToDom() {
+  const root = document.documentElement;
+  const mode = resolveThemeMode(getTheme()); // 'light' | 'dark'
+
+  // ✅ Explicit – ingen "default = dark/light"-gissning
+  root.setAttribute('data-theme', mode);
+
+  // Hjälper native controls (select/input) att matcha
+  root.style.colorScheme = mode;
+}
+
 // OS theme change → re-apply om auto
+let _mql;
 try {
-  const mql = window.matchMedia('(prefers-color-scheme: light)');
-  const onChange = () => {
-    if (getTheme() === 'auto') applyThemeToDom();
+  _mql = window.matchMedia('(prefers-color-scheme: light)');
+  const onSchemeChange = () => {
+    if (getTheme() === 'auto') {
+      applyThemeToDom();
+      emit('theme', state.theme); // så UI som visar "auto" kan re-rendera om den vill
+    }
   };
-  mql.addEventListener?.('change', onChange);
-  mql.addListener?.(onChange); // Safari fallback
+  _mql.addEventListener?.('change', onSchemeChange);
+  _mql.addListener?.(onSchemeChange); // Safari fallback
 } catch {}
 
 // Kör direkt vid load så sidan är korrekt från start
@@ -124,6 +137,7 @@ export function getDebugSnapshot() {
   return {
     who: getWho(),
     theme: getTheme(),
+    resolvedTheme: resolveThemeMode(getTheme()),
     auth: {
       pw: a.pw ? '(satt)' : '',
       token: a.token ? '(satt)' : '',
