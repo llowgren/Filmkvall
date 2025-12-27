@@ -23,13 +23,6 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <noscript>
-      <div class="card">
-        <strong>JavaScript är avstängt.</strong><br>
-        Sidan kräver JavaScript för att fungera.
-      </div>
-    </noscript>
-
     <!-- Modules in visual order -->
     <film-login></film-login>
     <film-now></film-now>
@@ -40,23 +33,21 @@
   </div>
 
   <script type="module">
-    // Core first (theme + state lives in store)
+    // 1) Store först (sätter tema direkt i applyThemeToDom() vid import)
     import './store.js';
 
-    // Login next (sets auth/who/tokens into store on load)
-    import './film-login.js';
-
-    // API after login (reads auth + api url)
+    // 2) API (läser auth/who från store)
     import './api.js';
 
-    // UI modules
+    // 3) UI-moduler (definierar customElements)
+    import './film-login.js';
     import './film-now.js';
     import './film-wishlist.js';
     import './film-tops.js';
     import './film-history.js';
     import './film-system.js';
 
-    // Simple version stamp
+    // Versionstämpel (enkel)
     const verEl = document.getElementById('appVersion');
     if (verEl) verEl.textContent = document.lastModified || '–';
   </script>
