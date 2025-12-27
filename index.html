@@ -4,15 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Filmkväll</title>
-
   <link rel="icon" type="image/png" href="Logo.PNG">
-  <meta property="og:title" content="Filmkväll">
-  <meta property="og:type" content="website">
-  <meta property="og:image" content="Logo.PNG">
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:image" content="Logo.PNG">
-
   <link rel="stylesheet" href="./styles.css">
+  <style>
+    #bootlog{
+      position:fixed; left:12px; right:12px; bottom:12px;
+      max-height:45vh; overflow:auto;
+      background:rgba(0,0,0,.85); color:#fff;
+      padding:10px 12px; border-radius:12px; font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      z-index:99999;
+      white-space:pre-wrap;
+    }
+    #bootlog b{color:#ffd86b}
+  </style>
 </head>
 
 <body>
@@ -23,7 +27,6 @@
       <div class="muted hero-version">Kodversion: <span id="appVersion">–</span></div>
     </header>
 
-    <!-- Modules in visual order -->
     <film-login></film-login>
     <film-now></film-now>
     <film-wishlist></film-wishlist>
@@ -32,24 +35,61 @@
     <film-system></film-system>
   </div>
 
+  <div id="bootlog">Bootar…</div>
+
   <script type="module">
-    // 1) Store först (sätter tema direkt i applyThemeToDom() vid import)
-    import './store.js';
+    const logEl = document.getElementById('bootlog');
+    const log = (msg)=>{ logEl.textContent += `\n${msg}`; logEl.scrollTop = logEl.scrollHeight; };
 
-    // 2) API (läser auth/who från store)
-    import './api.js';
-
-    // 3) UI-moduler (definierar customElements)
-    import './film-login.js';
-    import './film-now.js';
-    import './film-wishlist.js';
-    import './film-tops.js';
-    import './film-history.js';
-    import './film-system.js';
-
-    // Versionstämpel (enkel)
+    // Visa version
     const verEl = document.getElementById('appVersion');
     if (verEl) verEl.textContent = document.lastModified || '–';
+
+    // Fånga fel som annars bara syns i console
+    window.addEventListener('error', (e)=>{
+      log(`\n<b>window.error</b> ${e.message || e.type}`);
+      if (e.filename) log(`  file: ${e.filename}:${e.lineno || 0}:${e.colno || 0}`);
+    });
+    window.addEventListener('unhandledrejection', (e)=>{
+      log(`\n<b>unhandledrejection</b> ${String(e.reason?.message || e.reason || e)}`);
+    });
+
+    async function importStep(path){
+      log(`→ import ${path}`);
+      try{
+        await import(path);
+        log(`✓ ok ${path}`);
+        return true;
+      }catch(err){
+        log(`✗ FAIL ${path}`);
+        log(`  ${String(err?.message || err)}`);
+        return false;
+      }
+    }
+
+    // Viktigt: importera i stabil ordning och stanna inte på första fel,
+    // så du ser ALLA problem.
+    (async ()=>{
+      log('Startar importkedja…');
+
+      await importStep('./store.js');
+      await importStep('./api.js');
+
+      await importStep('./film-login.js');
+      await importStep('./film-now.js');
+      await importStep('./film-wishlist.js');
+      await importStep('./film-tops.js');
+      await importStep('./film-history.js');
+      await importStep('./film-system.js');
+
+      // Kontroll: är custom elements definierade?
+      const tags = ['film-login','film-now','film-wishlist','film-tops','film-history','film-system'];
+      for (const t of tags){
+        log(`CE ${t}: ${customElements.get(t) ? '✓' : '✗ (inte definierad)'}`);
+      }
+
+      log('\nKlar.');
+    })();
   </script>
 </body>
 </html>
