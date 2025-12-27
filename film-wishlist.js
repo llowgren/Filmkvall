@@ -1,712 +1,751 @@
 // film-wishlist.js
-// Wishlist module ("Önskelista") – shows 1–5 upcoming picks for the logged-in user.
-// Includes:
-// - Autocomplete (TMDb) while typing
-// - Poster thumbnail + IMDb link
-// - Streaming availability (Watchmode) shown to the right (2 rows visible, expandable)
-// - Reorder (up/down)
-// - Calm autosave + explicit Save button
+// <film-wishlist> – Önskelista (1–5)
+// Mål: samma funktion/känsla som gamla single-file, men modulärt.
+// - Autocomplete (TMDb) lugnt
+// - Poster + IMDb-länk
+// - Streaming (Watchmode) på samma rad som thumbnail, två rader synliga + expand
+// - Upp/Ner för ordning
+// - Autosave (lugnt) + Spara-knapp
 
-import { getWho, setWho, on as onStore, getAuth } from './store.js';
-import { getApiUrl, getMovieTokens } from './film-login.js';
+import * as Store from './store.js';
+import * as Api from './api.js';
+import { getMovieTokens } from './film-login.js';
 
+// ---------- små hjälpare ----------
 const PEOPLE = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
-
-// --- tiny utils ---
+const $$ = (root, sel) => Array.from(root.querySelectorAll(sel));
 const $ = (root, sel) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 }[m]));
-const normKey = (s) => String(s || '').trim().toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
 
-function qs(obj) {
-  const p = new URLSearchParams();
-  Object.entries(obj || {}).forEach(([k, v]) => {
-    if (v === undefined || v === null) return;
-    p.set(k, String(v));
-  });
-  return p.toString();
+function debounce(fn, ms = 350) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
 }
 
-async function api(action, params = {}) {
-  const url = getApiUrl();
-  const auth = getAuth();
-  const query = qs({
-    action,
-    pw: auth?.pw || '',
-    token: auth?.token || '',
-    ...params,
-  });
-  const res = await fetch(`${url}?${query}`, { cache: 'no-store' });
-  return res.json();
+function lsGet(key, fallback = null) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; }
+}
+function lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ }
 }
 
-// --- external providers ---
+// ---------- API wrapper (tålig mot olika export-namn) ----------
+async function callApi(action, params = {}) {
+  // Prioritera en exporterad funktion om den finns
+  if (typeof Api.api === 'function') return Api.api(action, params);
+  if (typeof Api.callApi === 'function') return Api.callApi(action, params);
+  if (typeof Api.request === 'function') return Api.request(action, params);
+
+  // Fallback: om api.js exporterar getApiUrl + auth internt – men vi försöker ändå.
+  if (typeof Api.apiUrl === 'function') {
+    const url = Api.apiUrl(action, params);
+    const r = await fetch(url, { cache: 'no-store' });
+    return r.json();
+  }
+
+  throw new Error('api.js saknar en anropsfunktion (api/callApi/request).');
+}
+
+// ---------- Token helpers ----------
 function tokens() {
-  // film-login.js is source-of-truth
-  return getMovieTokens();
+  try { return getMovieTokens() || {}; } catch { return {}; }
 }
+function tmdbKey() { return tokens()?.tmdb || ''; }
+function omdbKey() { return tokens()?.omdb || ''; }
+function watchmodeKey() { return tokens()?.watchmode || ''; }
 
-async function tmdbSearch(q, limit = 7) {
-  const { tmdb } = tokens();
-  if (!tmdb || !q) return [];
-  const url = `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(tmdb)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`;
+// ---------- TMDb autocomplete ----------
+const TMDB_URL = 'https://api.themoviedb.org/3';
+async function tmdbSearchMovies(query, limit = 8) {
+  const key = tmdbKey();
+  if (!key) return [];
+  const q = (query || '').trim();
+  if (q.length < 3) return [];
+
+  const url = `${TMDB_URL}/search/movie?api_key=${encodeURIComponent(key)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`;
   const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
   if (!r || !r.ok) return [];
-  const j = await r.json();
-  const arr = Array.isArray(j?.results) ? j.results : [];
-  return arr.slice(0, limit).map((it) => ({
+  const j = await r.json().catch(() => null);
+  const res = Array.isArray(j?.results) ? j.results : [];
+  return res.slice(0, limit).map(it => ({
     title: it.title || it.original_title || '',
-    year: (it.release_date || '').slice(0, 4) || '',
+    year: (it.release_date || '').slice(0, 4) || ''
   }));
 }
 
-async function omdbLookupTitle(q) {
-  const { omdb } = tokens();
-  if (!omdb || !q) return null;
+// ---------- OMDb lookup (enkelt) ----------
+const OMDB_URL = 'https://www.omdbapi.com/';
+async function omdbLookup(query) {
+  const key = omdbKey();
+  if (!key) return null;
+  let q = String(query || '').trim();
+  if (!q) return null;
 
-  let title = String(q).trim();
+  // stöd: "Titel (ÅÅÅÅ)"
   let year = '';
-  const m = title.match(/\((\d{4})\)\s*$/);
+  const m = q.match(/\((\d{4})\)\s*$/);
   if (m) {
     year = m[1];
-    title = title.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+    q = q.replace(/\s*\(\d{4}\)\s*$/, '').trim();
   }
 
-  // If user pasted IMDb id/url
-  const tt = (q.match(/tt\d{7,}/i) || q.match(/imdb\.com\/title\/(tt\d+)/i));
-  if (tt) {
-    const id = (tt[1] || tt[0]).replace(/^.*(tt\d+).*$/, '$1');
-    const u = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&i=${encodeURIComponent(id)}&plot=short`;
-    const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
-    const j = r ? await r.json() : null;
-    if (j && j.Response !== 'False') return j;
-    return null;
-  }
+  const u = `${OMDB_URL}?apikey=${encodeURIComponent(key)}&t=${encodeURIComponent(q)}${year ? `&y=${encodeURIComponent(year)}` : ''}&type=movie&plot=short`;
+  const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
+  if (!r || !r.ok) return null;
+  const j = await r.json().catch(() => null);
+  if (!j || j.Response === 'False') return null;
+  return j;
+}
 
-  // Try direct title
-  {
-    const u = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&t=${encodeURIComponent(title)}${year ? `&y=${encodeURIComponent(year)}` : ''}&type=movie&plot=short`;
-    const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
-    const j = r ? await r.json() : null;
-    if (j && j.Response !== 'False') return j;
-  }
+function imdbUrl(j) {
+  const id = j?.imdbID;
+  return id ? `https://www.imdb.com/title/${id}/` : '';
+}
 
-  // Try search list then pick first
-  {
-    const u = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&s=${encodeURIComponent(title)}&type=movie`;
-    const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
-    const j = r ? await r.json() : null;
-    const hit = j?.Search?.[0];
-    if (hit?.Title) return omdbLookupTitle(`${hit.Title} (${hit.Year || ''})`);
-  }
+// ---------- Watchmode streaming ----------
+async function wmTitleIdFromImdb(imdbID) {
+  const key = watchmodeKey();
+  if (!key || !imdbID) return null;
+
+  // 1) /find
+  try {
+    const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(key)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
+    let r = await fetch(u1, { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      if (j?.title_id) return j.title_id;
+    }
+
+    // 2) /search fallback
+    const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(key)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
+    r = await fetch(u2, { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      const hit = Array.isArray(j?.title_results) ? j.title_results.find(t => String(t.imdb_id) === String(imdbID)) : null;
+      if (hit?.id) return hit.id;
+    }
+  } catch { /* ignore */ }
 
   return null;
 }
 
-function imdbUrl(imdbID) {
-  return imdbID ? `https://www.imdb.com/title/${imdbID}/` : '';
-}
+async function getStreamingInfo(imdbID) {
+  const key = watchmodeKey();
+  if (!key || !imdbID) return null;
 
-// --- Watchmode (streaming) with local cache ---
-const WM_CACHE_PREFIX = 'filmkvall_wm_sources_v2_';
+  // Cache 7 dagar
+  const cacheKey = `wm_sources_v1_${imdbID}`;
+  const cached = lsGet(cacheKey, null);
+  const now = Date.now();
+  if (cached?.savedAt && (now - cached.savedAt) < 7 * 24 * 3600_000 && Array.isArray(cached?.data)) {
+    return cached.data;
+  }
 
-function cacheGet(key) {
-  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
-}
-function cacheSet(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch { }
-}
-
-async function watchmodeTitleIdFromImdb(imdbID) {
-  const { watchmode } = tokens();
-  if (!watchmode || !imdbID) return null;
-
-  // Prefer /find
   try {
-    const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(watchmode)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
-    const r1 = await fetch(u1, { cache: 'no-store' }).catch(() => null);
-    const j1 = r1 ? await r1.json() : null;
-    if (j1?.title_id) return j1.title_id;
-  } catch { }
+    const wmId = await wmTitleIdFromImdb(imdbID);
+    if (!wmId) return null;
 
-  // Fallback search
-  try {
-    const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(watchmode)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
-    const r2 = await fetch(u2, { cache: 'no-store' }).catch(() => null);
-    const j2 = r2 ? await r2.json() : null;
-    const hit = Array.isArray(j2?.title_results)
-      ? j2.title_results.find((t) => String(t.imdb_id) === String(imdbID))
-      : null;
-    return hit?.id || null;
+    const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${encodeURIComponent(key)}`;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!Array.isArray(data)) return null;
+
+    const seen = new Set();
+    const normalizeName = (s) => String(s || '')
+      .replace(/\s*\(with Ads\)$/i, '')
+      .replace(/\s+HD$/i, '')
+      .trim();
+
+    const filtered = data
+      .filter(s => s.type === 'sub' && s.name)
+      .map(s => ({
+        service: normalizeName(s.name),
+        quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
+        region: s.region || '',
+        link: s.web_url || ''
+      }))
+      .filter(s => {
+        const k = `${s.service}|${s.quality}|${s.region}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
+
+    lsSet(cacheKey, { savedAt: now, data: filtered });
+    return filtered.length ? filtered : null;
   } catch {
     return null;
   }
 }
 
-async function getStreamingSources(imdbID) {
-  if (!imdbID) return null;
-  const { watchmode } = tokens();
-  if (!watchmode) return null;
+// ---------- styles (en gång) ----------
+function ensureStyles() {
+  if (document.getElementById('filmWishlistStyles')) return;
+  const s = document.createElement('style');
+  s.id = 'filmWishlistStyles';
+  s.textContent = `
+  /* Wishlist layout */
+  .wishlist-head{display:flex; align-items:flex-start; gap:12px; justify-content:space-between}
+  .wishlist-head-left{display:flex; flex-direction:column; gap:2px}
+  .wishlist-actions{display:flex; gap:10px; align-items:center}
 
-  const ck = WM_CACHE_PREFIX + imdbID;
-  const cached = cacheGet(ck);
-  const now = Date.now();
-  if (cached?.data && cached?.savedAt && (now - cached.savedAt) < 7 * 24 * 3600_000) {
-    return cached.data;
+  .wl-list{display:flex; flex-direction:column; gap:12px; margin-top:12px}
+  .wl-row{border:1px solid var(--border); background:var(--panel); border-radius:14px; padding:12px}
+
+  .wl-top{display:grid; grid-template-columns: 46px 1fr auto; gap:10px; align-items:center}
+  .wl-num{color:var(--muted); font-size:13px; width:46px}
+
+  .wl-inputwrap{position:relative}
+  .wl-inputline{display:flex; gap:8px; align-items:center}
+  .wl-inputline input{flex:1 1 auto; min-width:0}
+
+  .wl-controls{display:flex; gap:8px; align-items:center}
+  .wl-controls button{width:44px; height:44px; padding:0; border-radius:12px; font-size:18px; display:flex; align-items:center; justify-content:center}
+
+  .wl-meta{display:grid; grid-template-columns: 96px 1fr; gap:12px; align-items:start; margin-top:10px}
+  .wl-poster{width:96px; height:auto; border-radius:12px; border:1px solid var(--border); display:block}
+
+  .wl-meta-right{display:flex; gap:12px; align-items:flex-start; justify-content:space-between}
+  .wl-imdb{min-width:170px}
+  .wl-imdb a{color:inherit; text-decoration:underline}
+
+  .wl-stream{margin-left:auto; max-width:520px}
+  .wl-stream strong{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
+  .wl-stream-row{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end}
+  /* två rader synliga, resten dolt */
+  .wl-stream-row.collapsed{max-height:72px; overflow:hidden}
+  .wl-stream-toggle{margin-top:6px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted); float:right}
+
+  /* Autocomplete (återanvänder klasser från styles.css om de finns, men säkrar här också) */
+  .ac-list{position:absolute; left:0; right:0; top:100%; z-index:60; background:var(--panel); border:1px solid var(--border); border-radius:12px; margin-top:6px; overflow:hidden}
+  .ac-item{padding:10px 12px; cursor:pointer; border-top:1px solid var(--border); font-size:14px}
+  .ac-item:first-child{border-top:none}
+  .ac-item:hover{filter:brightness(1.05)}
+  .ac-muted{color:var(--muted); font-size:12px}
+
+  @media (max-width:640px){
+    .wl-meta{grid-template-columns: 84px 1fr}
+    .wl-poster{width:84px}
+    .wl-meta-right{flex-direction:column; align-items:flex-start}
+    .wl-stream{max-width:none}
+    .wl-stream-row{justify-content:flex-start}
+    .wl-stream-toggle{float:none}
   }
-
-  const titleId = await watchmodeTitleIdFromImdb(imdbID);
-  if (!titleId) {
-    cacheSet(ck, { savedAt: now, data: null });
-    return null;
-  }
-
-  const url = `https://api.watchmode.com/v1/title/${encodeURIComponent(titleId)}/sources/?apiKey=${encodeURIComponent(watchmode)}`;
-  const res = await fetch(url, { cache: 'no-store' }).catch(() => null);
-  const arr = res ? await res.json() : null;
-  if (!Array.isArray(arr)) {
-    cacheSet(ck, { savedAt: now, data: null });
-    return null;
-  }
-
-  const normalizeName = (s) => String(s || '')
-    .replace(/\s*\(with Ads\)$/i, '')
-    .replace(/\s+HD$/, '')
-    .trim();
-
-  const seen = new Set();
-  const filtered = arr
-    .filter((s) => s?.type === 'sub' && s?.name)
-    .map((s) => ({
-      service: normalizeName(s.name),
-      quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
-      region: s.region || '',
-      link: s.web_url || '',
-    }))
-    .filter((s) => {
-      const k = `${s.service}|${s.quality}|${s.region}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    })
-    .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
-
-  const data = filtered.length ? filtered : null;
-  cacheSet(ck, { savedAt: now, data });
-  return data;
-}
-
-function renderStreamingPills(sources = [], collapsed = true) {
-  if (!sources || !sources.length) {
-    return `<div class="stream-empty">(ingen streaming hittad)</div>`;
-  }
-  const pills = sources.map((s) => {
-    const label = `${s.service}${s.quality ? ` ${s.quality}` : ''}${s.region ? ` · ${s.region}` : ''}`;
-    const href = s.link ? `href="${esc(s.link)}" target="_blank" rel="noopener"` : '';
-    return `<a class="pill" ${href}>${esc(label)} (ingår)</a>`;
-  }).join('');
-
-  return `
-    <div class="stream-wrap">
-      <div class="stream-title">Tillgängligt i abonnemang:</div>
-      <div class="stream-row ${collapsed ? 'collapsed' : ''}">${pills}</div>
-      <button type="button" class="stream-toggle" style="display:none">…</button>
-    </div>
   `;
+  document.head.appendChild(s);
 }
 
-function installStreamingToggle(container) {
-  const row = container.querySelector('.stream-row');
-  const btn = container.querySelector('.stream-toggle');
-  if (!row || !btn) return;
-
-  const update = () => {
-    requestAnimationFrame(() => {
-      const needs = row.scrollHeight > row.clientHeight + 2;
-      btn.style.display = needs ? 'inline-block' : 'none';
-      btn.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
-    });
-  };
-
-  update();
-  btn.addEventListener('click', () => {
-    row.classList.toggle('collapsed');
-    btn.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
-  });
-}
-
-// --- Component ---
+// ---------- component ----------
 class FilmWishlist extends HTMLElement {
   constructor() {
     super();
-    this.attachShadow({ mode: 'open' });
+    this._applying = false;
     this._autoTimer = null;
-    this._busySave = false;
-    this._busyLoad = false;
-    this._rows = [1, 2, 3, 4, 5];
+    this._lastSig = '';
+    this._who = '';
   }
 
   connectedCallback() {
-    this.shadowRoot.innerHTML = this.render();
+    ensureStyles();
+    this.render();
     this.bind();
-    this.syncWhoLabel();
-    this.load({ quiet: true });
-
-    // Keep label and optionally reload when login changes user
-    this._unsubWho = onStore('who', () => {
-      this.syncWhoLabel();
-      this.load({ quiet: true });
-    });
-  }
-
-  disconnectedCallback() {
-    this._unsubWho?.();
+    this.syncWhoFromStore();
+    this.load({ useCache: true }).catch(() => this.setNote('Kunde inte hämta önskelista.'));
   }
 
   render() {
-    return `
-      <style>
-        :host{display:block}
-        .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0}
-        h3{margin:0 0 6px}
-        .sub{color:var(--muted); font-size:13px; margin-bottom:10px}
-        .rowTop{display:flex; align-items:center; gap:10px}
-        .spacer{flex:1}
-        button{background:var(--btn); color:var(--btn-text); cursor:pointer; border:1px solid var(--border); padding:8px 12px; border-radius:999px; font-size:14px; touch-action:manipulation}
-        button.primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a; font-weight:600}
-        button:disabled{opacity:.55; cursor:not-allowed; filter:saturate(.6)}
-
-        .list{display:flex; flex-direction:column; gap:12px; margin-top:12px}
-
-        .item{border:1px solid var(--border); border-radius:12px; padding:12px}
-        .head{display:flex; align-items:center; gap:10px}
-        .idx{min-width:28px; color:var(--muted); font-size:13px}
-        .inputWrap{flex:1; position:relative}
-        input{width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--input); color:var(--text); outline:none}
-
-        .btnSok{border-radius:999px; padding:8px 12px}
-        .move{display:flex; gap:8px}
-        .move button{width:40px; height:40px; padding:0; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:18px; line-height:1}
-
-        /* Autocomplete */
-        .ac{position:absolute; left:0; right:0; top:calc(100% + 6px); z-index:50; background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden; display:none}
-        .acItem{padding:10px 12px; cursor:pointer; border-top:1px solid var(--border); font-size:14px}
-        .acItem:first-child{border-top:none}
-        .acItem:hover{filter:brightness(1.08)}
-        .acMuted{color:var(--muted); font-size:12px}
-
-        /* Meta row: thumbnail left, imdb/title middle, streaming right */
-        .metaRow{display:flex; gap:12px; margin-top:10px; align-items:flex-start}
-        .poster{width:88px; height:auto; border-radius:10px; border:1px solid var(--border); background:var(--pill-bg)}
-        .metaMid{flex:1; min-width:160px}
-        .title{font-weight:700; margin:2px 0 4px}
-        .imdb a{color:inherit; text-decoration:underline}
-
-        .metaRight{flex:1; min-width:220px; display:flex; justify-content:flex-end}
-
-        .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px; background:var(--pill-bg); border:1px solid var(--border); text-decoration:none; color:inherit; white-space:nowrap}
-        .stream-wrap{min-width:220px; max-width:420px}
-        .stream-title{color:var(--muted); font-size:12px; margin-bottom:6px}
-        .stream-row{display:flex; flex-wrap:wrap; gap:6px}
-        /* show ~2 rows */
-        .stream-row.collapsed{max-height:68px; overflow:hidden}
-        .stream-toggle{margin-top:6px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted)}
-        .stream-empty{color:var(--muted); font-size:12px}
-
-        @media (max-width:720px){
-          .metaRow{flex-direction:column}
-          .metaRight{justify-content:flex-start}
-          .stream-wrap{max-width:100%}
-        }
-      </style>
-
-      <div class="card">
-        <div class="rowTop">
-          <div>
-            <h3>Önskelista</h3>
-            <div class="sub">Användare: <strong id="whoLabel">–</strong></div>
+    this.innerHTML = `
+      <div class="card" id="wlCard">
+        <div class="wishlist-head">
+          <div class="wishlist-head-left">
+            <h3 style="margin:0">Önskelista</h3>
+            <div class="muted" style="font-size:13px">Användare: <span id="wlWho">–</span></div>
           </div>
-          <span class="spacer"></span>
-          <button id="btnLoad" type="button">Hämta</button>
-          <button id="btnSave" type="button" class="primary">Spara</button>
+          <div class="wishlist-actions">
+            <button id="wlLoad" class="ghost">Hämta</button>
+            <button id="wlSave" class="primary">Spara</button>
+          </div>
         </div>
 
-        <div class="list">
-          ${this._rows.map((i) => this.renderItem(i)).join('')}
+        <div class="wl-list" id="wlList"></div>
+        <div class="muted" id="wlNote" style="font-size:12px; margin-top:10px"></div>
+      </div>
+    `;
+
+    const list = this.querySelector('#wlList');
+    const mkRow = (i) => `
+      <div class="wl-row" data-i="${i}">
+        <div class="wl-top">
+          <div class="wl-num">#${i}</div>
+          <div class="wl-inputwrap">
+            <div class="wl-inputline">
+              <input id="wl-${i}" autocomplete="off" spellcheck="false" placeholder="Film (${i})" />
+              <button class="ghost" data-search="${i}">Sök</button>
+            </div>
+            <div class="ac-list" id="ac-wl-${i}" style="display:none"></div>
+          </div>
+          <div class="wl-controls" aria-label="Ändra ordning">
+            <button type="button" class="ghost" data-move="up" data-i="${i}" aria-label="Flytta upp">▲</button>
+            <button type="button" class="ghost" data-move="down" data-i="${i}" aria-label="Flytta ner">▼</button>
+          </div>
+        </div>
+
+        <div class="wl-meta" id="wl-meta-${i}" style="display:none">
+          <img class="wl-poster" id="wl-poster-${i}" alt="poster" loading="lazy" decoding="async" />
+          <div class="wl-meta-right">
+            <div class="wl-imdb" id="wl-imdb-${i}"></div>
+            <div class="wl-stream" id="wl-stream-${i}"></div>
+          </div>
         </div>
       </div>
     `;
-  }
 
-  renderItem(i) {
-    return `
-      <div class="item" data-i="${i}">
-        <div class="head">
-          <div class="idx">#${i}</div>
-          <div class="inputWrap">
-            <input id="w${i}" placeholder="Film (${i})" autocomplete="off" spellcheck="false" />
-            <div class="ac" id="ac-w${i}"></div>
-          </div>
-          <button class="btnSok" type="button" data-lookup="w${i}">Sök</button>
-          <div class="move" aria-label="Flytta">
-            <button type="button" class="ghost" data-move="up" data-i="${i}" aria-label="Flytta upp" ${i === 1 ? 'disabled' : ''}>▲</button>
-            <button type="button" class="ghost" data-move="down" data-i="${i}" aria-label="Flytta ner" ${i === 5 ? 'disabled' : ''}>▼</button>
-          </div>
-        </div>
+    list.innerHTML = [1, 2, 3, 4, 5].map(mkRow).join('');
 
-        <div class="metaRow" id="meta-w${i}" style="display:none"></div>
-      </div>
-    `;
+    this.updateMoveButtons();
   }
 
   bind() {
-    const root = this.shadowRoot;
-
     // Buttons
-    $('#btnLoad', root).addEventListener('click', () => this.load({ quiet: false }));
-    $('#btnSave', root).addEventListener('click', () => this.save({ reason: 'manuell' }));
+    this.querySelector('#wlLoad')?.addEventListener('click', () => this.load({ useCache: false }));
+    this.querySelector('#wlSave')?.addEventListener('click', () => this.save({ manual: true }));
 
-    // Search buttons
-    root.querySelectorAll('[data-lookup]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-lookup');
-        await this.lookupAndRender(id);
-      });
-    });
-
-    // Reorder
-    root.addEventListener('click', (e) => {
+    // Move
+    this.addEventListener('click', (e) => {
       const btn = e.target?.closest?.('[data-move][data-i]');
       if (!btn) return;
       const i = Number(btn.getAttribute('data-i'));
       const dir = btn.getAttribute('data-move');
-      if (dir === 'up' && i > 1) this.swap(i, i - 1);
-      if (dir === 'down' && i < 5) this.swap(i, i + 1);
+      if (dir === 'up') this.swap(i, i - 1);
+      if (dir === 'down') this.swap(i, i + 1);
     });
 
-    // Autocomplete + autosave
-    this._rows.forEach((i) => {
-      const input = $(`#w${i}`, root);
-      this.bindAutocomplete(`w${i}`, input);
-      input.addEventListener('input', () => this.scheduleAutosave());
-      input.addEventListener('blur', () => this.commitAutosave('klar'));
-      input.addEventListener('change', () => this.lookupAndRender(`w${i}`));
-      input.addEventListener('keydown', (e) => {
+    // Search
+    this.addEventListener('click', async (e) => {
+      const btn = e.target?.closest?.('[data-search]');
+      if (!btn) return;
+      const i = Number(btn.getAttribute('data-search'));
+      await this.lookupAndRender(i, { withStreaming: true });
+    });
+
+    // Inputs: autosave lugnt + autocomplete
+    for (let i = 1; i <= 5; i++) {
+      const inp = this.querySelector(`#wl-${i}`);
+      if (!inp) continue;
+
+      inp.addEventListener('input', () => {
+        this.scheduleAutoSave('skriver');
+        this.scheduleAutocomplete(i);
+      });
+
+      inp.addEventListener('blur', () => {
+        // stäng autocomplete lite senare så klick hinner
+        setTimeout(() => this.hideAc(i), 150);
+        this.commitAutoSave('klar');
+      });
+
+      inp.addEventListener('keydown', async (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
-          this.lookupAndRender(`w${i}`);
+          await this.lookupAndRender(i, { withStreaming: true });
+        }
+        if (e.key === 'Escape') {
+          this.hideAc(i);
         }
       });
-    });
+    }
 
-    // Close autocomplete if click outside
+    // Klick utanför => stäng autocomplete
     document.addEventListener('click', (e) => {
-      if (e.target?.closest?.('.inputWrap')) return;
-      this._rows.forEach((i) => this.hideAc(`w${i}`));
+      if (e.target?.closest?.('.wl-inputwrap')) return;
+      for (let i = 1; i <= 5; i++) this.hideAc(i);
     });
-  }
 
-  syncWhoLabel() {
-    const who = getWho();
-    const root = this.shadowRoot;
-    $('#whoLabel', root).textContent = who || '–';
-  }
-
-  values() {
-    const root = this.shadowRoot;
-    const v = {};
-    this._rows.forEach((i) => { v[`R${i}`] = $(`#w${i}`, root).value || ''; });
-    return v;
-  }
-
-  setValues(obj = {}) {
-    const root = this.shadowRoot;
-    this._rows.forEach((i) => {
-      const el = $(`#w${i}`, root);
-      el.value = (obj[`R${i}`] ?? '').toString();
-    });
-  }
-
-  signature(who) {
-    const v = this.values();
-    return [who, v.R1, v.R2, v.R3, v.R4, v.R5].map(normKey).join('␟');
-  }
-
-  scheduleAutosave() {
-    clearTimeout(this._autoTimer);
-    this._autoTimer = setTimeout(() => this.commitAutosave('skriver'), 1400);
-  }
-
-  async commitAutosave(reason) {
-    const who = getWho();
-    if (!who) return;
-
-    const sig = this.signature(who);
-    const last = this._lastSigByWho || {};
-    if (last[who] === sig) return;
-
-    // Avoid autosaving completely empty lists
-    const any = sig.split('␟').slice(1).some((x) => x && x.length);
-    if (!any) return;
-
-    last[who] = sig;
-    this._lastSigByWho = last;
-
-    // autosave should feel calm – no button flashing
-    await this.save({ reason, quiet: true });
-  }
-
-  async load({ quiet } = { quiet: false }) {
-    if (this._busyLoad) return;
-    this._busyLoad = true;
-
-    const root = this.shadowRoot;
-    const btn = $('#btnLoad', root);
-    btn.disabled = true;
-    const oldText = btn.textContent;
-    btn.textContent = 'Hämtar…';
-
-    try {
-      const who = getWho() || 'Lars';
-      if (!PEOPLE.includes(who)) setWho('Lars');
-
-      const j = await api('getWishlist', { person: who });
-      if (!j?.ok) throw new Error(j?.error || 'getWishlist');
-
-      this.setValues(j);
-
-      // update sig so autosave doesn't immediately trigger
-      const sig = this.signature(who);
-      this._lastSigByWho = { ...(this._lastSigByWho || {}), [who]: sig };
-
-      // Render metas (including streaming) – in parallel but calmly
-      await Promise.allSettled(this._rows.map((i) => this.lookupAndRender(`w${i}`, { lazyStreaming: true })));
-    } catch (e) {
-      if (!quiet) console.error('wishlist load:', e);
-    } finally {
-      btn.textContent = oldText;
-      btn.disabled = false;
-      this._busyLoad = false;
+    // Store: who
+    const onWho = Store.on || Store.subscribe || null;
+    if (typeof onWho === 'function') {
+      // store.js (vår) har on(key, fn)
+      try {
+        if (onWho.length >= 2) {
+          // Store.on('who', fn)
+          Store.on('who', (who) => this.onWhoChange(who));
+        }
+      } catch { /* ignore */ }
     }
   }
 
-  async save({ reason = '', quiet = false } = {}) {
-    if (this._busySave) return;
-    this._busySave = true;
+  syncWhoFromStore() {
+    let who = '';
+    if (typeof Store.getWho === 'function') who = Store.getWho();
+    else if (typeof Store.getPerson === 'function') who = Store.getPerson();
 
-    const root = this.shadowRoot;
-    const btn = $('#btnSave', root);
-    const oldText = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Sparar…';
+    if (!PEOPLE.includes(who)) {
+      who = lsGet('film_who', 'Lars');
+      if (!PEOPLE.includes(who)) who = 'Lars';
+    }
+
+    this._who = who;
+    this.querySelector('#wlWho').textContent = who;
+    this._lastSig = this.sig();
+  }
+
+  onWhoChange(who) {
+    if (!who || who === this._who) return;
+    this._who = who;
+    this.querySelector('#wlWho').textContent = who;
+    this._lastSig = this.sig();
+    this.load({ useCache: true }).catch(() => this.setNote('Kunde inte hämta önskelista.'));
+  }
+
+  setNote(msg) {
+    const el = this.querySelector('#wlNote');
+    if (el) el.textContent = msg || '';
+  }
+
+  // ----- load/save -----
+  async load({ useCache = true } = {}) {
+    this.setNote('');
+    this.syncWhoFromStore();
+    const who = this._who;
+
+    const cacheKey = `wl_v2_${who}`;
+    if (useCache) {
+      const cached = lsGet(cacheKey, null);
+      if (cached?.data?.ok) {
+        this.applyWishlist(cached.data);
+        // fortsätt i bakgrunden
+        this.load({ useCache: false }).catch(() => {});
+        return;
+      }
+    }
+
+    const j = await callApi('getWishlist', { person: who });
+    if (!j?.ok) {
+      this.setNote(j?.error || 'Kunde inte hämta önskelista.');
+      return;
+    }
+
+    lsSet(cacheKey, { savedAt: Date.now(), data: j });
+    this.applyWishlist(j);
+  }
+
+  applyWishlist(j) {
+    this._applying = true;
+    for (let i = 1; i <= 5; i++) {
+      const inp = this.querySelector(`#wl-${i}`);
+      if (inp) inp.value = (j[`R${i}`] || '').trim();
+    }
+    this._applying = false;
+
+    this._lastSig = this.sig();
+
+    // rendera metadata (inkl streaming) i bakgrunden för befintliga rader
+    for (let i = 1; i <= 5; i++) {
+      const v = (this.querySelector(`#wl-${i}`)?.value || '').trim();
+      if (v) this.lookupAndRender(i, { withStreaming: true }).catch(() => {});
+      else this.clearMeta(i);
+    }
+  }
+
+  async save({ manual = false } = {}) {
+    if (this._applying) return;
+    this.syncWhoFromStore();
+
+    const who = this._who;
+    if (!who) return;
+
+    const btn = this.querySelector('#wlSave');
+    const text0 = btn?.textContent || 'Spara';
+
+    const payload = {
+      person: who,
+      R1: (this.querySelector('#wl-1')?.value || '').trim(),
+      R2: (this.querySelector('#wl-2')?.value || '').trim(),
+      R3: (this.querySelector('#wl-3')?.value || '').trim(),
+      R4: (this.querySelector('#wl-4')?.value || '').trim(),
+      R5: (this.querySelector('#wl-5')?.value || '').trim(),
+    };
+
+    // cache optimistiskt
+    lsSet(`wl_v2_${who}`, { savedAt: Date.now(), data: { ok: true, ...payload } });
+
+    // disable för att undvika dubbeltryck
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = manual ? 'Sparar…' : 'Autosparar…';
+    }
 
     try {
-      const who = getWho();
-      const v = this.values();
-      const payload = { person: who, ...v };
-      const j = await api('saveWishlist', payload);
+      const j = await callApi('saveWishlist', payload);
       if (!j?.ok) throw new Error(j?.error || 'saveWishlist');
-
-      // update sig baseline
-      this._lastSigByWho = { ...(this._lastSigByWho || {}), [who]: this.signature(who) };
-
-      // small UX: return label
-      btn.textContent = 'Sparad';
-      setTimeout(() => { btn.textContent = oldText; }, 900);
+      this._lastSig = this.sig();
+      this.setNote(manual ? 'Sparad.' : '');
     } catch (e) {
-      if (!quiet) console.error('wishlist save:', e);
-      btn.textContent = 'Fel';
-      setTimeout(() => { btn.textContent = oldText; }, 900);
+      this.setNote('Kunde inte spara – prova igen.');
     } finally {
-      setTimeout(() => { btn.disabled = false; this._busySave = false; }, 250);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = text0;
+      }
+    }
+  }
+
+  // ----- autosave -----
+  sig() {
+    const who = this._who || '';
+    const v = (i) => (this.querySelector(`#wl-${i}`)?.value || '').trim();
+    return [who, v(1), v(2), v(3), v(4), v(5)].join('␟');
+  }
+
+  scheduleAutoSave(reason = '') {
+    if (this._applying) return;
+    clearTimeout(this._autoTimer);
+    this._autoTimer = setTimeout(() => this.commitAutoSave(reason), 1600);
+  }
+
+  commitAutoSave(reason = '') {
+    if (this._applying) return;
+    const s = this.sig();
+    if (!s || s === this._lastSig) return;
+
+    // undvik autosave om allt tomt
+    const parts = s.split('␟').slice(1);
+    const hasAny = parts.some(x => x && x.length);
+    if (!hasAny) return;
+
+    // spara tyst
+    this.save({ manual: false });
+  }
+
+  // ----- reorder -----
+  updateMoveButtons() {
+    for (let i = 1; i <= 5; i++) {
+      const up = this.querySelector(`[data-move="up"][data-i="${i}"]`);
+      const down = this.querySelector(`[data-move="down"][data-i="${i}"]`);
+      if (up) up.disabled = i === 1;
+      if (down) down.disabled = i === 5;
     }
   }
 
   swap(i, j) {
-    const root = this.shadowRoot;
-    const a = $(`#w${i}`, root);
-    const b = $(`#w${j}`, root);
+    if (i < 1 || i > 5 || j < 1 || j > 5) return;
+    const a = this.querySelector(`#wl-${i}`);
+    const b = this.querySelector(`#wl-${j}`);
+    if (!a || !b) return;
+
+    this._applying = true;
     const tmp = a.value;
     a.value = b.value;
     b.value = tmp;
+    this._applying = false;
 
-    // Re-render metas for the swapped rows
-    this.lookupAndRender(`w${i}`, { lazyStreaming: true });
-    this.lookupAndRender(`w${j}`, { lazyStreaming: true });
+    // rendera om meta för båda
+    const va = a.value.trim();
+    const vb = b.value.trim();
+    if (va) this.lookupAndRender(i, { withStreaming: true }).catch(() => {}); else this.clearMeta(i);
+    if (vb) this.lookupAndRender(j, { withStreaming: true }).catch(() => {}); else this.clearMeta(j);
 
-    // autosave after reorder
-    this.scheduleAutosave();
+    // autospara ordning lugnt
+    this.scheduleAutoSave('ordning');
   }
 
-  async lookupAndRender(id, { lazyStreaming = false } = {}) {
-    const root = this.shadowRoot;
-    const input = $(`#${id}`, root);
-    if (!input) return;
+  // ----- meta rendering -----
+  clearMeta(i) {
+    const box = this.querySelector(`#wl-meta-${i}`);
+    if (box) box.style.display = 'none';
+    const imdb = this.querySelector(`#wl-imdb-${i}`);
+    const stream = this.querySelector(`#wl-stream-${i}`);
+    if (imdb) imdb.innerHTML = '';
+    if (stream) stream.innerHTML = '';
+  }
 
-    const q = (input.value || '').trim();
-    const meta = $(`#meta-${id}`, root);
-    if (!meta) return;
-
+  async lookupAndRender(i, { withStreaming = true } = {}) {
+    const q = (this.querySelector(`#wl-${i}`)?.value || '').trim();
     if (!q) {
-      meta.style.display = 'none';
-      meta.innerHTML = '';
+      this.clearMeta(i);
       return;
     }
 
-    // OMDb
-    const data = await omdbLookupTitle(q);
+    // OMDb (och liten cache per query)
+    const qKey = `omdb_v1_${q.toLowerCase()}`;
+    let data = lsGet(qKey, null);
     if (!data) {
-      meta.style.display = 'block';
-      meta.innerHTML = `<div class="metaMid" style="color:var(--muted)">Hittade inget för: ${esc(q)}</div>`;
+      data = await omdbLookup(q);
+      lsSet(qKey, data);
+    }
+
+    const box = this.querySelector(`#wl-meta-${i}`);
+    if (!box) return;
+
+    if (!data) {
+      // visa bara text
+      box.style.display = 'grid';
+      const poster = this.querySelector(`#wl-poster-${i}`);
+      if (poster) poster.style.display = 'none';
+      const imdb = this.querySelector(`#wl-imdb-${i}`);
+      const stream = this.querySelector(`#wl-stream-${i}`);
+      if (imdb) imdb.innerHTML = `<div class="muted">Hittade inget för: ${esc(q)}</div>`;
+      if (stream) stream.innerHTML = '';
       return;
     }
 
-    const title = `${data.Title || ''}${data.Year ? ` (${data.Year})` : ''}`;
-    const poster = (data.Poster && data.Poster !== 'N/A') ? data.Poster : '';
-    const imdbID = data.imdbID || '';
+    // poster
+    const poster = this.querySelector(`#wl-poster-${i}`);
+    const hasPoster = data.Poster && data.Poster !== 'N/A';
+    if (poster) {
+      poster.src = hasPoster ? data.Poster : '';
+      poster.style.display = hasPoster ? 'block' : 'none';
+    }
 
-    // Streaming: show cached immediately if available, else lazy button that fetches
-    const cacheKey = WM_CACHE_PREFIX + imdbID;
-    const cached = imdbID ? (cacheGet(cacheKey)?.data || null) : null;
+    // imdb block
+    const imdb = this.querySelector(`#wl-imdb-${i}`);
+    const title = esc(data.Title || q);
+    const year = esc(data.Year || '');
+    const rating = esc(data.imdbRating || '–');
+    const link = imdbUrl(data);
 
-    const leftPoster = poster
-      ? `<img class="poster" src="${esc(poster)}" alt="poster" loading="lazy" decoding="async">`
-      : `<div class="poster" aria-hidden="true"></div>`;
+    if (imdb) {
+      imdb.innerHTML = `
+        <div style="font-weight:700; font-size:16px">${title}${year ? ` (${year})` : ''}</div>
+        <div>IMDb ${rating}${link ? ` — <a href="${link}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}</div>
+      `;
+    }
 
-    const mid = `
-      <div class="metaMid">
-        <div class="title">${esc(title)}</div>
-        <div class="imdb">
-          IMDb ${esc(data.imdbRating || '–')}
-          ${imdbID ? ` — <a href="${esc(imdbUrl(imdbID))}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
-        </div>
+    // streaming block (höger sida)
+    const stream = this.querySelector(`#wl-stream-${i}`);
+    if (stream) {
+      if (!withStreaming || !data.imdbID || !watchmodeKey()) {
+        stream.innerHTML = '';
+      } else {
+        stream.innerHTML = `<strong>Tillgängligt i abonnemang (globalt):</strong><div class="muted" style="font-size:12px">hämtar…</div>`;
+        const options = await getStreamingInfo(data.imdbID);
+        stream.innerHTML = this.renderStreaming(options);
+      }
+    }
+
+    box.style.display = 'grid';
+  }
+
+  renderStreaming(options) {
+    if (!options || !options.length) {
+      return `<strong>Tillgängligt i abonnemang (globalt):</strong><div class="muted" style="font-size:12px">Inget abonnemang hittades just nu.</div>`;
+    }
+
+    const pills = options.map(opt => {
+      const label = [
+        opt.service,
+        opt.quality ? ` ${opt.quality}` : '',
+        opt.region ? ` · ${opt.region}` : ''
+      ].join('');
+      const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
+      return `<a ${href} class="pill" style="text-decoration:none">${esc(label)} (ingår)</a>`;
+    }).join('');
+
+    // Vi kör alltid två-rader-kollaps + toggle om det behövs.
+    // Toggle styrs av scrollHeight efter render (liten hack: vi returnerar HTML med knapp och init efter paint)
+    const uid = `wl_stream_${Math.random().toString(16).slice(2)}`;
+
+    // Init-script: sätt toggle visibility + klick
+    queueMicrotask(() => {
+      const host = this.querySelector(`[data-stream-uid="${uid}"]`);
+      if (!host) return;
+      const row = host.querySelector('.wl-stream-row');
+      const btn = host.querySelector('.wl-stream-toggle');
+      if (!row || !btn) return;
+
+      const update = () => {
+        const needs = row.scrollHeight > row.clientHeight + 2;
+        btn.style.display = needs ? 'inline-block' : 'none';
+        btn.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
+      };
+
+      update();
+      btn.addEventListener('click', () => {
+        row.classList.toggle('collapsed');
+        update();
+      });
+
+      // ifall font/laddning ändrar höjd
+      setTimeout(update, 60);
+    });
+
+    return `
+      <div data-stream-uid="${uid}">
+        <strong>Tillgängligt i abonnemang (globalt):</strong>
+        <div class="wl-stream-row collapsed">${pills}</div>
+        <button type="button" class="wl-stream-toggle" style="display:none">…</button>
       </div>
     `;
-
-    let right = '';
-
-    if (imdbID) {
-      if (cached) {
-        right = `<div class="metaRight">${renderStreamingPills(cached, true)}</div>`;
-      } else {
-        // If lazyStreaming: don't fetch immediately; show the small toggle (…)
-        right = `
-          <div class="metaRight">
-            <div class="stream-wrap" data-imdb="${esc(imdbID)}">
-              <div class="stream-title">Tillgängligt i abonnemang:</div>
-              <div class="stream-empty">(klicka … för att hämta)</div>
-              <button type="button" class="stream-toggle" style="display:inline-block">…</button>
-            </div>
-          </div>
-        `;
-      }
-    }
-
-    meta.innerHTML = `${leftPoster}${mid}${right}`;
-    meta.style.display = 'flex';
-
-    // If we rendered cached pills, install expand toggle
-    installStreamingToggle(meta);
-
-    // Lazy fetch: attach handler if we are in "click to fetch" state
-    const wrap = meta.querySelector('.stream-wrap');
-    const btn = meta.querySelector('.stream-toggle');
-    if (wrap && btn && !meta.querySelector('.stream-row')) {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        btn.textContent = 'hämtar…';
-        const imdb = wrap.getAttribute('data-imdb') || '';
-        const sources = await getStreamingSources(imdb);
-        wrap.innerHTML = renderStreamingPills(sources || [], true);
-        // after replacing, restore a real toggle and measure
-        const newBtn = wrap.querySelector('.stream-toggle');
-        const row = wrap.querySelector('.stream-row');
-        if (newBtn && row) {
-          newBtn.style.display = 'inline-block';
-          installStreamingToggle(wrap);
-        }
-      }, { once: true });
-
-      // Optional: if not lazyStreaming (e.g. user pressed "Sök"), fetch immediately
-      if (!lazyStreaming) {
-        btn.click();
-      }
-    }
   }
 
-  // --- Autocomplete ---
-  hideAc(id) {
-    const box = this.shadowRoot.getElementById(`ac-${id}`);
+  // ----- autocomplete UI -----
+  scheduleAutocomplete(i) {
+    const input = this.querySelector(`#wl-${i}`);
+    if (!input) return;
+    if (document.activeElement !== input) return;
+
+    if (!this._acDebouncers) this._acDebouncers = {};
+    if (!this._acDebouncers[i]) {
+      this._acDebouncers[i] = debounce(async () => {
+        const q = (input.value || '').trim();
+        if (q.length < 3) { this.hideAc(i); return; }
+        const hits = await tmdbSearchMovies(q, 8);
+        if (document.activeElement !== input) return;
+        this.showAc(i, hits);
+      }, 420);
+    }
+    this._acDebouncers[i]();
+  }
+
+  hideAc(i) {
+    const box = this.querySelector(`#ac-wl-${i}`);
     if (!box) return;
     box.style.display = 'none';
     box.innerHTML = '';
   }
 
-  showAc(id, items, onPick) {
-    const box = this.shadowRoot.getElementById(`ac-${id}`);
-    if (!box) return;
+  showAc(i, items) {
+    const box = this.querySelector(`#ac-wl-${i}`);
+    const input = this.querySelector(`#wl-${i}`);
+    if (!box || !input) return;
 
-    if (!items.length) {
-      this.hideAc(id);
+    if (!items || !items.length) {
+      this.hideAc(i);
       return;
     }
 
     box.innerHTML = items.map((x, idx) => `
-      <div class="acItem" data-i="${idx}">
-        <div><strong>${esc(x.title)}</strong> <span class="acMuted">${esc(x.year)}</span></div>
+      <div class="ac-item" data-i="${idx}">
+        <div><strong>${esc(x.title)}</strong> <span class="ac-muted">${esc(x.year)}</span></div>
       </div>
     `).join('');
-
     box.style.display = 'block';
 
-    box.querySelectorAll('.acItem').forEach((el) => {
+    $$(box, '.ac-item').forEach(el => {
       const pick = (ev) => {
         ev?.preventDefault?.();
         ev?.stopPropagation?.();
-        const i = Number(el.getAttribute('data-i'));
-        onPick(items[i]);
-        this.hideAc(id);
+        const idx = Number(el.getAttribute('data-i'));
+        const it = items[idx];
+        input.value = it.year ? `${it.title} (${it.year})` : it.title;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        this.hideAc(i);
+        // rendera meta lugnt
+        this.lookupAndRender(i, { withStreaming: true }).catch(() => {});
       };
+
       el.addEventListener('pointerdown', pick, { passive: false });
       el.addEventListener('touchstart', pick, { passive: false });
       el.addEventListener('click', pick);
     });
-  }
-
-  bindAutocomplete(id, input) {
-    let composing = false;
-    input.addEventListener('compositionstart', () => { composing = true; });
-    input.addEventListener('compositionend', () => { composing = false; });
-
-    const debounced = this.debounce(async () => {
-      if (composing) return;
-      if (this.shadowRoot.activeElement !== input) return;
-
-      const q = (input.value || '').trim();
-      if (q.length < 3) { this.hideAc(id); return; }
-
-      const hits = await tmdbSearch(q, 7);
-      if (this.shadowRoot.activeElement !== input) return;
-
-      this.showAc(id, hits, (pick) => {
-        input.value = pick.year ? `${pick.title} (${pick.year})` : pick.title;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-    }, 420);
-
-    input.addEventListener('input', debounced);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.hideAc(id); });
-    input.addEventListener('blur', () => setTimeout(() => this.hideAc(id), 150));
-  }
-
-  debounce(fn, ms = 250) {
-    let t;
-    return (...args) => {
-      clearTimeout(t);
-      t = setTimeout(() => fn(...args), ms);
-    };
   }
 }
 
