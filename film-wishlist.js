@@ -1,794 +1,645 @@
 // film-wishlist.js
-// Wishlist module ("Önskelista") – standalone, no globals
-// Renders 5 upcoming picks for current user (from store/login)
+// Wishlist module: autocomplete + poster + IMDb + streaming (Watchmode) + reorder + autosave
 
 import { api } from './api.js';
-import { getWho, on as onStore } from './store.js';
+import { getWho, on } from './store.js';
 import { getMovieTokens } from './film-login.js';
 
-const PEOPLE_FALLBACK = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
+customElements.define('film-wishlist', class FilmWishlist extends HTMLElement {
+  constructor(){
+    super();
+    this.attachShadow({ mode:'open' });
 
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (m) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[m]));
-}
+    this._who = getWho?.() || 'Maria';
+    this._tokens = getMovieTokens?.() || {};
 
-function debounce(fn, ms = 400) {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
-}
+    this._metaCache = new Map(); // key: normalized query -> meta
+    this._wmCache = new Map();   // imdbID -> sources[]
 
-function imdbUrlFrom(imdbID) {
-  return imdbID ? `https://www.imdb.com/title/${imdbID}/` : '';
-}
+    this._autosaveTimer = null;
+    this._applying = false;
 
-function normLite(s) {
-  return String(s || '')
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9åäö\s:!?.\-]/g, '')
-    .trim();
-}
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host{display:block}
+        .card{background:var(--panel,#fff); border:1px solid var(--border,#dfe3ee); border-radius:16px; padding:16px; margin:14px 0; box-shadow:0 6px 20px rgba(0,0,0,.04)}
+        h3{margin:0 0 6px; font-size:20px}
+        .muted{color:var(--muted,#5b6475)}
 
-// Very small local cache to avoid hammering external APIs
-const Cache = {
-  get(key) {
-    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
-  },
-  set(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ }
-  }
-};
+        .head{display:flex; align-items:flex-start; gap:12px}
+        .head .right{margin-left:auto; display:flex; gap:10px; align-items:center}
+        .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px; background:var(--pill-bg,#f1f3f8); border:1px solid var(--border,#dfe3ee); text-decoration:none; color:inherit; white-space:nowrap}
 
-async function getCached(key, ttlMs, fetcher) {
-  const now = Date.now();
-  const hit = Cache.get(key);
-  if (hit?.t && hit?.v && (now - hit.t) < ttlMs) return hit.v;
-  const v = await fetcher();
-  Cache.set(key, { t: now, v });
-  return v;
-}
+        button{background:var(--btn,#eef0f6); color:var(--btn-text,#111826); cursor:pointer;
+          border:1px solid var(--border,#dfe3ee); padding:10px 14px; border-radius:999px; font-size:14px;}
+        button.primary{background:var(--accent,#f6c247); color:#1b1f2a; border-color:#c8a73a}
+        button:disabled{opacity:.55; cursor:not-allowed; filter:saturate(.6)}
 
-// --- External lookups (TMDb -> imdb id, OMDb details, Watchmode sources)
-async function tmdbSearchMovies(query, limit = 8) {
-  const { tmdb } = getMovieTokens();
-  if (!tmdb || !query) return [];
+        .list{display:flex; flex-direction:column; gap:12px; margin-top:12px}
 
-  const url = `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(tmdb)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(query)}`;
-  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
-  if (!r || !r.ok) return [];
-  const j = await r.json();
-  const res = Array.isArray(j?.results) ? j.results : [];
-  return res.slice(0, limit).map((it) => ({
-    id: it.id,
-    title: it.title || it.original_title || '',
-    year: (it.release_date || '').slice(0, 4) || '',
-    poster: it.poster_path ? `https://image.tmdb.org/t/p/w154${it.poster_path}` : ''
-  }));
-}
+        .row{display:flex; gap:10px; align-items:center}
+        .rowline{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+        .num{width:28px; color:var(--muted,#5b6475); font-size:14px; flex:0 0 auto}
 
-async function tmdbExternalIds(movieId) {
-  const { tmdb } = getMovieTokens();
-  if (!tmdb || !movieId) return null;
-  const url = `https://api.themoviedb.org/3/movie/${movieId}/external_ids?api_key=${encodeURIComponent(tmdb)}`;
-  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
-  if (!r || !r.ok) return null;
-  return await r.json();
-}
+        input{
+          width:100%; padding:10px 12px; border-radius:12px;
+          border:1px solid var(--border,#dfe3ee); background:var(--input,#fff); color:var(--text,#151823);
+          outline:none;
+        }
 
-async function omdbLookupByImdb(imdbID) {
-  const { omdb } = getMovieTokens();
-  if (!omdb || !imdbID) return null;
-  const url = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&i=${encodeURIComponent(imdbID)}&plot=short`;
-  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
-  if (!r || !r.ok) return null;
-  const j = await r.json();
-  return j && j.Response !== 'False' ? j : null;
-}
+        .item{border:1px solid var(--border,#dfe3ee); border-radius:14px; padding:12px}
+        .topline{display:flex; gap:10px; align-items:center}
+        .topline .inputwrap{flex:1 1 auto; min-width:0; position:relative}
+        .actions{display:flex; gap:8px; align-items:center}
+        .actions button{padding:10px 14px}
+        .actions .mini{width:44px; height:44px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:14px; font-size:18px; line-height:1}
 
-async function omdbLookupByTitle(title, year) {
-  const { omdb } = getMovieTokens();
-  if (!omdb || !title) return null;
+        /* Autocomplete */
+        .ac{position:absolute; left:0; right:0; top:100%; margin-top:6px; z-index:50;
+          background:var(--panel,#fff); border:1px solid var(--border,#dfe3ee); border-radius:12px; overflow:hidden; display:none}
+        .ac-item{padding:10px 12px; border-top:1px solid var(--border,#dfe3ee); cursor:pointer; font-size:14px}
+        .ac-item:first-child{border-top:none}
+        .ac-item:hover{filter:brightness(1.05)}
+        .ac-muted{color:var(--muted,#5b6475); font-size:12px}
 
-  const url = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&t=${encodeURIComponent(title)}&type=movie&plot=short${year ? `&y=${encodeURIComponent(year)}` : ''}`;
-  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
-  if (!r || !r.ok) return null;
-  const j = await r.json();
-  return j && j.Response !== 'False' ? j : null;
-}
+        /* Meta layout (like now): poster left, imdb mid, streaming right */
+        .meta{margin-top:10px; display:grid; grid-template-columns:92px 1fr; gap:12px; align-items:start}
+        .poster{
+          width:92px; height:138px; object-fit:cover; border-radius:12px; border:1px solid var(--border,#dfe3ee);
+          background:#fff;
+        }
+        .metaMain{display:grid; grid-template-columns:1fr 1.6fr; gap:12px; align-items:start}
+        .imdb{min-width:0}
+        .imdb a{color:inherit; text-decoration:underline}
+        .imdb .title{font-weight:700}
 
-async function smartLookup(query) {
-  const q = String(query || '').trim();
-  if (!q) return null;
+        .streaming{justify-self:end; text-align:left; min-width:0; max-width:520px}
+        .streaming strong{display:block; font-size:13px; color:var(--muted,#5b6475); margin-bottom:6px}
+        .streams{display:flex; flex-wrap:wrap; gap:6px}
+        /* show ~2 rows */
+        .streams.collapsed{max-height:56px; overflow:hidden}
+        .toggle{margin-top:6px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted,#5b6475); font-size:12px}
 
-  // Cache 30 dagar per normaliserad sträng
-  const key = `fk_smart_v1_${normLite(q)}`;
-  return getCached(key, 30 * 24 * 3600_000, async () => {
-    // If query has (YYYY), strip it
-    let title = q;
-    let year = '';
-    const m = q.match(/\((\d{4})\)\s*$/);
-    if (m) {
-      year = m[1];
-      title = q.replace(/\s*\(\d{4}\)\s*$/, '').trim();
-    }
+        .hint{color:var(--muted,#5b6475); font-size:13px}
 
-    // If imdb id provided
-    const tt = q.match(/\btt\d{7,}\b/i);
-    if (tt) {
-      const om = await omdbLookupByImdb(tt[0]);
-      if (om) return om;
-    }
+        @media (max-width:640px){
+          .meta{grid-template-columns:84px 1fr}
+          .poster{width:84px; height:126px}
+          .metaMain{grid-template-columns:1fr}
+          .streaming{justify-self:start; max-width:none}
+        }
+      </style>
 
-    // TMDb search -> external imdb -> OMDb
-    const hits = await tmdbSearchMovies(title, 5);
-    if (hits.length) {
-      // pick best: exact / startsWith / includes
-      const qn = normLite(title);
-      const scored = hits.map(h => {
-        const tn = normLite(h.title);
-        let score = 0;
-        if (tn === qn) score = 100;
-        else if (tn.startsWith(qn)) score = 80;
-        else if (tn.includes(qn)) score = 60;
-        if (year && h.year === year) score += 10;
-        return { score, h };
-      }).sort((a, b) => b.score - a.score);
+      <div class="card">
+        <div class="head">
+          <div>
+            <h3>Önskelista</h3>
+            <div class="muted">Användare: <span id="whoLabel"></span></div>
+          </div>
+          <div class="right">
+            <button id="btnLoad">Hämta</button>
+            <button id="btnSave" class="primary">Spara</button>
+          </div>
+        </div>
 
-      const best = scored[0].h;
-      const ids = await tmdbExternalIds(best.id);
-      const imdbID = ids?.imdb_id || '';
-      if (imdbID) {
-        const om = await omdbLookupByImdb(imdbID);
-        if (om) return om;
-      }
-      // fallback: try OMDb by title/year
-      const om2 = await omdbLookupByTitle(best.title, year || best.year);
-      if (om2) return om2;
-
-      // last resort: return minimal object
-      return {
-        Title: best.title,
-        Year: best.year,
-        Poster: best.poster || 'N/A',
-        imdbID: imdbID,
-        imdbRating: '-'
-      };
-    }
-
-    // pure OMDb title lookup
-    const om = await omdbLookupByTitle(title, year);
-    return om;
-  });
-}
-
-async function watchmodeFindTitleId(imdbID) {
-  const { watchmode } = getMovieTokens();
-  if (!watchmode || !imdbID) return null;
-
-  // Cache 30 dagar: imdb->watchmode id
-  const key = `fk_wm_id_v1_${imdbID}`;
-  return getCached(key, 30 * 24 * 3600_000, async () => {
-    try {
-      const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(watchmode)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
-      const r1 = await fetch(u1, { cache: 'no-store' }).catch(() => null);
-      if (r1?.ok) {
-        const j1 = await r1.json();
-        if (j1?.title_id) return j1.title_id;
-      }
-      const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(watchmode)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
-      const r2 = await fetch(u2, { cache: 'no-store' }).catch(() => null);
-      if (r2?.ok) {
-        const j2 = await r2.json();
-        const hit = Array.isArray(j2?.title_results)
-          ? j2.title_results.find(t => String(t.imdb_id) === String(imdbID))
-          : null;
-        if (hit?.id) return hit.id;
-      }
-    } catch { /* ignore */ }
-    return null;
-  });
-}
-
-async function watchmodeSources(imdbID) {
-  const { watchmode } = getMovieTokens();
-  if (!watchmode || !imdbID) return null;
-
-  // Cache 7 dagar: sources kan ändras
-  const key = `fk_wm_src_v1_${imdbID}`;
-  return getCached(key, 7 * 24 * 3600_000, async () => {
-    const wmId = await watchmodeFindTitleId(imdbID);
-    if (!wmId) return null;
-
-    const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${encodeURIComponent(watchmode)}`;
-    const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
-    if (!r?.ok) return null;
-    const j = await r.json();
-    if (!Array.isArray(j)) return null;
-
-    const seen = new Set();
-    const normalizeName = (s) => String(s || '')
-      .replace(/\s*\(with Ads\)$/i, '')
-      .replace(/\s+HD$/i, '')
-      .trim();
-
-    const filtered = j
-      .filter(s => s.type === 'sub' && s.name)
-      .map(s => ({
-        service: normalizeName(s.name),
-        region: s.region || '',
-        quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
-        link: s.web_url || ''
-      }))
-      .filter(s => {
-        const k = `${s.service}|${s.region}|${s.quality}`;
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      })
-      .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
-
-    return filtered.length ? filtered : null;
-  });
-}
-
-function buildStreamingHtml(imdbID, sources, { collapsed = true } = {}) {
-  if (!imdbID) return '';
-
-  if (!sources || !sources.length) {
-    return `
-      <div class="fk-stream">
-        <div class="fk-stream-title">Tillgängligt i abonnemang (globalt):</div>
-        <div class="fk-stream-empty">Inget abonnemang hittades just nu.</div>
+        <div class="list" id="list"></div>
       </div>
     `;
+
+    this.$ = (sel)=>this.shadowRoot.querySelector(sel);
+    this.$$ = (sel)=>Array.from(this.shadowRoot.querySelectorAll(sel));
   }
 
-  const pills = sources.map(s => {
-    const label = `${s.service}${s.quality ? ` ${s.quality}` : ''}${s.region ? ` · ${s.region}` : ''}`;
-    const href = s.link ? `href="${escapeHtml(s.link)}" target="_blank" rel="noopener"` : '';
-    return `<a class="pill" ${href} style="text-decoration:none">${escapeHtml(label)} (ingår)</a>`;
-  }).join('');
+  connectedCallback(){
+    this.$('#whoLabel').textContent = this._who;
+    this.$('#btnLoad').addEventListener('click', ()=>this.load(true));
+    this.$('#btnSave').addEventListener('click', ()=>this.save(true));
 
-  return `
-    <div class="fk-stream" data-imdb="${escapeHtml(imdbID)}">
-      <div class="fk-stream-title">Tillgängligt i abonnemang (globalt):</div>
-      <div class="fk-stream-row ${collapsed ? 'collapsed' : ''}">${pills}</div>
-      <button type="button" class="fk-stream-toggle" style="display:none">…</button>
-    </div>
-  `;
-}
-
-function ensureStreamingToggle(container) {
-  const wrap = container.querySelector('.fk-stream');
-  if (!wrap) return;
-  const row = wrap.querySelector('.fk-stream-row');
-  const toggle = wrap.querySelector('.fk-stream-toggle');
-  if (!row || !toggle) return;
-
-  const update = () => {
-    const lines = 2; // show ~2 lines
-    const lineH = 34; // matches CSS-ish
-    // If content taller than 2 lines, show toggle
-    const needs = row.scrollHeight > (lines * lineH + 2);
-    toggle.style.display = needs ? 'inline-block' : 'none';
-    toggle.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
-  };
-
-  // initial
-  requestAnimationFrame(update);
-
-  toggle.addEventListener('click', () => {
-    row.classList.toggle('collapsed');
-    update();
-  });
-
-  // update after images load etc
-  const imgs = container.querySelectorAll('img');
-  imgs.forEach(img => img.addEventListener('load', update, { once: true }));
-}
-
-function disableButtonWhile(btn, promise) {
-  if (!btn) return promise;
-  const prevText = btn.textContent;
-  btn.disabled = true;
-  btn.classList.add('is-busy');
-  return Promise.resolve(promise)
-    .finally(() => {
-      btn.disabled = false;
-      btn.classList.remove('is-busy');
-      btn.textContent = prevText;
-    });
-}
-
-class FilmWishlist extends HTMLElement {
-  constructor() {
-    super();
-    this._unsub = null;
-    this._autosaveTimer = null;
-    this._applyFromServer = false;
-    this._lastSig = '';
-  }
-
-  connectedCallback() {
-    this.render();
-    this.bind();
-    this.load({ useCache: true });
-
-    // React to user change from login
-    if (typeof onStore === 'function') {
-      this._unsub = onStore('who', () => this.load({ useCache: true }));
+    // react to login/user changes
+    if (typeof on === 'function'){
+      this._unsubWho = on('who', (w)=>{
+        this._who = w;
+        this.$('#whoLabel').textContent = w;
+        this.load(true);
+      });
     }
+
+    this.renderEmpty();
+    this.load(true);
   }
 
-  disconnectedCallback() {
-    try { this._unsub?.(); } catch { /* ignore */ }
+  disconnectedCallback(){
+    this._unsubWho?.();
   }
 
-  render() {
-    this.innerHTML = `
-      <section class="card" id="wishlistCard">
-        <div class="fk-head">
-          <div>
-            <h3 style="margin:0">Önskelista</h3>
-            <div class="muted" style="font-size:13px">Användare: <strong id="fkUser">–</strong></div>
-          </div>
-          <div class="fk-actions">
-            <button id="fkReload" class="ghost">Hämta</button>
-            <button id="fkSave" class="primary">Spara</button>
-          </div>
+  renderEmpty(){
+    const list = this.$('#list');
+    list.innerHTML = '';
+    for(let i=1;i<=5;i++) list.appendChild(this.renderItem(i));
+    this.bindAll();
+  }
+
+  renderItem(i){
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.dataset.i = String(i);
+    el.innerHTML = `
+      <div class="topline">
+        <div class="num">#${i}</div>
+        <div class="inputwrap">
+          <input id="w${i}" placeholder="Film (${i})" autocomplete="off" spellcheck="false" />
+          <div class="ac" id="ac-w${i}"></div>
         </div>
+        <div class="actions">
+          <button class="btnSearch" data-i="${i}">Sök</button>
+          <button class="mini" title="Flytta upp" aria-label="Flytta upp" data-move="up" data-i="${i}" ${i===1?'disabled':''}>▲</button>
+          <button class="mini" title="Flytta ner" aria-label="Flytta ner" data-move="down" data-i="${i}" ${i===5?'disabled':''}>▼</button>
+        </div>
+      </div>
 
-        <div class="fk-list" id="fkList"></div>
-
-        <style>
-          .fk-head{display:flex; align-items:center; justify-content:space-between; gap:12px}
-          .fk-actions{display:flex; gap:10px; align-items:center}
-          .fk-list{display:flex; flex-direction:column; gap:14px; margin-top:12px}
-
-          .fk-item{border:1px solid var(--border); border-radius:12px; padding:12px}
-
-          .fk-toprow{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
-          .fk-input{flex:1 1 320px; min-width:220px}
-          .fk-search{flex:0 0 auto}
-
-          .fk-move{display:flex; gap:8px; margin-left:auto}
-          .fk-move button{width:42px; height:42px; padding:0; border-radius:12px; font-size:18px; line-height:1; display:flex; align-items:center; justify-content:center; touch-action:manipulation;}
-
-          .fk-meta{display:flex; gap:12px; align-items:flex-start; margin-top:10px}
-          .fk-thumb{width:92px; height:auto; border-radius:10px; border:1px solid var(--border)}
-
-          .fk-imdb{min-width:160px}
-          .fk-imdb a{color:inherit; text-decoration:underline}
-
-          .fk-right{margin-left:auto; text-align:right; max-width:520px}
-
-          .fk-stream-title{font-size:13px; color:var(--muted); margin-bottom:6px}
-          .fk-stream-empty{font-size:12px; color:var(--muted)}
-          .fk-stream-row{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end}
-          .fk-stream-row.collapsed{max-height:68px; overflow:hidden} /* ~2 rader */
-          .fk-stream-toggle{margin-top:6px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted)}
-
-          /* Autocomplete */
-          .ac-wrap{ position:relative; }
-          .ac-list{ position:absolute; left:0; right:0; top:100%; z-index:50; background:var(--panel); border:1px solid var(--border); border-radius:10px; margin-top:6px; overflow:hidden }
-          .ac-item{ padding:10px 12px; cursor:pointer; border-top:1px solid var(--border); font-size:14px }
-          .ac-item:first-child{border-top:none}
-          .ac-item:hover{filter:brightness(1.08)}
-          .ac-muted{ color:var(--muted); font-size:12px }
-
-          /* Busy feedback */
-          button.is-busy{opacity:.6; filter:saturate(.6)}
-
-          @media (max-width:720px){
-            .fk-meta{flex-direction:column}
-            .fk-right{margin-left:0; text-align:left; max-width:none}
-            .fk-stream-row{justify-content:flex-start}
-          }
-        </style>
-      </section>
+      <div class="meta" id="meta${i}" style="display:none"></div>
+      <div class="hint" id="hint${i}"></div>
     `;
-
-    const list = this.querySelector('#fkList');
-    list.innerHTML = Array.from({ length: 5 }).map((_, idx) => {
-      const i = idx + 1;
-      return `
-        <div class="fk-item" data-i="${i}">
-          <div class="fk-toprow">
-            <div class="fk-input ac-wrap" style="flex:1">
-              <label style="margin:0 0 6px">#${i}</label>
-              <input id="fk_w${i}" class="lookup-input" placeholder="Film (${i})" autocomplete="off" spellcheck="false" />
-              <div class="ac-list" id="fk_ac_w${i}" style="display:none"></div>
-            </div>
-            <button class="lookup-btn fk-search" type="button" data-lookup="fk_w${i}">Sök</button>
-            <div class="fk-move" aria-label="Flytta">
-              <button type="button" class="ghost" data-move="up" data-i="${i}" aria-label="Flytta upp">▲</button>
-              <button type="button" class="ghost" data-move="down" data-i="${i}" aria-label="Flytta ner">▼</button>
-            </div>
-          </div>
-
-          <div class="fk-meta" id="fk_meta_w${i}"></div>
-        </div>
-      `;
-    }).join('');
-
-    this.updateMoveButtons();
+    return el;
   }
 
-  bind() {
-    const reloadBtn = this.querySelector('#fkReload');
-    const saveBtn = this.querySelector('#fkSave');
-
-    reloadBtn?.addEventListener('click', () => {
-      disableButtonWhile(reloadBtn, this.load({ useCache: false }));
-    });
-
-    saveBtn?.addEventListener('click', () => {
-      disableButtonWhile(saveBtn, this.save());
-    });
-
-    // Search buttons
-    this.querySelectorAll('button[data-lookup]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-lookup');
-        const input = this.querySelector(`#${id}`);
-        const q = input?.value || '';
-        await this.renderMeta(id, q, { withStreaming: true });
+  bindAll(){
+    // search buttons
+    this.$$('.btnSearch').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const i = Number(btn.dataset.i);
+        await this.lookupAndRender(i, {withStreaming:true});
       });
     });
 
-    // Move up/down
-    this.addEventListener('click', (e) => {
+    // move
+    this.shadowRoot.addEventListener('click', (e)=>{
       const btn = e.target?.closest?.('[data-move][data-i]');
-      if (!btn) return;
-      const i = Number(btn.getAttribute('data-i'));
-      const dir = btn.getAttribute('data-move');
-      if (dir === 'up' && i > 1) this.swap(i, i - 1);
-      if (dir === 'down' && i < 5) this.swap(i, i + 1);
+      if(!btn) return;
+      const i = Number(btn.dataset.i);
+      const dir = btn.dataset.move;
+      if(dir === 'up' && i>1) this.swap(i, i-1);
+      if(dir === 'down' && i<5) this.swap(i, i+1);
     });
 
-    // Inputs: autosave + autocomplete + meta update (gentle)
-    for (let i = 1; i <= 5; i++) {
-      const input = this.querySelector(`#fk_w${i}`);
-      if (!input) continue;
-
-      // Gentle meta update on blur/change
-      input.addEventListener('change', () => this.renderMeta(`fk_w${i}`, input.value, { withStreaming: true }));
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
+    // inputs: autosave + enter lookup
+    for(let i=1;i<=5;i++){
+      const input = this.$(`#w${i}`);
+      input.addEventListener('input', ()=>this.scheduleAutosave('skriver'));
+      input.addEventListener('blur', ()=>this.commitAutosave('klar'));
+      input.addEventListener('keydown', async (e)=>{
+        if(e.key === 'Enter'){
           e.preventDefault();
-          this.renderMeta(`fk_w${i}`, input.value, { withStreaming: true });
+          await this.lookupAndRender(i, {withStreaming:true});
         }
       });
 
-      // Autosave (quiet)
-      input.addEventListener('input', () => this.scheduleAutosave());
-
-      // Autocomplete
-      this.bindAutocomplete(`fk_w${i}`);
+      this.bindAutocomplete(`w${i}`);
     }
 
-    // Close autocomplete when clicking outside
-    document.addEventListener('click', (e) => {
-      if (e.target?.closest?.('.ac-wrap')) return;
-      for (let i = 1; i <= 5; i++) this.hideAc(`fk_w${i}`);
+    // close autocomplete when clicking outside
+    this.shadowRoot.addEventListener('click', (e)=>{
+      if(e.target?.closest?.('.inputwrap')) return;
+      for(let i=1;i<=5;i++) this.hideAc(`w${i}`);
     });
   }
 
-  get person() {
-    try { return getWho?.() || 'Lars'; } catch { return 'Lars'; }
-  }
+  // ===== Data load/save =====
+  async load(useCache){
+    try{
+      const who = this._who;
+      const j = await api('getWishlist', { person: who });
+      if(!j?.ok) throw new Error(j?.error || 'getWishlist');
 
-  sig() {
-    const p = this.person;
-    const vals = [];
-    for (let i = 1; i <= 5; i++) vals.push((this.querySelector(`#fk_w${i}`)?.value || '').trim());
-    return [p, ...vals].join('␟');
-  }
-
-  scheduleAutosave() {
-    if (this._applyFromServer) return;
-    clearTimeout(this._autosaveTimer);
-    this._autosaveTimer = setTimeout(() => {
-      const s = this.sig();
-      if (s === this._lastSig) return;
-      // Avoid saving if all empty
-      const hasAny = s.split('␟').slice(1).some(x => x && x.length);
-      if (!hasAny) return;
-      this._lastSig = s;
-      this.save({ quiet: true });
-    }, 1400);
-  }
-
-  updateMoveButtons() {
-    this.querySelectorAll('[data-move][data-i]').forEach((btn) => {
-      const i = Number(btn.getAttribute('data-i'));
-      const dir = btn.getAttribute('data-move');
-      btn.disabled = (dir === 'up' && i === 1) || (dir === 'down' && i === 5);
-    });
-  }
-
-  swap(i, j) {
-    const a = this.querySelector(`#fk_w${i}`);
-    const b = this.querySelector(`#fk_w${j}`);
-    if (!a || !b) return;
-
-    this._applyFromServer = true;
-    const tmp = a.value;
-    a.value = b.value;
-    b.value = tmp;
-    this._applyFromServer = false;
-
-    // Re-render meta for those two rows
-    this.renderMeta(`fk_w${i}`, a.value, { withStreaming: true });
-    this.renderMeta(`fk_w${j}`, b.value, { withStreaming: true });
-
-    this.updateMoveButtons();
-    this.scheduleAutosave();
-  }
-
-  async load({ useCache = true } = {}) {
-    const userEl = this.querySelector('#fkUser');
-    if (userEl) userEl.textContent = this.person;
-
-    const who = this.person;
-
-    // Prefer cache for speed
-    const cacheKey = `fk_wishlist_api_v1_${who}`;
-    const cached = useCache ? Cache.get(cacheKey)?.v : null;
-    if (cached?.ok) {
-      this.applyWishlist(cached);
-      // background refresh
-      if (useCache) this.refreshFromServer(cacheKey, who);
-      return;
-    }
-
-    await this.refreshFromServer(cacheKey, who);
-  }
-
-  async refreshFromServer(cacheKey, who) {
-    const j = await api('getWishlist', { person: who });
-    if (j?.ok) {
-      Cache.set(cacheKey, { t: Date.now(), v: j });
-      this.applyWishlist(j);
-    } else {
-      // leave UI as-is, but show a minimal hint
-      const list = this.querySelector('#fkList');
-      if (list && !list.querySelector('.fk-err')) {
-        const div = document.createElement('div');
-        div.className = 'muted fk-err';
-        div.style.marginTop = '8px';
-        div.textContent = `Kunde inte hämta önskelista: ${j?.error || 'okänt fel'}`;
-        list.prepend(div);
+      this._applying = true;
+      for(let i=1;i<=5;i++){
+        const val = (j[`R${i}`] || '').trim();
+        this.$(`#w${i}`).value = val;
+        this.$(`#hint${i}`).textContent = '';
+        this.$(`#meta${i}`).style.display = 'none';
+        this.$(`#meta${i}`).innerHTML = '';
       }
+      this._applying = false;
+
+      // render metas in background
+      for(let i=1;i<=5;i++){
+        const q = (this.$(`#w${i}`).value || '').trim();
+        if(q) this.lookupAndRender(i, {withStreaming:false});
+      }
+    }catch(err){
+      console.error(err);
+      // Keep UI, show hints
+      for(let i=1;i<=5;i++) this.$(`#hint${i}`).textContent = (i===1 ? 'Kunde inte hämta listan.' : '');
     }
   }
 
-  applyWishlist(j) {
-    this._applyFromServer = true;
-    for (let i = 1; i <= 5; i++) {
-      const el = this.querySelector(`#fk_w${i}`);
-      if (el) el.value = j[`R${i}`] || '';
-    }
-    this._applyFromServer = false;
-
-    // update signature so autosave doesn't trigger immediately
-    this._lastSig = this.sig();
-
-    // Render metas (parallel, but gentle)
-    for (let i = 1; i <= 5; i++) {
-      const q = this.querySelector(`#fk_w${i}`)?.value || '';
-      if (q.trim()) this.renderMeta(`fk_w${i}`, q, { withStreaming: true });
-      else this.clearMeta(`fk_w${i}`);
-    }
-
-    this.updateMoveButtons();
-  }
-
-  async save({ quiet = false } = {}) {
-    const who = this.person;
+  async save(flash){
+    const who = this._who;
     const body = { person: who };
-    for (let i = 1; i <= 5; i++) {
-      body[`R${i}`] = (this.querySelector(`#fk_w${i}`)?.value || '').trim();
-    }
+    for(let i=1;i<=5;i++) body[`R${i}`] = (this.$(`#w${i}`).value || '').trim();
 
-    // Optimistic cache
-    Cache.set(`fk_wishlist_api_v1_${who}`, { t: Date.now(), v: { ok: true, ...body } });
+    const btn = this.$('#btnSave');
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = 'Sparar…';
 
-    const saveBtn = this.querySelector('#fkSave');
-    if (!quiet && saveBtn) {
-      saveBtn.textContent = 'Sparar…';
-      saveBtn.disabled = true;
-    }
-
-    try {
+    try{
       const j = await api('saveWishlist', body);
-      if (!j?.ok) throw new Error(j?.error || 'saveWishlist');
-      this._lastSig = this.sig();
-    } finally {
-      if (!quiet && saveBtn) {
-        saveBtn.textContent = 'Spara';
-        saveBtn.disabled = false;
-      }
+      if(!j?.ok) throw new Error(j?.error || 'saveWishlist');
+      btn.textContent = 'Sparad';
+      setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 650);
+    }catch(err){
+      console.error(err);
+      btn.textContent = 'Fel';
+      setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 900);
     }
   }
 
-  clearMeta(inputId) {
-    const m = this.querySelector(`#fk_meta_${inputId}`);
-    if (m) m.innerHTML = '';
+  scheduleAutosave(reason){
+    if(this._applying) return;
+    clearTimeout(this._autosaveTimer);
+    this._autosaveTimer = setTimeout(()=>this.commitAutosave(reason), 1500);
   }
 
-  async renderMeta(inputId, query, { withStreaming = true } = {}) {
-    const meta = this.querySelector(`#fk_meta_${inputId}`);
-    if (!meta) return;
+  commitAutosave(reason){
+    if(this._applying) return;
+    // don't autosave completely empty list
+    const any = [1,2,3,4,5].some(i => (this.$(`#w${i}`).value||'').trim().length);
+    if(!any) return;
+    this.save(false);
+  }
 
-    const q = String(query || '').trim();
-    if (!q) {
-      meta.innerHTML = '';
-      return;
+  swap(a,b){
+    const A = this.$(`#w${a}`);
+    const B = this.$(`#w${b}`);
+    if(!A || !B) return;
+
+    this._applying = true;
+    const tmp = A.value;
+    A.value = B.value;
+    B.value = tmp;
+    this._applying = false;
+
+    // re-render metas for both
+    this.lookupAndRender(a, {withStreaming:false});
+    this.lookupAndRender(b, {withStreaming:false});
+
+    this.scheduleAutosave('ordning');
+  }
+
+  // ===== Lookup / Render meta =====
+  normKey(s){
+    return String(s||'')
+      .trim()
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g,'')
+      .replace(/\s+/g,' ');
+  }
+
+  imdbUrl(meta){
+    return meta?.imdbID ? `https://www.imdb.com/title/${meta.imdbID}/` : '';
+  }
+
+  async smartLookup(query){
+    const q = (query||'').trim();
+    if(!q) return null;
+
+    const key = this.normKey(q);
+    if(this._metaCache.has(key)) return this._metaCache.get(key);
+
+    const { tmdb, omdb } = this._tokens || {};
+
+    // If query includes imdb tt-id, go straight to OMDb
+    if(/\btt\d{7,}\b/i.test(q) || /imdb\.com\/title\/tt\d+/i.test(q)){
+      const om = await this.omdbLookup(q, omdb);
+      if(om) { this._metaCache.set(key, om); return om; }
     }
 
-    meta.innerHTML = `<div class="muted" style="font-size:13px">Hämtar…</div>`;
-
-    const data = await smartLookup(q);
-    if (!data) {
-      meta.innerHTML = `<div class="muted" style="font-size:13px">Hittade inget för: ${escapeHtml(q)}</div>`;
-      return;
+    // TMDb first (better search), then OMDb for details if imdbID exists
+    const tm = await this.tmdbLookup(q, tmdb);
+    if(tm){
+      if(tm.imdbID){ this._metaCache.set(key, tm); return tm; }
+      const tryOm = await this.omdbLookup(`${tm.Title} (${tm.Year||''})`, omdb);
+      const best = tryOm || tm;
+      this._metaCache.set(key, best);
+      return best;
     }
 
-    const imdbID = data.imdbID || '';
-    const imdbLink = imdbUrlFrom(imdbID);
-    const rating = data.imdbRating || '-';
-    const poster = (data.Poster && data.Poster !== 'N/A')
-      ? data.Poster
-      : '';
+    const om = await this.omdbLookup(q, omdb);
+    this._metaCache.set(key, om);
+    return om;
+  }
 
-    // Streaming: show cached if present; otherwise lazy fetch via “…” button
-    let sources = null;
-    let hasCachedSources = false;
+  async omdbLookup(q, key){
+    if(!key) return null;
+    let query = (q||'').trim();
 
-    if (withStreaming && imdbID) {
-      const cached = Cache.get(`fk_wm_src_v1_${imdbID}`)?.v;
-      if (cached) {
-        sources = cached;
-        hasCachedSources = true;
+    // pull out year from (YYYY)
+    let year = '';
+    const m = query.match(/\((\d{4})\)\s*$/);
+    if(m){ year = m[1]; query = query.replace(/\s*\(\d{4}\)\s*$/,'').trim(); }
+
+    // imdb id direct
+    const tt = query.match(/tt\d{7,}/i) || query.match(/imdb\.com\/title\/(tt\d+)/i);
+    if(tt){
+      const id = (tt[1] || tt[0]).replace(/^.*(tt\d+).*$/,'$1');
+      const r = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&i=${encodeURIComponent(id)}&plot=short`, {cache:'no-store'}).catch(()=>null);
+      const j = r ? await r.json() : null;
+      return (j && j.Response !== 'False') ? j : null;
+    }
+
+    // title
+    const u = `https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&t=${encodeURIComponent(query)}&type=movie&plot=short${year?`&y=${encodeURIComponent(year)}`:''}`;
+    const r = await fetch(u, {cache:'no-store'}).catch(()=>null);
+    const j = r ? await r.json() : null;
+    if(j && j.Response !== 'False') return j;
+
+    // fallback: search
+    const rs = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&s=${encodeURIComponent(query)}&type=movie`, {cache:'no-store'}).catch(()=>null);
+    const js = rs ? await rs.json() : null;
+    if(js && js.Response !== 'False' && Array.isArray(js.Search) && js.Search.length){
+      // pick first
+      return await this.omdbLookup(js.Search[0].Title, key);
+    }
+    return null;
+  }
+
+  async tmdbLookup(query, key){
+    if(!key) return null;
+    const q = (query||'').trim();
+    if(!q) return null;
+
+    // search sv
+    const sr = await fetch(
+      `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(key)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`,
+      {cache:'no-store'}
+    ).catch(()=>null);
+    if(!sr || !sr.ok) return null;
+    const sj = await sr.json();
+    const hit = Array.isArray(sj?.results) && sj.results.length ? sj.results[0] : null;
+    if(!hit) return null;
+
+    // external ids for imdb
+    let imdbID = '';
+    try{
+      const er = await fetch(
+        `https://api.themoviedb.org/3/movie/${hit.id}/external_ids?api_key=${encodeURIComponent(key)}`,
+        {cache:'no-store'}
+      );
+      if(er.ok){
+        const ej = await er.json();
+        imdbID = ej?.imdb_id || '';
       }
+    }catch(_){ }
+
+    const year = (hit.release_date || '').slice(0,4) || '';
+    const poster = hit.poster_path ? `https://image.tmdb.org/t/p/w185${hit.poster_path}` : 'N/A';
+
+    return {
+      Title: hit.title || hit.original_title || '',
+      Year: year,
+      Poster: poster,
+      imdbID,
+      imdbRating: '-'
+    };
+  }
+
+  async getStreaming(imdbID){
+    const { watchmode } = this._tokens || {};
+    if(!watchmode || !imdbID) return null;
+
+    if(this._wmCache.has(imdbID)) return this._wmCache.get(imdbID);
+
+    const titleId = await this.wmTitleIdFromImdb(imdbID, watchmode);
+    if(!titleId){ this._wmCache.set(imdbID, null); return null; }
+
+    const r = await fetch(`https://api.watchmode.com/v1/title/${titleId}/sources/?apiKey=${encodeURIComponent(watchmode)}`, {cache:'no-store'}).catch(()=>null);
+    if(!r || !r.ok){ this._wmCache.set(imdbID, null); return null; }
+    const data = await r.json();
+    if(!Array.isArray(data)){ this._wmCache.set(imdbID, null); return null; }
+
+    const seen = new Set();
+    const normName = (s)=>String(s||'').replace(/\s*\(with Ads\)$/i,'').replace(/\s+HD$/,'').trim();
+
+    const filtered = data
+      .filter(s=>s.type==='sub' && s.name)
+      .map(s=>({
+        service: normName(s.name),
+        region: s.region || '',
+        quality: (s.format==='4K' || s.format==='HD') ? s.format : '',
+        link: s.web_url || ''
+      }))
+      .filter(s=>{
+        const k = `${s.service}|${s.region}|${s.quality}`;
+        if(seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .sort((a,b)=>(a.service+a.region+a.quality).localeCompare(b.service+b.region+b.quality));
+
+    const out = filtered.length ? filtered : null;
+    this._wmCache.set(imdbID, out);
+    return out;
+  }
+
+  async wmTitleIdFromImdb(imdbID, apiKey){
+    try{
+      const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(apiKey)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
+      const r1 = await fetch(u1, {cache:'no-store'}).catch(()=>null);
+      if(r1 && r1.ok){
+        const j = await r1.json();
+        if(j?.title_id) return j.title_id;
+      }
+      const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(apiKey)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
+      const r2 = await fetch(u2, {cache:'no-store'}).catch(()=>null);
+      if(r2 && r2.ok){
+        const j = await r2.json();
+        const hit = Array.isArray(j?.title_results) ? j.title_results.find(t=>String(t.imdb_id)===String(imdbID)) : null;
+        if(hit?.id) return hit.id;
+      }
+    }catch(_){ }
+    return null;
+  }
+
+  esc(s){
+    return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+  }
+
+  async lookupAndRender(i, {withStreaming=true}={}){
+    const input = this.$(`#w${i}`);
+    const q = (input?.value || '').trim();
+    const metaEl = this.$(`#meta${i}`);
+    const hintEl = this.$(`#hint${i}`);
+
+    if(!q){
+      metaEl.style.display = 'none';
+      metaEl.innerHTML = '';
+      hintEl.textContent = '';
+      return;
     }
 
-    const streamingBlock = (withStreaming && imdbID)
-      ? (hasCachedSources
-          ? buildStreamingHtml(imdbID, sources, { collapsed: true })
-          : `
-            <div class="fk-stream" data-imdb="${escapeHtml(imdbID)}">
-              <div class="fk-stream-title">Tillgängligt i abonnemang (globalt):</div>
-              <div class="fk-stream-empty">(klicka för att hämta)</div>
-              <button type="button" class="fk-stream-toggle" style="display:inline-block">…</button>
-            </div>
-          `)
+    hintEl.textContent = 'Söker…';
+
+    const meta = await this.smartLookup(q);
+    if(!meta){
+      metaEl.style.display = 'none';
+      metaEl.innerHTML = '';
+      hintEl.textContent = `Hittade inget för: ${q}`;
+      return;
+    }
+
+    hintEl.textContent = '';
+
+    // streaming can be heavy; fetch only if asked and imdbID exists
+    let streams = null;
+    if(withStreaming && meta.imdbID){
+      // show hint while loading
+      streams = await this.getStreaming(meta.imdbID);
+    }
+
+    const poster = (meta.Poster && meta.Poster !== 'N/A')
+      ? meta.Poster
       : '';
 
-    meta.innerHTML = `
-      ${poster ? `<img class="fk-thumb" src="${escapeHtml(poster)}" alt="poster" loading="lazy" decoding="async" />` : ''}
+    const title = this.esc(meta.Title || q);
+    const year  = this.esc(meta.Year || '');
+    const rating = this.esc(meta.imdbRating || '-');
+    const imdb = this.imdbUrl(meta);
 
-      <div class="fk-imdb">
-        <div><strong>${escapeHtml(data.Title || q)}</strong>${data.Year ? ` (${escapeHtml(data.Year)})` : ''}</div>
-        <div>IMDb ${escapeHtml(rating)}${imdbLink ? ` — <a href="${escapeHtml(imdbLink)}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}</div>
-      </div>
+    const streamPills = (streams && streams.length)
+      ? streams.map(s=>{
+          const label = `${s.service}${s.quality?` ${s.quality}`:''}${s.region?` · ${s.region}`:''}`;
+          const href = s.link ? `href="${this.esc(s.link)}" target="_blank" rel="noopener"` : '';
+          return `<a class="pill" ${href}>${this.esc(label)} (ingår)</a>`;
+        }).join('')
+      : '';
 
-      <div class="fk-right">
-        ${streamingBlock}
+    metaEl.innerHTML = `
+      ${poster ? `<img class="poster" src="${this.esc(poster)}" alt="poster" loading="lazy" decoding="async" />` : `<div class="poster" aria-hidden="true"></div>`}
+      <div class="metaMain">
+        <div class="imdb">
+          <div class="title">${title}${year?` (${year})`:''}</div>
+          <div>IMDb ${rating}${imdb ? ` — <a href="${this.esc(imdb)}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}</div>
+        </div>
+
+        <div class="streaming" ${withStreaming ? '' : 'style="display:none"'}>
+          <strong>Tillgängligt i abonnemang (globalt):</strong>
+          ${streams === null ? `<div class="muted">(klicka Sök för att hämta)</div>` : ''}
+          ${streamPills ? `<div class="streams collapsed">${streamPills}</div>
+            <button type="button" class="toggle" style="display:none">…</button>`
+          : (withStreaming ? `<div class="muted">Inget abonnemang hittades just nu.</div>` : '')}
+        </div>
       </div>
     `;
 
-    // Enable collapse toggle for cached streaming
-    ensureStreamingToggle(meta);
+    metaEl.style.display = 'grid';
 
-    // If no cached sources: lazy fetch when user clicks “…”
-    const toggle = meta.querySelector('.fk-stream-toggle');
-    const wrap = meta.querySelector('.fk-stream');
-    const row = meta.querySelector('.fk-stream-row');
-
-    if (toggle && wrap && !row && imdbID) {
-      toggle.addEventListener('click', async () => {
-        toggle.disabled = true;
-        toggle.textContent = 'hämtar…';
-
-        const fetched = await watchmodeSources(imdbID);
-
-        // Write into cache bucket used above
-        Cache.set(`fk_wm_src_v1_${imdbID}`, { t: Date.now(), v: fetched });
-
-        // Replace content
-        wrap.innerHTML = buildStreamingHtml(imdbID, fetched, { collapsed: true })
-          .replace(/^\s*<div class=\"fk-stream\"[^>]*>/, '')
-          .replace(/<\/div>\s*$/, '');
-
-        // Re-wire toggle
-        ensureStreamingToggle(meta);
-      }, { once: true });
+    // collapse toggle (only if we have pills)
+    const streamsEl = metaEl.querySelector('.streams');
+    const toggle = metaEl.querySelector('.toggle');
+    if(streamsEl && toggle){
+      requestAnimationFrame(()=>{
+        const needs = streamsEl.scrollHeight > streamsEl.clientHeight + 2;
+        toggle.style.display = needs ? 'inline-block' : 'none';
+        toggle.textContent = '…';
+      });
+      toggle.addEventListener('click', ()=>{
+        const collapsed = streamsEl.classList.toggle('collapsed');
+        toggle.textContent = collapsed ? '…' : 'visa färre';
+      });
     }
   }
 
-  // --- Autocomplete (gentle)
-  hideAc(inputId) {
-    const box = this.querySelector(`#fk_ac_${inputId}`);
-    if (box) {
-      box.style.display = 'none';
-      box.innerHTML = '';
-    }
+  // ===== Autocomplete (TMDb) =====
+  debounce(fn, ms=380){
+    let t;
+    return (...args)=>{ clearTimeout(t); t = setTimeout(()=>fn(...args), ms); };
   }
 
-  showAc(inputId, items, onPick) {
-    const box = this.querySelector(`#fk_ac_${inputId}`);
-    if (!box) return;
-    if (!items.length) return this.hideAc(inputId);
+  async tmdbSuggest(query, limit=8){
+    const { tmdb } = this._tokens || {};
+    if(!tmdb) return [];
+    const q = (query||'').trim();
+    if(q.length < 3) return [];
 
-    box.innerHTML = items.map((x, idx) => `
+    const r = await fetch(
+      `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(tmdb)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`,
+      {cache:'no-store'}
+    ).catch(()=>null);
+
+    if(!r || !r.ok) return [];
+    const j = await r.json();
+    const res = Array.isArray(j?.results) ? j.results : [];
+    return res.slice(0, limit).map(it=>({
+      title: it.title || it.original_title || '',
+      year: (it.release_date||'').slice(0,4) || ''
+    }));
+  }
+
+  hideAc(id){
+    const box = this.$(`#ac-${id}`);
+    if(!box) return;
+    box.style.display = 'none';
+    box.innerHTML = '';
+  }
+
+  showAc(id, items, onPick){
+    const box = this.$(`#ac-${id}`);
+    if(!box) return;
+    if(!items.length){ this.hideAc(id); return; }
+
+    box.innerHTML = items.map((x, idx)=>`
       <div class="ac-item" data-i="${idx}">
-        <div><strong>${escapeHtml(x.title)}</strong> <span class="ac-muted">${escapeHtml(x.year)}</span></div>
+        <div><strong>${this.esc(x.title)}</strong> <span class="ac-muted">${this.esc(x.year)}</span></div>
       </div>
     `).join('');
+
     box.style.display = 'block';
 
-    box.querySelectorAll('.ac-item').forEach((el) => {
-      const pick = (ev) => {
-        ev?.preventDefault?.();
-        ev?.stopPropagation?.();
+    box.querySelectorAll('.ac-item').forEach(el=>{
+      const handler = (ev)=>{
+        ev.preventDefault();
+        ev.stopPropagation();
         const i = Number(el.getAttribute('data-i'));
         onPick(items[i]);
-        this.hideAc(inputId);
+        this.hideAc(id);
       };
-      el.addEventListener('pointerdown', pick, { passive: false });
-      el.addEventListener('touchstart', pick, { passive: false });
-      el.addEventListener('click', pick);
+      // iOS friendly
+      el.addEventListener('pointerdown', handler, {passive:false});
+      el.addEventListener('touchstart', handler, {passive:false});
+      el.addEventListener('click', handler);
     });
   }
 
-  bindAutocomplete(inputId) {
-    const input = this.querySelector(`#${inputId}`);
-    const box = this.querySelector(`#fk_ac_${inputId}`);
-    if (!input || !box) return;
+  bindAutocomplete(id){
+    const input = this.$(`#${id}`);
+    const box = this.$(`#ac-${id}`);
+    if(!input || !box) return;
 
     let composing = false;
-    input.addEventListener('compositionstart', () => { composing = true; });
-    input.addEventListener('compositionend', () => { composing = false; });
+    input.addEventListener('compositionstart', ()=>{ composing = true; });
+    input.addEventListener('compositionend', ()=>{ composing = false; });
 
-    const doSearch = debounce(async () => {
-      if (composing) return;
-      if (document.activeElement !== input) return;
+    const search = this.debounce(async ()=>{
+      if(composing) return;
+      if(this.shadowRoot.activeElement !== input) return;
 
-      const q = (input.value || '').trim();
-      if (q.length < 3) return this.hideAc(inputId);
+      const q = (input.value||'').trim();
+      if(q.length < 3){ this.hideAc(id); return; }
 
-      const hits = await tmdbSearchMovies(q, 8);
-      if (document.activeElement !== input) return;
+      const hits = await this.tmdbSuggest(q, 8);
+      if(this.shadowRoot.activeElement !== input) return;
 
-      this.showAc(inputId, hits, (pick) => {
+      this.showAc(id, hits, (pick)=>{
         input.value = pick.year ? `${pick.title} (${pick.year})` : pick.title;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+        input.dispatchEvent(new Event('input', {bubbles:true}));
+        input.dispatchEvent(new Event('change', {bubbles:true}));
       });
     }, 420);
 
-    input.addEventListener('input', doSearch);
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.hideAc(inputId);
-    });
-
-    input.addEventListener('blur', () => {
-      setTimeout(() => this.hideAc(inputId), 160);
-    });
+    input.addEventListener('input', search);
+    input.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') this.hideAc(id); });
+    input.addEventListener('blur', ()=>{ setTimeout(()=>this.hideAc(id), 140); });
   }
-}
-
-customElements.define('film-wishlist', FilmWishlist);
+});
