@@ -1,170 +1,150 @@
-🎬 Filmkväll
-
-Filmkväll är en enkel, familjevänlig webbapp för att hålla ordning på vems tur det är att välja film, personliga önskelistor, poängsättning och historik – utan konton, utan molndatabaser och utan krångel.
-
-Projektet är uppdelat i:
-	•	Frontend (statisk webb, GitHub Pages)
-	•	Backend (Google Apps Script + Google Sheets som datalager)
-
-Målet har varit:
-	•	maximal enkelhet för användaren
-	•	tydlig kodstruktur
-	•	rimlig säkerhet utan att bli överkomplicerad
-
-⸻
-
-🧱 Arkitektur – översikt
-
-Browser (index.html + JS)
-   ↓  (POST, JSON)
-Google Apps Script (code.gs)
-   ↓
-Google Sheets (Config, Wishlists, Scores, History)
-
-	•	Frontend körs helt statiskt via GitHub Pages
-	•	Backend är ett Apps Script Web App-API
-	•	All beständig data lagras i Google Sheets
-
-⸻
-
-📁 Repo-struktur
+## Struktur
 
 /
-├─ index.html        # Huvudsidan (ingen hemlig data)
-├─ styles.css        # All styling
-├─ state.js          # Lokal state, cache, offline-kö, guards
-├─ api.js            # All kommunikation med backend (fetch)
-├─ ui.js             # DOM, events, rendering
-├─ app.js            # App-init & samordning
-├─ lookup.js         # Film-sök (TMDb / OMDb / Watchmode)
-├─ autocomplete.js   # Autocomplete-hjälp
-├─ Logo.PNG
-├─ code.gs           # Google Apps Script backend
-├─ appsscript.json   # Apps Script-konfiguration
-├─ .clasp.json       # clasp-koppling
-└─ README.md
+index.html          # Sidans skal: header + ordning på moduler + imports
+styles.css          # Gemensam styling + CSS-variabler (tema)
+store.js            # Global state + pub/sub (who, auth, theme)
+api.js              # Wrapper mot backend (läser auth från store + url från film-login)
+film-login.js       # Äger config (api-url, tokens) + skriver auth/who till store
+film-now.js         # “På tur nu”-modulen
+film-wishlist.js    # Önskelista-modulen
+film-tops.js        # Topplistor-modulen
+film-history.js     # Historik-modulen
+film-system.js      # Tema + felsökning/status-modulen
+Logo.PNG            # Logga/favicon
 
-Ansvarsprincip
-	•	state.js: ingen DOM, inga API-anrop
-	•	api.js: inga DOM-anrop, bara nätverk
-	•	ui.js: inga hemligheter, bara UI
-	•	code.gs: all auktoritet och dataskrivning
+---
 
-⸻
+## Viktiga principer
 
-🔐 Säkerhetsmodell (praktisk, inte enterprise)
+### 1) `index.html` är bara “container”
+- Bestämmer ordning/placering av moduler:
+  ```html
+  <film-login></film-login>
+  <film-now></film-now>
+  ...
 
-Backend (Apps Script)
-	•	🔑 API_TOKEN
-	•	lagras i Script Properties
-	•	skickas endast i POST-body (JSON)
-	•	aldrig i URL
-	•	⛔ Rate-limit för felaktig auth (per minut)
-	•	🔒 Konstant-tids-jämförelse av hemligheter
-	•	🧪 Debug-endpoint skyddad och maskar alla hemligheter
+	•	Importerar moduler i rätt ordning (store → login → api → UI-moduler).
 
-Frontend
-	•	❌ Inga token eller lösenord hårdkodade
-	•	💾 Token lagras lokalt i localStorage
-	•	👤 Slutanvändaren behöver inte förstå token alls
+2) store.js är gemensam state + events
 
-Dataskydd
-	•	Inga personuppgifter utöver förnamn
-	•	Ingen tredjepartsspårning
-	•	Ingen analytics
+store är enda platsen där global state bor:
+	•	who (vald användare)
+	•	auth (pw/token)
+	•	theme (auto/dark/light)
 
-⸻
+Alla moduler läser från store och lyssnar på ändringar via on('key', fn).
 
-🎥 Filmdata (valfritt)
+3) film-login.js äger inloggning/config
 
-Appen fungerar utan externa API:er, men kan förbättras med:
-	•	TMDb – sök och posters
-	•	OMDb – detaljer, IMDb-länk
-	•	Watchmode – streamingtjänster
+Login-modulen:
+	•	sätter auth/who i store (och kan senare bli “riktig login”)
+	•	håller API URL samt externa tokens (TMDb/OMDb/Watchmode) som andra moduler kan läsa via export-funktioner
 
-API-nycklar:
-	•	sparas lokalt i webbläsaren
-	•	skickas aldrig till backend
-	•	är helt frivilliga
+4) api.js är den enda vägen till backend
 
-⸻
+UI-moduler ska inte bygga egna URLs.
+Allt går via:
 
-🗂 Google Sheets – struktur
+import { api } from './api.js';
+const res = await api('getCurrent', {});
 
-Config
+5) Tema styrs globalt via CSS-variabler
 
-Key	Value
-people	Hannah,Maria,Tuva,Alva,Lars
-nextIndex	0
+store.js applicerar tema på <html>:
+	•	html[data-theme="light"] = ljus
+	•	html[data-theme="dark"] = mörk (eller default)
 
-Wishlists
-
-| Person | R1 | R2 | R3 | R4 | R5 |
-
-Scores
-
-| Hannah | Maria | Tuva | Alva | Lars |
-
-History
-
-| Datum | Film | Vem valde | Kommentar | Hannah | Maria | Tuva | Alva | Lars |
+styles.css använder CSS-variabler (--bg, --card, --text, …).
+Då blir alla moduler automatiskt “tema-korrekta”.
 
 ⸻
 
-🧠 Affärslogik (kort)
-	•	Turordning styrs av nextIndex
-	•	När en kväll sparas:
-	•	historikrad skapas
-	•	poäng nollställs
-	•	väljarens önskelista skiftas upp
-	•	turen går vidare deterministiskt
+Hur man lägger till en ny modul
 
-Dubbel-spar skyddas lokalt via NightSaveGuard.
+Steg 1: skapa filen
+
+Exempel: film-stats.js
+
+Minimimall:
+
+class FilmStats extends HTMLElement {
+  connectedCallback() {
+    this.innerHTML = `
+      <div class="card">
+        <h3>Stats</h3>
+        <div class="muted">Kommer snart…</div>
+      </div>
+    `;
+  }
+}
+
+customElements.define('film-stats', FilmStats);
+
+Steg 2: lägg in taggen i index.html
+
+Välj var den ska ligga:
+
+<film-stats></film-stats>
+
+Steg 3: importera modulen i index.html
+
+I <script type="module">:
+
+await import('./film-stats.js');
+
+Steg 4 (valfritt): koppla till store
+
+Om modulen behöver användare:
+
+import { getWho, on } from './store.js';
+
+connectedCallback(){
+  const render = () => {
+    this.innerHTML = `<div class="card">Inloggad: ${getWho()}</div>`;
+  };
+  render();
+  this._unsub = on('who', render);
+}
+
+disconnectedCallback(){
+  this._unsub?.();
+}
+
+Steg 5 (valfritt): prata med backend via api.js
+
+import { api } from './api.js';
+
+const data = await api('getHistory', { limit: 5 });
+
 
 ⸻
 
-🛠 Utvecklingssätt (viktigt)
-
-När vi ändrar något i detta projekt jobbar vi systematiskt:
-	1.	📝 Kort beskrivning av vad som ska ändras (utan kod)
-	2.	☑️ Checklista med berörda filer
-	3.	📂 En fil i taget:
-	•	öppnas i canvas
-	•	ändras färdigt
-	•	markeras “redo för commit”
-	4.	🔁 Du committar till main
-	5.	✅ Filen bockas av
-	6.	➡️ Nästa fil
-
-Detta minimerar misstag och gör att både människa och AI hänger med.
+Kodstil / UI-regler
+	•	Använd alltid gemensamma klasser från styles.css:
+	•	.card, .row, .muted, .pill, button.primary, button.ghost
+	•	Undvik inline-färger. Använd CSS-variabler så tema funkar överallt.
+	•	“Gråa ut” knappar vid körning (disabled + ev. text byte) för att undvika dubbeltryck.
 
 ⸻
 
-🚀 Drift
-	•	Frontend: GitHub Pages
-	•	Backend: Apps Script Web App
-	•	Inga build-steg
-	•	Inga beroenden
+Vanliga felsökningar
+
+“Unexpected token ‘<’”
+
+Nästan alltid: fel path / GitHub Pages returnerar HTML (404) istället för JS.
+	•	Kontrollera att filen finns exakt där du importerar den
+	•	Kontrollera stavning: film-system.js vs Film-system.js
+	•	Kolla network-tab i devtools: får du en HTML-sida tillbaka?
+
+Tema slår inte igenom i en modul
+	•	Kontrollera att modulen använder .card etc (inte hårdkodad bakgrund/färg)
+	•	Kontrollera att styles.css definierar både light och dark varianter i CSS-variabler
+	•	Kontrollera att store.js applicerar data-theme på <html>
 
 ⸻
 
-❤️ Målgrupp
-
-Filmkväll är byggt för:
-	•	familjer
-	•	små grupper
-	•	låg teknisk tröskel
-	•	långsiktig användning
-
-Inte för:
-	•	publika appar
-	•	tusentals användare
-	•	känslig data
-
-⸻
-
-✅ Status
-
-Projektet är stabilt, användbart och redo för vardagsbruk.
-
-🍿 Trevlig filmkväll!
+Utvecklingsflöde (rekommenderat)
+	1.	Skapa ny branch per förbättring: feature/xyz
+	2.	Testa i GitHub Pages på den branchen
+	3.	Merge till main när det är stabilt
