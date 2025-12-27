@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Filmkväll-test</title>
+  <title>Filmkväll</title>
 
   <link rel="icon" type="image/png" href="Logo.PNG">
   <meta property="og:title" content="Filmkväll">
@@ -12,6 +12,7 @@
   <meta name="twitter:card" content="summary">
   <meta name="twitter:image" content="Logo.PNG">
 
+  <!-- (valfritt men rekommenderat) cache-bust av CSS vid behov -->
   <link rel="stylesheet" href="./styles.css">
 </head>
 
@@ -29,7 +30,7 @@
         <div class="hero-text">
           <h1 class="hero-title">Filmkväll</h1>
           <div class="muted hero-version">
-            Kodversion: <span id="appVersion">–</span>
+            Build: <span id="appVersion">–</span>
           </div>
         </div>
       </div>
@@ -46,6 +47,57 @@
   </div>
 
   <script type="module">
+    // Visar en "riktig" version: hash av innehållet i de filer som faktiskt hämtas.
+    // Detta avslöjar om du tittar på cache/fel deploy, eftersom hash då skiljer sig.
+    async function computeBuildSignature() {
+      const verEl = document.getElementById('appVersion');
+      if (!verEl) return;
+
+      // Visa direkt vilken miljö/URL du tittar på (hjälper vid "fel deploy")
+      const where = `${location.host}${location.pathname}`;
+      verEl.textContent = `… (${where})`;
+      verEl.title = location.href;
+
+      // Viktiga filer som definierar UI + logik
+      const files = [
+        './styles.css',
+        './store.js',
+        './film-login.js',
+        './api.js',
+        './film-now.js',
+        './film-wishlist.js',
+        './film-tops.js',
+        './film-history.js',
+        './film-system.js',
+      ];
+
+      // Cache-bust så vi verkligen får det som serveras NU (inte en gammal browser-cache)
+      const bust = `v=${Date.now()}`;
+
+      const texts = await Promise.all(
+        files.map(async (p) => {
+          const url = p + (p.includes('?') ? '&' : '?') + bust;
+          const r = await fetch(url, { cache: 'no-store' });
+          // Om något saknas (404) vill vi se det i hash/indikatorn också
+          const t = await r.text().catch(() => '');
+          return `/* ${p} | ${r.status} */\n` + t;
+        })
+      );
+
+      const data = new TextEncoder().encode(texts.join('\n\n'));
+      const digest = await crypto.subtle.digest('SHA-256', data);
+      const hex = Array.from(new Uint8Array(digest))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      const short = hex.slice(0, 12);
+      verEl.textContent = `${short} (${where})`;
+      verEl.title = `SHA-256: ${hex}\n` + location.href;
+    }
+
+    // Kör signatur-beräkningen utan att blockera resten av appen
+    computeBuildSignature().catch(() => {});
+
     // 1) Store först (sätter tema direkt vid import)
     await import('./store.js');
 
@@ -61,10 +113,6 @@
     await import('./film-tops.js');
     await import('./film-history.js');
     await import('./film-system.js');
-
-    // Kodversion
-    const verEl = document.getElementById('appVersion');
-    if (verEl) verEl.textContent = document.lastModified || '–';
   </script>
 </body>
 </html>
