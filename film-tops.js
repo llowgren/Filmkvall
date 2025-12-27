@@ -1,178 +1,176 @@
 // film-tops.js
-// Topplistor (topp 5) – fristående modul
+// Topplistor (topp 5) – två tydliga kolumner med snygg align av poäng
 
 import { api } from './api.js';
-import { on } from './store.js';
 
-const DEFAULT_LIMIT = 5;
-
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (m) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[m]));
-}
-
-function round1(x) {
-  const n = Number(x);
-  if (!Number.isFinite(n)) return '';
-  return String(Math.round(n * 10) / 10);
-}
-
-class FilmTops extends HTMLElement {
-  constructor() {
-    super();
-    this._unsubs = [];
-    this._busy = false;
-  }
-
-  connectedCallback() {
-    this.render();
-
-    // Om ni senare vill kunna filtrera topplistor per användare, så är hooken redan här.
-    // Just nu laddar vi bara om när "who" ändras för att det känns konsekvent i UI.
-    this._unsubs.push(on('who', () => this.load({ quiet: true })));
-
-    // första laddning
-    this.load({ quiet: true });
-  }
-
-  disconnectedCallback() {
-    for (const u of this._unsubs) {
-      try { u(); } catch { }
-    }
-    this._unsubs = [];
-  }
-
-  setBusy(v) {
-    this._busy = !!v;
-    const btn = this.querySelector('[data-action="refresh"]');
-    if (btn) btn.disabled = this._busy;
-  }
-
-  async load({ quiet = false } = {}) {
-    if (this._busy) return;
-    this.setBusy(true);
-
-    const statusEl = this.querySelector('[data-role="status"]');
-    const leftEl = this.querySelector('[data-role="bestFilms"]');
-    const rightEl = this.querySelector('[data-role="bestPickers"]');
-
-    if (!quiet && statusEl) statusEl.textContent = 'Hämtar…';
-
-    try {
-      const j = await api('getTops', { limit: DEFAULT_LIMIT });
-
-      if (!j || !j.ok) {
-        const msg = j?.error ? String(j.error) : 'Kunde inte hämta topplistor.';
-        if (statusEl) statusEl.textContent = msg;
-        if (leftEl) leftEl.innerHTML = `<div class="muted">${escapeHtml(msg)}</div>`;
-        if (rightEl) rightEl.innerHTML = '';
-        return;
-      }
-
-      if (statusEl) statusEl.textContent = '';
-
-      const bestFilms = Array.isArray(j.bestFilms) ? j.bestFilms : [];
-      const bestPickers = Array.isArray(j.bestPickers) ? j.bestPickers : [];
-
-      if (leftEl) {
-        leftEl.innerHTML = bestFilms.length
-          ? bestFilms.map((x) => {
-              const film = escapeHtml(x.film ?? '');
-              const avg = escapeHtml(round1(x.avg));
-              const who = escapeHtml(x.who ?? '');
-              return `
-                <div class="pill" style="display:flex; gap:10px; align-items:baseline; justify-content:space-between;">
-                  <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${film}</span>
-                  <span style="flex:0 0 auto;">
-                    <strong>${avg}</strong>
-                    <span class="muted" style="margin-left:8px;">(${who})</span>
-                  </span>
-                </div>
-              `;
-            }).join('')
-          : `<div class="muted">Inga toppliste-data ännu.</div>`;
-      }
-
-      if (rightEl) {
-        rightEl.innerHTML = bestPickers.length
-          ? bestPickers.map((x) => {
-              const who = escapeHtml(x.who ?? '');
-              const avg = escapeHtml(round1(x.avg));
-              const n = escapeHtml(x.n ?? '');
-              return `
-                <div class="pill" style="display:flex; gap:10px; align-items:baseline; justify-content:space-between;">
-                  <span>${who}</span>
-                  <span style="flex:0 0 auto;">
-                    <strong>${avg}</strong>
-                    <span class="muted" style="margin-left:8px;">(${n} filmer)</span>
-                  </span>
-                </div>
-              `;
-            }).join('')
-          : `<div class="muted">Inga toppliste-data ännu.</div>`;
-      }
-
-      // Liten “flash” på kortet när vi uppdaterat
-      const card = this.querySelector('.card');
-      if (card) {
-        card.classList.add('flash');
-        setTimeout(() => card.classList.remove('flash'), 700);
-      }
-    } catch (e) {
-      const msg = (e && e.message) ? e.message : String(e);
-      if (statusEl) statusEl.textContent = msg;
-      if (leftEl) leftEl.innerHTML = `<div class="muted">${escapeHtml(msg)}</div>`;
-      if (rightEl) rightEl.innerHTML = '';
-    } finally {
-      this.setBusy(false);
-    }
-  }
-
-  render() {
-    // Vi använder era globala styles (.card, .row, .col, .pill, .muted, .flash)
-    // så vi kör light DOM (ingen shadow).
+customElements.define('film-tops', class FilmTops extends HTMLElement {
+  connectedCallback(){
+    // Light DOM (så global styles.css kan styla .card osv)
     this.innerHTML = `
-      <div class="card" id="tops">
-        <div class="row" style="align-items:center; gap:10px;">
-          <h3 style="margin:0;">Topplistor (topp ${DEFAULT_LIMIT})</h3>
-          <span class="right"></span>
-          <button class="ghost" data-action="refresh" type="button">Uppdatera</button>
+      <section class="card" id="topsCard">
+        <div class="tops-head">
+          <h3 style="margin:0">Topplistor (topp 5)</h3>
+          <button class="ghost" id="topsRefresh" type="button">Uppdatera</button>
         </div>
 
-        <div class="muted" data-role="status" style="margin-top:6px;"></div>
+        <div id="topsBody" class="tops-body">
+          <div class="muted">Laddar…</div>
+        </div>
+      </section>
 
-        <div class="row" style="margin-top:10px;">
-          <div class="col" style="display:flex; flex-direction:column; gap:8px;">
-            <label>Bästa filmer</label>
-            <div data-role="bestFilms"></div>
-          </div>
-          <div class="col" style="display:flex; flex-direction:column; gap:8px;">
-            <label>Bästa väljare</label>
-            <div data-role="bestPickers"></div>
-          </div>
+      <style>
+        /* Header: titel vänster, knapp höger */
+        .tops-head{ display:flex; align-items:center; gap:12px; }
+        .tops-head #topsRefresh{ margin-left:auto; }
+
+        /* Två listor sida vid sida (stack på mobil) */
+        .tops-grid{
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          gap:18px;
+          align-items:start;
+          margin-top:10px;
+        }
+        @media (max-width: 720px){
+          .tops-grid{ grid-template-columns: 1fr; }
+        }
+
+        /* Tydligare separation mellan listorna */
+        .tops-col{
+          padding:10px 12px;
+          border:1px solid var(--border);
+          border-radius:12px;
+          background: color-mix(in srgb, var(--panel) 92%, transparent);
+        }
+
+        .tops-title{
+          font-size:13px;
+          color: var(--muted);
+          margin:0 0 10px;
+        }
+
+        /* Rader med grid så siffror hamnar i samma kolumn */
+        .tops-row{
+          display:grid;
+          gap:10px;
+          padding:6px 0;
+          border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+        }
+        .tops-row:first-child{ border-top:none; }
+
+        /* Filmer: titel | poäng | (vem) */
+        .tops-row.film{
+          grid-template-columns: 1fr 56px 90px;
+        }
+
+        /* Väljare: namn | snitt | (n filmer) */
+        .tops-row.picker{
+          grid-template-columns: 1fr 56px 120px;
+        }
+
+        .tops-name{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+        /* Grönt/blått: poängen står på en lodrät linje */
+        .tops-num{
+          text-align:right;
+          font-variant-numeric: tabular-nums;
+          font-feature-settings: "tnum" 1;
+          letter-spacing: .02em;
+        }
+
+        .tops-meta{
+          text-align:left;
+          color: var(--muted);
+          font-size: 13px;
+          min-width:0;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
+        }
+
+        /* Lite mer luft mellan de två kolumnerna visuellt */
+        .tops-grid::before{
+          content:"";
+          display:none;
+        }
+      </style>
+    `;
+
+    this._btn = this.querySelector('#topsRefresh');
+    this._body = this.querySelector('#topsBody');
+
+    this._btn?.addEventListener('click', () => this.refresh({ force:true }));
+
+    // första laddning
+    this.refresh({ force:false });
+  }
+
+  async refresh({ force=false } = {}){
+    if(!this._body) return;
+
+    // Gråa ut knappen under laddning
+    const btn = this._btn;
+    if(btn){
+      btn.disabled = true;
+      btn.textContent = 'Hämtar…';
+    }
+
+    try{
+      const data = await api('getTops', { limit: 5, _ts: force ? Date.now() : undefined });
+      this.render(data);
+    }catch(e){
+      this._body.innerHTML = `<div class="err">Kunde inte hämta topplistor.</div>`;
+    }finally{
+      if(btn){
+        btn.disabled = false;
+        btn.textContent = 'Uppdatera';
+      }
+    }
+  }
+
+  render(tops){
+    if(!this._body) return;
+    if(!tops || !tops.ok){
+      this._body.innerHTML = `<div class="muted">Inga topplistor just nu.</div>`;
+      return;
+    }
+
+    const bestFilms = Array.isArray(tops.bestFilms) ? tops.bestFilms : [];
+    const bestPickers = Array.isArray(tops.bestPickers) ? tops.bestPickers : [];
+
+    const filmRows = bestFilms.map(x => `
+      <div class="tops-row film">
+        <div class="tops-name">${esc(x.film || '')}</div>
+        <div class="tops-num"><strong>${esc(x.avg ?? '')}</strong></div>
+        <div class="tops-meta">(${esc(x.who || '')})</div>
+      </div>
+    `).join('') || `<div class="muted">–</div>`;
+
+    const pickerRows = bestPickers.map(x => `
+      <div class="tops-row picker">
+        <div class="tops-name">${esc(x.who || '')}</div>
+        <div class="tops-num"><strong>${esc(x.avg ?? '')}</strong></div>
+        <div class="tops-meta">(${esc(x.n ?? '')} filmer)</div>
+      </div>
+    `).join('') || `<div class="muted">–</div>`;
+
+    this._body.innerHTML = `
+      <div class="tops-grid" aria-label="Topplistor">
+        <div class="tops-col" aria-label="Bästa filmer">
+          <div class="tops-title">Bästa filmer</div>
+          ${filmRows}
+        </div>
+        <div class="tops-col" aria-label="Bästa väljare">
+          <div class="tops-title">Bästa väljare</div>
+          ${pickerRows}
         </div>
       </div>
     `;
-
-    const btn = this.querySelector('[data-action="refresh"]');
-    if (btn) {
-      btn.addEventListener('click', async () => {
-        // gråa ut/stoppa dubbelklick
-        if (this._busy) return;
-        btn.disabled = true;
-        try {
-          await this.load({ quiet: false });
-        } finally {
-          btn.disabled = false;
-        }
-      }, { passive: true });
-    }
   }
-}
+});
 
-customElements.define('film-tops', FilmTops);
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, m => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[m]));
+}
