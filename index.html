@@ -33,41 +33,13 @@
   </div>
 
   <script type="module">
-    // Theme-bridge: apply theme stored in store to the whole page
-    import { getTheme, on } from './store.js';
-
-    function applyTheme(theme){
-      const root = document.documentElement;
-
-      let mode = theme || 'auto';
-      if (mode === 'auto') {
-        mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-      }
-
-      // Your CSS: [data-theme="light"] = light, else dark via :root
-      if (mode === 'light') root.setAttribute('data-theme', 'light');
-      else root.removeAttribute('data-theme');
-
-      root.style.colorScheme = (mode === 'light') ? 'light' : 'dark';
-    }
-
-    // init + listen
-    applyTheme(getTheme());
-    on('theme', applyTheme);
-
-    // auto: re-apply when OS theme changes
-    const mql = window.matchMedia('(prefers-color-scheme: light)');
-    const onScheme = () => { if (getTheme() === 'auto') applyTheme('auto'); };
-    mql.addEventListener?.('change', onScheme);
-    mql.addListener?.(onScheme);
-
-    // Imports (store first)
+    // Store först (sätter tema direkt via applyThemeToDom() i store.js)
     await import('./store.js');
 
-    // Login next (sets auth/who in store)
+    // Login
     await import('./film-login.js');
 
-    // API after login (reads auth + apiUrl)
+    // API
     await import('./api.js');
 
     // UI modules
@@ -77,7 +49,7 @@
     await import('./film-history.js');
     await import('./film-system.js');
 
-    // Simple version stamp
+    // Version stamp
     const verEl = document.getElementById('appVersion');
     if (verEl) verEl.textContent = document.lastModified || '–';
   </script>
