@@ -1,36 +1,24 @@
 // film-wishlist.js
-// <film-wishlist> – Hanterar önskelistan (1–5) för vald användare
-// Funktioner: autocomplete (TMDb), poster+IMDb, streaming (Watchmode) kollapsad till ~2 rader, flytta upp/ner,
-// lugn autosave + manuell spara-knapp.
+// Wishlist module ("Önskelista") – standalone, no globals
+// Renders 5 upcoming picks for current user (from store/login)
 
 import { api } from './api.js';
-import { getWho, on as onStore, setWho } from './store.js';
+import { getWho, on as onStore } from './store.js';
 import { getMovieTokens } from './film-login.js';
 
-const PEOPLE = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
+const PEOPLE_FALLBACK = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
 
-// ===== Tokens =====
-const TOK = getMovieTokens?.() || {};
-const TMDB_KEY = TOK.tmdb || '';
-const OMDB_KEY = TOK.omdb || '';
-const WATCHMODE_KEY = TOK.watchmode || '';
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[m]));
+}
 
-const TMDB_URL = 'https://api.themoviedb.org/3';
-const OMDB_URL = 'https://www.omdbapi.com/';
-
-// ===== Helpers =====
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-}[m]));
-
-const normLite = (s) => String(s || '')
-  .toLowerCase()
-  .normalize('NFKD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^a-z0-9åäö\s:!?.\-]/g, '')
-  .trim();
-
-function debounce(fn, ms = 250) {
+function debounce(fn, ms = 400) {
   let t;
   return (...args) => {
     clearTimeout(t);
@@ -38,737 +26,769 @@ function debounce(fn, ms = 250) {
   };
 }
 
-// ===== Local cache =====
+function imdbUrlFrom(imdbID) {
+  return imdbID ? `https://www.imdb.com/title/${imdbID}/` : '';
+}
+
+function normLite(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9åäö\s:!?.\-]/g, '')
+    .trim();
+}
+
+// Very small local cache to avoid hammering external APIs
 const Cache = {
   get(key) {
     try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
   },
   set(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch { }
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ }
   }
 };
 
-async function getMetaCached(key, fetcher, ttlMs) {
-  const cached = Cache.get(key);
+async function getCached(key, ttlMs, fetcher) {
   const now = Date.now();
-  if (cached?.data && cached.savedAt && (now - cached.savedAt) < ttlMs) return cached.data;
-  const data = await fetcher();
-  Cache.set(key, { savedAt: now, data });
-  return data;
+  const hit = Cache.get(key);
+  if (hit?.t && hit?.v && (now - hit.t) < ttlMs) return hit.v;
+  const v = await fetcher();
+  Cache.set(key, { t: now, v });
+  return v;
 }
 
-// ===== TMDb autocomplete =====
+// --- External lookups (TMDb -> imdb id, OMDb details, Watchmode sources)
 async function tmdbSearchMovies(query, limit = 8) {
-  if (!TMDB_KEY || !query) return [];
-  const url = `${TMDB_URL}/search/movie?api_key=${encodeURIComponent(TMDB_KEY)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(query)}`;
+  const { tmdb } = getMovieTokens();
+  if (!tmdb || !query) return [];
+
+  const url = `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(tmdb)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(query)}`;
   const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
   if (!r || !r.ok) return [];
   const j = await r.json();
   const res = Array.isArray(j?.results) ? j.results : [];
-  return res.slice(0, limit).map(it => ({
+  return res.slice(0, limit).map((it) => ({
+    id: it.id,
     title: it.title || it.original_title || '',
     year: (it.release_date || '').slice(0, 4) || '',
+    poster: it.poster_path ? `https://image.tmdb.org/t/p/w154${it.poster_path}` : ''
   }));
 }
 
-function hideAc(root, id) {
-  const box = root.querySelector(`#ac-${id}`);
-  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
-}
-
-function showAc(root, id, items, onPick) {
-  const box = root.querySelector(`#ac-${id}`);
-  if (!box) return;
-  if (!items.length) return hideAc(root, id);
-
-  box.innerHTML = items.map((x, i) => `
-    <div class="ac-item" data-i="${i}">
-      <div><strong>${esc(x.title)}</strong> <span class="ac-muted">${esc(x.year)}</span></div>
-    </div>
-  `).join('');
-  box.style.display = 'block';
-
-  box.querySelectorAll('.ac-item').forEach(el => {
-    const pick = (ev) => {
-      ev?.preventDefault?.();
-      ev?.stopPropagation?.();
-      const i = Number(el.getAttribute('data-i'));
-      onPick(items[i]);
-      hideAc(root, id);
-    };
-    el.addEventListener('pointerdown', pick, { passive: false });
-    el.addEventListener('touchstart', pick, { passive: false });
-    el.addEventListener('click', pick);
-  });
-}
-
-function bindAutocomplete(root, inputId) {
-  const input = root.querySelector(`#${inputId}`);
-  const box = root.querySelector(`#ac-${inputId}`);
-  if (!input || !box) return;
-
-  let composing = false;
-  input.addEventListener('compositionstart', () => { composing = true; });
-  input.addEventListener('compositionend', () => { composing = false; });
-
-  const doSearch = debounce(async () => {
-    if (composing) return;
-    if (document.activeElement !== input) return;
-
-    const q = (input.value || '').trim();
-    if (q.length < 3) return hideAc(root, inputId);
-
-    const hits = await tmdbSearchMovies(q, 8);
-    if (document.activeElement !== input) return;
-
-    showAc(root, inputId, hits, (pick) => {
-      input.value = pick.year ? `${pick.title} (${pick.year})` : pick.title;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-  }, 380);
-
-  input.addEventListener('input', doSearch);
-  input.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideAc(root, inputId); });
-  input.addEventListener('blur', () => setTimeout(() => hideAc(root, inputId), 150));
-}
-
-// ===== OMDb/TMDb lookup (smart) =====
-async function tmdbSearchMovieBest(query) {
-  if (!TMDB_KEY || !query) return null;
-  const url = `${TMDB_URL}/search/movie?api_key=${encodeURIComponent(TMDB_KEY)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(query)}`;
-  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
-  if (!r || !r.ok) return null;
-  const j = await r.json();
-  if (!Array.isArray(j?.results) || !j.results.length) return null;
-
-  const qn = normLite(query);
-  const scored = j.results.map(it => {
-    const tn = normLite(it.title || it.original_title);
-    let score = 0;
-    if (tn === qn) score = 100;
-    else if (tn.startsWith(qn)) score = 80;
-    else if (tn.includes(qn)) score = 60;
-    score += Math.min(20, (it.vote_count || 0) / 1000);
-    return { score, it };
-  }).sort((a, b) => b.score - a.score);
-
-  return scored[0].it;
-}
-
 async function tmdbExternalIds(movieId) {
-  if (!TMDB_KEY || !movieId) return null;
-  const url = `${TMDB_URL}/movie/${movieId}/external_ids?api_key=${encodeURIComponent(TMDB_KEY)}`;
+  const { tmdb } = getMovieTokens();
+  if (!tmdb || !movieId) return null;
+  const url = `https://api.themoviedb.org/3/movie/${movieId}/external_ids?api_key=${encodeURIComponent(tmdb)}`;
   const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
   if (!r || !r.ok) return null;
   return await r.json();
 }
 
-async function tmdbLookup(query) {
-  const hit = await tmdbSearchMovieBest(query);
-  if (!hit) return null;
-
-  let imdbID = '';
-  try {
-    const ids = await tmdbExternalIds(hit.id);
-    imdbID = ids?.imdb_id || '';
-  } catch { }
-
-  const poster = hit.poster_path ? `https://image.tmdb.org/t/p/w154${hit.poster_path}` : 'N/A';
-  const year = (hit.release_date || '').slice(0, 4) || '';
-
-  return {
-    Title: hit.title || hit.original_title || '',
-    Year: year,
-    Poster: poster,
-    imdbID,
-    imdbRating: '-',
-  };
+async function omdbLookupByImdb(imdbID) {
+  const { omdb } = getMovieTokens();
+  if (!omdb || !imdbID) return null;
+  const url = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&i=${encodeURIComponent(imdbID)}&plot=short`;
+  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
+  if (!r || !r.ok) return null;
+  const j = await r.json();
+  return j && j.Response !== 'False' ? j : null;
 }
 
-async function omdbLookup(query) {
-  if (!OMDB_KEY || !query) return null;
-  let q = query.trim(), year = null;
-  const mYear = q.match(/\((\d{4})\)$/);
-  if (mYear) { year = mYear[1]; q = q.replace(/\s*\(\d{4}\)\s*$/, ''); }
+async function omdbLookupByTitle(title, year) {
+  const { omdb } = getMovieTokens();
+  if (!omdb || !title) return null;
 
-  // imdbID or imdb url
-  const tt = (q.match(/tt\d{7,}/i) || q.match(/imdb\.com\/title\/(tt\d+)/i));
-  if (tt) {
-    const id = (tt[1] || tt[0]).replace(/^.*(tt\d+).*$/, '$1');
-    const r = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&i=${id}&plot=short`, { cache: 'no-store' }).catch(() => null);
-    const j = r ? await r.json() : null;
-    if (j && j.Response !== 'False') return j;
-    return null;
-  }
-
-  // title
-  try {
-    const r1 = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&t=${encodeURIComponent(q)}${year ? `&y=${year}` : ''}&type=movie&plot=short`, { cache: 'no-store' });
-    const j1 = await r1.json();
-    if (j1 && j1.Response !== 'False') return j1;
-  } catch { }
-
-  // search
-  try {
-    const r2 = await fetch(`${OMDB_URL}?apikey=${OMDB_KEY}&s=${encodeURIComponent(q)}&type=movie`, { cache: 'no-store' });
-    const j2 = await r2.json();
-    if (j2 && j2.Response !== 'False' && Array.isArray(j2.Search) && j2.Search.length) {
-      // pick first
-      const first = j2.Search[0];
-      return await omdbLookup(first?.Title ? `${first.Title} (${first.Year || ''})` : q);
-    }
-  } catch { }
-
-  return null;
+  const url = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&t=${encodeURIComponent(title)}&type=movie&plot=short${year ? `&y=${encodeURIComponent(year)}` : ''}`;
+  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
+  if (!r || !r.ok) return null;
+  const j = await r.json();
+  return j && j.Response !== 'False' ? j : null;
 }
 
 async function smartLookup(query) {
-  if (!query) return null;
-  const q = query.trim();
-  const cacheKey = `smartLookup_v1_${normLite(q)}`;
+  const q = String(query || '').trim();
+  if (!q) return null;
 
-  return getMetaCached(cacheKey, async () => {
-    if (/\btt\d{7,}\b/i.test(q) || /imdb\.com\/title\/tt\d+/i.test(q)) {
-      const om = await omdbLookup(q);
+  // Cache 30 dagar per normaliserad sträng
+  const key = `fk_smart_v1_${normLite(q)}`;
+  return getCached(key, 30 * 24 * 3600_000, async () => {
+    // If query has (YYYY), strip it
+    let title = q;
+    let year = '';
+    const m = q.match(/\((\d{4})\)\s*$/);
+    if (m) {
+      year = m[1];
+      title = q.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+    }
+
+    // If imdb id provided
+    const tt = q.match(/\btt\d{7,}\b/i);
+    if (tt) {
+      const om = await omdbLookupByImdb(tt[0]);
       if (om) return om;
     }
 
-    const tm = await tmdbLookup(q);
-    if (tm) {
-      if (tm.imdbID) return tm;
-      const tryOmdb = await omdbLookup(`${tm.Title} (${tm.Year || ''})`);
-      return tryOmdb || tm;
+    // TMDb search -> external imdb -> OMDb
+    const hits = await tmdbSearchMovies(title, 5);
+    if (hits.length) {
+      // pick best: exact / startsWith / includes
+      const qn = normLite(title);
+      const scored = hits.map(h => {
+        const tn = normLite(h.title);
+        let score = 0;
+        if (tn === qn) score = 100;
+        else if (tn.startsWith(qn)) score = 80;
+        else if (tn.includes(qn)) score = 60;
+        if (year && h.year === year) score += 10;
+        return { score, h };
+      }).sort((a, b) => b.score - a.score);
+
+      const best = scored[0].h;
+      const ids = await tmdbExternalIds(best.id);
+      const imdbID = ids?.imdb_id || '';
+      if (imdbID) {
+        const om = await omdbLookupByImdb(imdbID);
+        if (om) return om;
+      }
+      // fallback: try OMDb by title/year
+      const om2 = await omdbLookupByTitle(best.title, year || best.year);
+      if (om2) return om2;
+
+      // last resort: return minimal object
+      return {
+        Title: best.title,
+        Year: best.year,
+        Poster: best.poster || 'N/A',
+        imdbID: imdbID,
+        imdbRating: '-'
+      };
     }
 
-    return await omdbLookup(q);
-  }, 30 * 24 * 3600_000);
+    // pure OMDb title lookup
+    const om = await omdbLookupByTitle(title, year);
+    return om;
+  });
 }
 
-function imdbUrlFrom(j) {
-  return j?.imdbID ? `https://www.imdb.com/title/${j.imdbID}/` : '';
+async function watchmodeFindTitleId(imdbID) {
+  const { watchmode } = getMovieTokens();
+  if (!watchmode || !imdbID) return null;
+
+  // Cache 30 dagar: imdb->watchmode id
+  const key = `fk_wm_id_v1_${imdbID}`;
+  return getCached(key, 30 * 24 * 3600_000, async () => {
+    try {
+      const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(watchmode)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
+      const r1 = await fetch(u1, { cache: 'no-store' }).catch(() => null);
+      if (r1?.ok) {
+        const j1 = await r1.json();
+        if (j1?.title_id) return j1.title_id;
+      }
+      const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(watchmode)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
+      const r2 = await fetch(u2, { cache: 'no-store' }).catch(() => null);
+      if (r2?.ok) {
+        const j2 = await r2.json();
+        const hit = Array.isArray(j2?.title_results)
+          ? j2.title_results.find(t => String(t.imdb_id) === String(imdbID))
+          : null;
+        if (hit?.id) return hit.id;
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
 }
 
-// ===== Watchmode (streaming) =====
-async function wmTitleIdFromImdb(imdbID) {
-  if (!WATCHMODE_KEY || !imdbID) return null;
-  try {
-    const u1 = `https://api.watchmode.com/v1/find/?apiKey=${WATCHMODE_KEY}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
-    let r = await fetch(u1, { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      if (j && j.title_id) return j.title_id;
-    }
-    const u2 = `https://api.watchmode.com/v1/search/?apiKey=${WATCHMODE_KEY}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
-    r = await fetch(u2, { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      const hit = Array.isArray(j?.title_results) ? j.title_results.find(t => String(t.imdb_id) === String(imdbID)) : null;
-      if (hit?.id) return hit.id;
-    }
-  } catch { }
-  return null;
-}
+async function watchmodeSources(imdbID) {
+  const { watchmode } = getMovieTokens();
+  if (!watchmode || !imdbID) return null;
 
-async function getStreamingInfo(imdbID) {
-  if (!WATCHMODE_KEY || !imdbID) return null;
-  return getMetaCached(`wm_sources_${imdbID}`, async () => {
-    const wmId = await wmTitleIdFromImdb(imdbID);
+  // Cache 7 dagar: sources kan ändras
+  const key = `fk_wm_src_v1_${imdbID}`;
+  return getCached(key, 7 * 24 * 3600_000, async () => {
+    const wmId = await watchmodeFindTitleId(imdbID);
     if (!wmId) return null;
 
-    const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${WATCHMODE_KEY}`;
-    const res = await fetch(url, { cache: 'no-store' }).catch(() => null);
-    const data = res ? await res.json() : null;
-    if (!Array.isArray(data)) return null;
+    const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${encodeURIComponent(watchmode)}`;
+    const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
+    if (!r?.ok) return null;
+    const j = await r.json();
+    if (!Array.isArray(j)) return null;
 
     const seen = new Set();
-    const normalizeName = s => String(s || '')
+    const normalizeName = (s) => String(s || '')
       .replace(/\s*\(with Ads\)$/i, '')
-      .replace(/\s+HD$/, '')
+      .replace(/\s+HD$/i, '')
       .trim();
 
-    const filtered = data
+    const filtered = j
       .filter(s => s.type === 'sub' && s.name)
       .map(s => ({
         service: normalizeName(s.name),
-        quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
         region: s.region || '',
+        quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
         link: s.web_url || ''
       }))
       .filter(s => {
-        const key = `${s.service}|${s.quality}|${s.region}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
+        const k = `${s.service}|${s.region}|${s.quality}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
         return true;
       })
       .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
 
     return filtered.length ? filtered : null;
-  }, 7 * 24 * 3600_000);
-}
-
-function buildStreamingHtml(imdbID) {
-  // Cache-först: om vi har cache, rendera pills direkt utan nätverk.
-  const cached = Cache.get(`wm_sources_${imdbID}`)?.data || null;
-  if (cached) return pillsHtml(imdbID, cached);
-
-  // Ingen cache: visa "(klicka för att hämta)" + knapp
-  return `
-    <div class="streaming-wrap" data-imdb="${esc(imdbID)}">
-      <div class="muted" style="font-size:12px">Tillgängligt i abonnemang (globalt)</div>
-      <div class="muted" style="font-size:12px">(klicka för att hämta)</div>
-      <button type="button" class="streaming-toggle" style="display:inline-block">…</button>
-    </div>
-  `;
-}
-
-function pillsHtml(imdbID, options) {
-  const pills = (options || []).map(opt => {
-    const label = [
-      opt.service,
-      opt.quality ? ` ${opt.quality}` : '',
-      opt.region ? ` · ${opt.region}` : ''
-    ].join('');
-    const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
-    return `<a ${href} class="pill" style="text-decoration:none">${esc(label)} (ingår)</a>`;
-  }).join('');
-
-  return `
-    <div class="streaming-wrap" data-imdb="${esc(imdbID)}">
-      <div class="muted" style="font-size:12px">Tillgängligt i abonnemang (globalt)</div>
-      <div class="streaming-row collapsed">${pills || ''}</div>
-      <button type="button" class="streaming-toggle" style="display:none">…</button>
-    </div>
-  `;
-}
-
-function wireStreaming(el) {
-  const wrap = el.querySelector('.streaming-wrap');
-  const toggle = el.querySelector('.streaming-toggle');
-  const row = el.querySelector('.streaming-row');
-  if (!wrap || !toggle) return;
-
-  const imdbID = wrap.getAttribute('data-imdb') || '';
-
-  const ensureToggleVisibility = () => {
-    if (!row) return;
-    requestAnimationFrame(() => {
-      const needs = row.scrollHeight > row.clientHeight + 2;
-      toggle.style.display = needs ? 'inline-block' : 'none';
-      toggle.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
-    });
-  };
-
-  // Cached-läge
-  if (row) {
-    ensureToggleVisibility();
-    toggle.addEventListener('click', () => {
-      const collapsed = row.classList.toggle('collapsed');
-      toggle.textContent = collapsed ? '…' : 'visa färre';
-    });
-    return;
-  }
-
-  // Lazy fetch-läge
-  toggle.addEventListener('click', async () => {
-    if (!imdbID) return;
-    toggle.disabled = true;
-    toggle.textContent = 'hämtar…';
-
-    const options = await getStreamingInfo(imdbID);
-
-    // bygg och injicera
-    wrap.innerHTML = pillsHtml(imdbID, options).replace(/^\s*<div class="streaming-wrap"[^>]*>|<\/div>\s*$/g, '');
-
-    // re-wire
-    const newRow = wrap.querySelector('.streaming-row');
-    const newToggle = wrap.querySelector('.streaming-toggle');
-    if (!newRow || !newToggle) return;
-
-    requestAnimationFrame(() => {
-      const needs = newRow.scrollHeight > newRow.clientHeight + 2;
-      newToggle.style.display = needs ? 'inline-block' : 'none';
-      newToggle.textContent = '…';
-    });
-
-    newToggle.onclick = () => {
-      const collapsed = newRow.classList.toggle('collapsed');
-      newToggle.textContent = collapsed ? '…' : 'visa färre';
-    };
   });
 }
 
-// ===== Render meta under each row =====
-async function renderMeta(root, i, query) {
-  const infoEl = root.querySelector(`#w${i}-info`);
-  if (!infoEl) return;
+function buildStreamingHtml(imdbID, sources, { collapsed = true } = {}) {
+  if (!imdbID) return '';
 
-  const q = (query || '').trim();
-  if (!q) {
-    infoEl.innerHTML = '';
-    return;
-  }
-
-  const data = await smartLookup(q);
-  if (!data) {
-    infoEl.innerHTML = `<div class="muted">Hittade inget för: ${esc(q)}</div>`;
-    return;
-  }
-
-  const title = esc(data.Title || '');
-  const year = esc(data.Year || '');
-  const rating = esc(data.imdbRating || '-');
-  const imdbUrl = imdbUrlFrom(data);
-
-  const poster = (data.Poster && data.Poster !== 'N/A')
-    ? `<img class="wl-poster" src="${data.Poster}" alt="poster" loading="lazy" decoding="async">`
-    : `<div class="wl-poster wl-poster-empty"></div>`;
-
-  const streaming = data.imdbID
-    ? buildStreamingHtml(data.imdbID)
-    : '';
-
-  infoEl.innerHTML = `
-    <div class="wl-meta">
-      <div class="wl-left">${poster}</div>
-      <div class="wl-mid">
-        <div class="wl-title"><strong>${title}</strong>${year ? ` (${year})` : ''}</div>
-        <div class="wl-imdb">IMDb ${rating}${imdbUrl ? ` — <a href="${imdbUrl}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}</div>
-        <div class="wl-stream">${streaming}</div>
+  if (!sources || !sources.length) {
+    return `
+      <div class="fk-stream">
+        <div class="fk-stream-title">Tillgängligt i abonnemang (globalt):</div>
+        <div class="fk-stream-empty">Inget abonnemang hittades just nu.</div>
       </div>
+    `;
+  }
+
+  const pills = sources.map(s => {
+    const label = `${s.service}${s.quality ? ` ${s.quality}` : ''}${s.region ? ` · ${s.region}` : ''}`;
+    const href = s.link ? `href="${escapeHtml(s.link)}" target="_blank" rel="noopener"` : '';
+    return `<a class="pill" ${href} style="text-decoration:none">${escapeHtml(label)} (ingår)</a>`;
+  }).join('');
+
+  return `
+    <div class="fk-stream" data-imdb="${escapeHtml(imdbID)}">
+      <div class="fk-stream-title">Tillgängligt i abonnemang (globalt):</div>
+      <div class="fk-stream-row ${collapsed ? 'collapsed' : ''}">${pills}</div>
+      <button type="button" class="fk-stream-toggle" style="display:none">…</button>
     </div>
   `;
-
-  // wire streaming toggle / lazy fetch
-  wireStreaming(infoEl);
 }
 
-// ===== Component =====
+function ensureStreamingToggle(container) {
+  const wrap = container.querySelector('.fk-stream');
+  if (!wrap) return;
+  const row = wrap.querySelector('.fk-stream-row');
+  const toggle = wrap.querySelector('.fk-stream-toggle');
+  if (!row || !toggle) return;
+
+  const update = () => {
+    const lines = 2; // show ~2 lines
+    const lineH = 34; // matches CSS-ish
+    // If content taller than 2 lines, show toggle
+    const needs = row.scrollHeight > (lines * lineH + 2);
+    toggle.style.display = needs ? 'inline-block' : 'none';
+    toggle.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
+  };
+
+  // initial
+  requestAnimationFrame(update);
+
+  toggle.addEventListener('click', () => {
+    row.classList.toggle('collapsed');
+    update();
+  });
+
+  // update after images load etc
+  const imgs = container.querySelectorAll('img');
+  imgs.forEach(img => img.addEventListener('load', update, { once: true }));
+}
+
+function disableButtonWhile(btn, promise) {
+  if (!btn) return promise;
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.classList.add('is-busy');
+  return Promise.resolve(promise)
+    .finally(() => {
+      btn.disabled = false;
+      btn.classList.remove('is-busy');
+      btn.textContent = prevText;
+    });
+}
+
 class FilmWishlist extends HTMLElement {
+  constructor() {
+    super();
+    this._unsub = null;
+    this._autosaveTimer = null;
+    this._applyFromServer = false;
+    this._lastSig = '';
+  }
+
   connectedCallback() {
     this.render();
     this.bind();
-    this.loadFromServer({ useCache: true });
+    this.load({ useCache: true });
+
+    // React to user change from login
+    if (typeof onStore === 'function') {
+      this._unsub = onStore('who', () => this.load({ useCache: true }));
+    }
+  }
+
+  disconnectedCallback() {
+    try { this._unsub?.(); } catch { /* ignore */ }
   }
 
   render() {
     this.innerHTML = `
       <section class="card" id="wishlistCard">
-        <div class="row" style="align-items:center">
-          <div class="col" style="min-width:240px">
+        <div class="fk-head">
+          <div>
             <h3 style="margin:0">Önskelista</h3>
-            <div class="muted" style="font-size:13px">Användare: <span id="wlWho">–</span></div>
+            <div class="muted" style="font-size:13px">Användare: <strong id="fkUser">–</strong></div>
           </div>
-          <span class="right"></span>
-          <div class="col" style="flex:0 0 auto; display:flex; gap:8px; align-items:center; justify-content:flex-end">
-            <button id="wlLoad" class="ghost">Hämta</button>
-            <button id="wlSave" class="primary">Spara</button>
+          <div class="fk-actions">
+            <button id="fkReload" class="ghost">Hämta</button>
+            <button id="fkSave" class="primary">Spara</button>
           </div>
         </div>
 
-        <div class="wishlist-col" id="wishlistCol">
-          ${[1, 2, 3, 4, 5].map(i => this.rowHtml(i)).join('')}
-        </div>
+        <div class="fk-list" id="fkList"></div>
 
-        <div class="muted" id="wlStatus" style="margin-top:8px; font-size:12px"></div>
+        <style>
+          .fk-head{display:flex; align-items:center; justify-content:space-between; gap:12px}
+          .fk-actions{display:flex; gap:10px; align-items:center}
+          .fk-list{display:flex; flex-direction:column; gap:14px; margin-top:12px}
+
+          .fk-item{border:1px solid var(--border); border-radius:12px; padding:12px}
+
+          .fk-toprow{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+          .fk-input{flex:1 1 320px; min-width:220px}
+          .fk-search{flex:0 0 auto}
+
+          .fk-move{display:flex; gap:8px; margin-left:auto}
+          .fk-move button{width:42px; height:42px; padding:0; border-radius:12px; font-size:18px; line-height:1; display:flex; align-items:center; justify-content:center; touch-action:manipulation;}
+
+          .fk-meta{display:flex; gap:12px; align-items:flex-start; margin-top:10px}
+          .fk-thumb{width:92px; height:auto; border-radius:10px; border:1px solid var(--border)}
+
+          .fk-imdb{min-width:160px}
+          .fk-imdb a{color:inherit; text-decoration:underline}
+
+          .fk-right{margin-left:auto; text-align:right; max-width:520px}
+
+          .fk-stream-title{font-size:13px; color:var(--muted); margin-bottom:6px}
+          .fk-stream-empty{font-size:12px; color:var(--muted)}
+          .fk-stream-row{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end}
+          .fk-stream-row.collapsed{max-height:68px; overflow:hidden} /* ~2 rader */
+          .fk-stream-toggle{margin-top:6px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted)}
+
+          /* Autocomplete */
+          .ac-wrap{ position:relative; }
+          .ac-list{ position:absolute; left:0; right:0; top:100%; z-index:50; background:var(--panel); border:1px solid var(--border); border-radius:10px; margin-top:6px; overflow:hidden }
+          .ac-item{ padding:10px 12px; cursor:pointer; border-top:1px solid var(--border); font-size:14px }
+          .ac-item:first-child{border-top:none}
+          .ac-item:hover{filter:brightness(1.08)}
+          .ac-muted{ color:var(--muted); font-size:12px }
+
+          /* Busy feedback */
+          button.is-busy{opacity:.6; filter:saturate(.6)}
+
+          @media (max-width:720px){
+            .fk-meta{flex-direction:column}
+            .fk-right{margin-left:0; text-align:left; max-width:none}
+            .fk-stream-row{justify-content:flex-start}
+          }
+        </style>
       </section>
     `;
-  }
 
-  rowHtml(i) {
-    const upDisabled = i === 1 ? 'disabled' : '';
-    const downDisabled = i === 5 ? 'disabled' : '';
+    const list = this.querySelector('#fkList');
+    list.innerHTML = Array.from({ length: 5 }).map((_, idx) => {
+      const i = idx + 1;
+      return `
+        <div class="fk-item" data-i="${i}">
+          <div class="fk-toprow">
+            <div class="fk-input ac-wrap" style="flex:1">
+              <label style="margin:0 0 6px">#${i}</label>
+              <input id="fk_w${i}" class="lookup-input" placeholder="Film (${i})" autocomplete="off" spellcheck="false" />
+              <div class="ac-list" id="fk_ac_w${i}" style="display:none"></div>
+            </div>
+            <button class="lookup-btn fk-search" type="button" data-lookup="fk_w${i}">Sök</button>
+            <div class="fk-move" aria-label="Flytta">
+              <button type="button" class="ghost" data-move="up" data-i="${i}" aria-label="Flytta upp">▲</button>
+              <button type="button" class="ghost" data-move="down" data-i="${i}" aria-label="Flytta ner">▼</button>
+            </div>
+          </div>
 
-    return `
-      <div class="wishlist-item" data-i="${i}">
-        <div class="ac-wrap lookup-wrap" style="flex:1">
-          <input id="w${i}" class="lookup-input" placeholder="#${i}" autocomplete="off" autocapitalize="off" spellcheck="false">
-          <button type="button" class="lookup-btn" data-lookup="w${i}">Sök</button>
-          <div class="ac-list" id="ac-w${i}" style="display:none"></div>
+          <div class="fk-meta" id="fk_meta_w${i}"></div>
         </div>
+      `;
+    }).join('');
 
-        <div class="wishlist-move" aria-label="Flytta önskan">
-          <button type="button" class="ghost" data-move="up" data-i="${i}" aria-label="Flytta upp" ${upDisabled}>▲</button>
-          <button type="button" class="ghost" data-move="down" data-i="${i}" aria-label="Flytta ner" ${downDisabled}>▼</button>
-        </div>
-      </div>
-      <div id="w${i}-info" class="omdb-info"></div>
-    `;
+    this.updateMoveButtons();
   }
 
   bind() {
-    this._busy = false;
+    const reloadBtn = this.querySelector('#fkReload');
+    const saveBtn = this.querySelector('#fkSave');
 
-    // who
-    this.updateWhoLabel();
-    this._unsubWho = onStore('who', () => {
-      this.updateWhoLabel();
-      this.loadFromServer({ useCache: true });
+    reloadBtn?.addEventListener('click', () => {
+      disableButtonWhile(reloadBtn, this.load({ useCache: false }));
     });
 
-    // buttons
-    this.querySelector('#wlLoad')?.addEventListener('click', () => this.loadFromServer({ useCache: false }));
-    this.querySelector('#wlSave')?.addEventListener('click', () => this.saveNow({ reason: 'manuell' }));
+    saveBtn?.addEventListener('click', () => {
+      disableButtonWhile(saveBtn, this.save());
+    });
 
-    // lookup + meta (Sök-knapp)
-    this.querySelectorAll('button[data-lookup]')?.forEach(btn => {
+    // Search buttons
+    this.querySelectorAll('button[data-lookup]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-lookup');
-        const val = this.querySelector(`#${id}`)?.value || '';
-        await renderMeta(this, Number(id.replace('w', '')), val);
+        const input = this.querySelector(`#${id}`);
+        const q = input?.value || '';
+        await this.renderMeta(id, q, { withStreaming: true });
       });
     });
 
-    // autocomplete
-    ['w1', 'w2', 'w3', 'w4', 'w5'].forEach(id => bindAutocomplete(this, id));
-
-    // calm meta lookup (on blur/enter + mild debounce)
-    const scheduleMeta = debounce(async (id) => {
-      const val = this.querySelector(`#${id}`)?.value || '';
-      await renderMeta(this, Number(id.replace('w', '')), val);
-    }, 900);
-
-    ['w1', 'w2', 'w3', 'w4', 'w5'].forEach(id => {
-      const el = this.querySelector(`#${id}`);
-      if (!el) return;
-
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          scheduleMeta(id);
-          this.autoSave.schedule('enter');
-        }
-      });
-
-      el.addEventListener('blur', () => {
-        scheduleMeta(id);
-        this.autoSave.commit('blur');
-      });
-
-      el.addEventListener('input', () => {
-        // meta ska inte jaga – bara om man stannar upp
-        scheduleMeta(id);
-        this.autoSave.schedule('skriver');
-      });
-
-      el.addEventListener('change', () => {
-        scheduleMeta(id);
-        this.autoSave.schedule('ändrat');
-      });
-    });
-
-    // move up/down
+    // Move up/down
     this.addEventListener('click', (e) => {
       const btn = e.target?.closest?.('[data-move][data-i]');
       if (!btn) return;
-
       const i = Number(btn.getAttribute('data-i'));
       const dir = btn.getAttribute('data-move');
       if (dir === 'up' && i > 1) this.swap(i, i - 1);
       if (dir === 'down' && i < 5) this.swap(i, i + 1);
     });
 
-    // close autocomplete on outside
+    // Inputs: autosave + autocomplete + meta update (gentle)
+    for (let i = 1; i <= 5; i++) {
+      const input = this.querySelector(`#fk_w${i}`);
+      if (!input) continue;
+
+      // Gentle meta update on blur/change
+      input.addEventListener('change', () => this.renderMeta(`fk_w${i}`, input.value, { withStreaming: true }));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.renderMeta(`fk_w${i}`, input.value, { withStreaming: true });
+        }
+      });
+
+      // Autosave (quiet)
+      input.addEventListener('input', () => this.scheduleAutosave());
+
+      // Autocomplete
+      this.bindAutocomplete(`fk_w${i}`);
+    }
+
+    // Close autocomplete when clicking outside
     document.addEventListener('click', (e) => {
       if (e.target?.closest?.('.ac-wrap')) return;
-      ['w1', 'w2', 'w3', 'w4', 'w5'].forEach(id => hideAc(this, id));
-    }, { passive: true });
-
-    // autosave controller
-    this.autoSave = new WishlistAutoSaveController(this);
+      for (let i = 1; i <= 5; i++) this.hideAc(`fk_w${i}`);
+    });
   }
 
-  disconnectedCallback() {
-    try { this._unsubWho?.(); } catch { }
+  get person() {
+    try { return getWho?.() || 'Lars'; } catch { return 'Lars'; }
   }
 
-  updateWhoLabel() {
-    const who = getWho?.() || 'Maria';
-    const el = this.querySelector('#wlWho');
-    if (el) el.textContent = who;
+  sig() {
+    const p = this.person;
+    const vals = [];
+    for (let i = 1; i <= 5; i++) vals.push((this.querySelector(`#fk_w${i}`)?.value || '').trim());
+    return [p, ...vals].join('␟');
   }
 
-  getValues() {
-    const v = (id) => (this.querySelector(`#${id}`)?.value || '').trim();
-    return {
-      R1: v('w1'),
-      R2: v('w2'),
-      R3: v('w3'),
-      R4: v('w4'),
-      R5: v('w5'),
-    };
+  scheduleAutosave() {
+    if (this._applyFromServer) return;
+    clearTimeout(this._autosaveTimer);
+    this._autosaveTimer = setTimeout(() => {
+      const s = this.sig();
+      if (s === this._lastSig) return;
+      // Avoid saving if all empty
+      const hasAny = s.split('␟').slice(1).some(x => x && x.length);
+      if (!hasAny) return;
+      this._lastSig = s;
+      this.save({ quiet: true });
+    }, 1400);
   }
 
-  setValues(rows) {
-    const set = (id, val) => {
-      const el = this.querySelector(`#${id}`);
-      if (el) el.value = val || '';
-    };
-
-    // block autosave while applying
-    this.autoSave.applying = true;
-    set('w1', rows?.R1);
-    set('w2', rows?.R2);
-    set('w3', rows?.R3);
-    set('w4', rows?.R4);
-    set('w5', rows?.R5);
-    this.autoSave.applying = false;
-
-    // refresh metas (snällt)
-    [1, 2, 3, 4, 5].forEach(i => renderMeta(this, i, this.querySelector(`#w${i}`)?.value || ''));
-  }
-
-  async loadFromServer({ useCache } = { useCache: true }) {
-    const who = getWho?.() || 'Maria';
-    this.updateWhoLabel();
-
-    // cache
-    const cacheKey = `api_getWishlist_v1_${who}`;
-
-    if (useCache) {
-      const cached = Cache.get(cacheKey)?.data;
-      if (cached?.ok) {
-        this.setValues(cached);
-        this.autoSave.lastSigByPerson[who] = this.autoSave.sig(who);
-      }
-    }
-
-    const j = await api('getWishlist', { person: who }).catch((e) => ({ ok: false, error: String(e?.message || e) }));
-    if (!j?.ok) {
-      this.setStatus(`Kunde inte hämta: ${j?.error || 'getWishlist'}`);
-      return;
-    }
-
-    Cache.set(cacheKey, { savedAt: Date.now(), data: j });
-    this.setValues(j);
-    this.autoSave.lastSigByPerson[who] = this.autoSave.sig(who);
-    this.setStatus('');
-  }
-
-  setStatus(msg) {
-    const el = this.querySelector('#wlStatus');
-    if (el) el.textContent = msg || '';
-  }
-
-  async saveNow({ reason } = { reason: '' }) {
-    if (this._busy) return;
-    this._busy = true;
-
-    const saveBtn = this.querySelector('#wlSave');
-    const loadBtn = this.querySelector('#wlLoad');
-    if (saveBtn) saveBtn.disabled = true;
-    if (loadBtn) loadBtn.disabled = true;
-
-    const who = getWho?.() || 'Maria';
-    const body = { person: who, ...this.getValues() };
-
-    // optimistic cache
-    Cache.set(`api_getWishlist_v1_${who}`, { savedAt: Date.now(), data: { ok: true, ...body } });
-
-    try {
-      this.setStatus(reason ? `Sparar (${reason})…` : 'Sparar…');
-      const j = await api('saveWishlist', body);
-      if (!j?.ok) throw new Error(j?.error || 'saveWishlist');
-
-      this.autoSave.lastSigByPerson[who] = this.autoSave.sig(who);
-      this.setStatus('Sparad.');
-      setTimeout(() => this.setStatus(''), 1200);
-
-      // liten "flash" på kolumnen
-      const box = this.querySelector('#wishlistCol');
-      box?.classList.add('flash');
-      setTimeout(() => box?.classList.remove('flash'), 700);
-    } catch (e) {
-      this.setStatus(`Fel vid spara: ${String(e?.message || e)}`);
-    } finally {
-      this._busy = false;
-      if (saveBtn) saveBtn.disabled = false;
-      if (loadBtn) loadBtn.disabled = false;
-    }
+  updateMoveButtons() {
+    this.querySelectorAll('[data-move][data-i]').forEach((btn) => {
+      const i = Number(btn.getAttribute('data-i'));
+      const dir = btn.getAttribute('data-move');
+      btn.disabled = (dir === 'up' && i === 1) || (dir === 'down' && i === 5);
+    });
   }
 
   swap(i, j) {
-    if (i === j) return;
-    const a = this.querySelector(`#w${i}`);
-    const b = this.querySelector(`#w${j}`);
+    const a = this.querySelector(`#fk_w${i}`);
+    const b = this.querySelector(`#fk_w${j}`);
     if (!a || !b) return;
 
-    this.autoSave.applying = true;
+    this._applyFromServer = true;
     const tmp = a.value;
     a.value = b.value;
     b.value = tmp;
-    this.autoSave.applying = false;
+    this._applyFromServer = false;
 
-    // meta uppdateras för båda
-    renderMeta(this, i, a.value);
-    renderMeta(this, j, b.value);
+    // Re-render meta for those two rows
+    this.renderMeta(`fk_w${i}`, a.value, { withStreaming: true });
+    this.renderMeta(`fk_w${j}`, b.value, { withStreaming: true });
 
-    // autosave när ordningen ändras
-    this.autoSave.schedule('ordning');
-  }
-}
-
-class WishlistAutoSaveController {
-  constructor(root) {
-    this.root = root;
-    this.timer = null;
-    this.delayMs = 1600;
-    this.applying = false;
-    this.lastSigByPerson = Object.create(null);
+    this.updateMoveButtons();
+    this.scheduleAutosave();
   }
 
-  sig(person) {
-    const v = (id) => (this.root.querySelector(`#${id}`)?.value || '').trim();
-    return [person, v('w1'), v('w2'), v('w3'), v('w4'), v('w5')].join('␟');
-  }
+  async load({ useCache = true } = {}) {
+    const userEl = this.querySelector('#fkUser');
+    if (userEl) userEl.textContent = this.person;
 
-  schedule(reason = '') {
-    if (this.applying) return;
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.commit(reason), this.delayMs);
-  }
+    const who = this.person;
 
-  commit(reason = '') {
-    if (this.applying) return;
-    const person = getWho?.() || 'Maria';
-    const sig = this.sig(person);
-
-    if (this.lastSigByPerson[person] === sig) return;
-
-    // undvik tom-synk
-    const hasAny = sig.split('␟').slice(1).some(x => x && x.length);
-    if (!hasAny) return;
-
-    this.lastSigByPerson[person] = sig;
-
-    // Autospara tyst, men behåll manuell knapp för "känslan"
-    // (reason används bara som status om det inte är "skriver")
-    if (reason && reason !== 'skriver') {
-      this.root.setStatus(`Autosparar (${reason})…`);
+    // Prefer cache for speed
+    const cacheKey = `fk_wishlist_api_v1_${who}`;
+    const cached = useCache ? Cache.get(cacheKey)?.v : null;
+    if (cached?.ok) {
+      this.applyWishlist(cached);
+      // background refresh
+      if (useCache) this.refreshFromServer(cacheKey, who);
+      return;
     }
 
-    this.root.saveNow({ reason: reason || 'auto' });
+    await this.refreshFromServer(cacheKey, who);
+  }
+
+  async refreshFromServer(cacheKey, who) {
+    const j = await api('getWishlist', { person: who });
+    if (j?.ok) {
+      Cache.set(cacheKey, { t: Date.now(), v: j });
+      this.applyWishlist(j);
+    } else {
+      // leave UI as-is, but show a minimal hint
+      const list = this.querySelector('#fkList');
+      if (list && !list.querySelector('.fk-err')) {
+        const div = document.createElement('div');
+        div.className = 'muted fk-err';
+        div.style.marginTop = '8px';
+        div.textContent = `Kunde inte hämta önskelista: ${j?.error || 'okänt fel'}`;
+        list.prepend(div);
+      }
+    }
+  }
+
+  applyWishlist(j) {
+    this._applyFromServer = true;
+    for (let i = 1; i <= 5; i++) {
+      const el = this.querySelector(`#fk_w${i}`);
+      if (el) el.value = j[`R${i}`] || '';
+    }
+    this._applyFromServer = false;
+
+    // update signature so autosave doesn't trigger immediately
+    this._lastSig = this.sig();
+
+    // Render metas (parallel, but gentle)
+    for (let i = 1; i <= 5; i++) {
+      const q = this.querySelector(`#fk_w${i}`)?.value || '';
+      if (q.trim()) this.renderMeta(`fk_w${i}`, q, { withStreaming: true });
+      else this.clearMeta(`fk_w${i}`);
+    }
+
+    this.updateMoveButtons();
+  }
+
+  async save({ quiet = false } = {}) {
+    const who = this.person;
+    const body = { person: who };
+    for (let i = 1; i <= 5; i++) {
+      body[`R${i}`] = (this.querySelector(`#fk_w${i}`)?.value || '').trim();
+    }
+
+    // Optimistic cache
+    Cache.set(`fk_wishlist_api_v1_${who}`, { t: Date.now(), v: { ok: true, ...body } });
+
+    const saveBtn = this.querySelector('#fkSave');
+    if (!quiet && saveBtn) {
+      saveBtn.textContent = 'Sparar…';
+      saveBtn.disabled = true;
+    }
+
+    try {
+      const j = await api('saveWishlist', body);
+      if (!j?.ok) throw new Error(j?.error || 'saveWishlist');
+      this._lastSig = this.sig();
+    } finally {
+      if (!quiet && saveBtn) {
+        saveBtn.textContent = 'Spara';
+        saveBtn.disabled = false;
+      }
+    }
+  }
+
+  clearMeta(inputId) {
+    const m = this.querySelector(`#fk_meta_${inputId}`);
+    if (m) m.innerHTML = '';
+  }
+
+  async renderMeta(inputId, query, { withStreaming = true } = {}) {
+    const meta = this.querySelector(`#fk_meta_${inputId}`);
+    if (!meta) return;
+
+    const q = String(query || '').trim();
+    if (!q) {
+      meta.innerHTML = '';
+      return;
+    }
+
+    meta.innerHTML = `<div class="muted" style="font-size:13px">Hämtar…</div>`;
+
+    const data = await smartLookup(q);
+    if (!data) {
+      meta.innerHTML = `<div class="muted" style="font-size:13px">Hittade inget för: ${escapeHtml(q)}</div>`;
+      return;
+    }
+
+    const imdbID = data.imdbID || '';
+    const imdbLink = imdbUrlFrom(imdbID);
+    const rating = data.imdbRating || '-';
+    const poster = (data.Poster && data.Poster !== 'N/A')
+      ? data.Poster
+      : '';
+
+    // Streaming: show cached if present; otherwise lazy fetch via “…” button
+    let sources = null;
+    let hasCachedSources = false;
+
+    if (withStreaming && imdbID) {
+      const cached = Cache.get(`fk_wm_src_v1_${imdbID}`)?.v;
+      if (cached) {
+        sources = cached;
+        hasCachedSources = true;
+      }
+    }
+
+    const streamingBlock = (withStreaming && imdbID)
+      ? (hasCachedSources
+          ? buildStreamingHtml(imdbID, sources, { collapsed: true })
+          : `
+            <div class="fk-stream" data-imdb="${escapeHtml(imdbID)}">
+              <div class="fk-stream-title">Tillgängligt i abonnemang (globalt):</div>
+              <div class="fk-stream-empty">(klicka för att hämta)</div>
+              <button type="button" class="fk-stream-toggle" style="display:inline-block">…</button>
+            </div>
+          `)
+      : '';
+
+    meta.innerHTML = `
+      ${poster ? `<img class="fk-thumb" src="${escapeHtml(poster)}" alt="poster" loading="lazy" decoding="async" />` : ''}
+
+      <div class="fk-imdb">
+        <div><strong>${escapeHtml(data.Title || q)}</strong>${data.Year ? ` (${escapeHtml(data.Year)})` : ''}</div>
+        <div>IMDb ${escapeHtml(rating)}${imdbLink ? ` — <a href="${escapeHtml(imdbLink)}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}</div>
+      </div>
+
+      <div class="fk-right">
+        ${streamingBlock}
+      </div>
+    `;
+
+    // Enable collapse toggle for cached streaming
+    ensureStreamingToggle(meta);
+
+    // If no cached sources: lazy fetch when user clicks “…”
+    const toggle = meta.querySelector('.fk-stream-toggle');
+    const wrap = meta.querySelector('.fk-stream');
+    const row = meta.querySelector('.fk-stream-row');
+
+    if (toggle && wrap && !row && imdbID) {
+      toggle.addEventListener('click', async () => {
+        toggle.disabled = true;
+        toggle.textContent = 'hämtar…';
+
+        const fetched = await watchmodeSources(imdbID);
+
+        // Write into cache bucket used above
+        Cache.set(`fk_wm_src_v1_${imdbID}`, { t: Date.now(), v: fetched });
+
+        // Replace content
+        wrap.innerHTML = buildStreamingHtml(imdbID, fetched, { collapsed: true })
+          .replace(/^\s*<div class=\"fk-stream\"[^>]*>/, '')
+          .replace(/<\/div>\s*$/, '');
+
+        // Re-wire toggle
+        ensureStreamingToggle(meta);
+      }, { once: true });
+    }
+  }
+
+  // --- Autocomplete (gentle)
+  hideAc(inputId) {
+    const box = this.querySelector(`#fk_ac_${inputId}`);
+    if (box) {
+      box.style.display = 'none';
+      box.innerHTML = '';
+    }
+  }
+
+  showAc(inputId, items, onPick) {
+    const box = this.querySelector(`#fk_ac_${inputId}`);
+    if (!box) return;
+    if (!items.length) return this.hideAc(inputId);
+
+    box.innerHTML = items.map((x, idx) => `
+      <div class="ac-item" data-i="${idx}">
+        <div><strong>${escapeHtml(x.title)}</strong> <span class="ac-muted">${escapeHtml(x.year)}</span></div>
+      </div>
+    `).join('');
+    box.style.display = 'block';
+
+    box.querySelectorAll('.ac-item').forEach((el) => {
+      const pick = (ev) => {
+        ev?.preventDefault?.();
+        ev?.stopPropagation?.();
+        const i = Number(el.getAttribute('data-i'));
+        onPick(items[i]);
+        this.hideAc(inputId);
+      };
+      el.addEventListener('pointerdown', pick, { passive: false });
+      el.addEventListener('touchstart', pick, { passive: false });
+      el.addEventListener('click', pick);
+    });
+  }
+
+  bindAutocomplete(inputId) {
+    const input = this.querySelector(`#${inputId}`);
+    const box = this.querySelector(`#fk_ac_${inputId}`);
+    if (!input || !box) return;
+
+    let composing = false;
+    input.addEventListener('compositionstart', () => { composing = true; });
+    input.addEventListener('compositionend', () => { composing = false; });
+
+    const doSearch = debounce(async () => {
+      if (composing) return;
+      if (document.activeElement !== input) return;
+
+      const q = (input.value || '').trim();
+      if (q.length < 3) return this.hideAc(inputId);
+
+      const hits = await tmdbSearchMovies(q, 8);
+      if (document.activeElement !== input) return;
+
+      this.showAc(inputId, hits, (pick) => {
+        input.value = pick.year ? `${pick.title} (${pick.year})` : pick.title;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }, 420);
+
+    input.addEventListener('input', doSearch);
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.hideAc(inputId);
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => this.hideAc(inputId), 160);
+    });
   }
 }
 
 customElements.define('film-wishlist', FilmWishlist);
-
-/*
-  Kräver att styles.css innehåller (som du redan har från tidigare):
-  - .card .row .col .muted .pill .flash
-  - .lookup-wrap .lookup-input .lookup-btn
-  - .ac-wrap .ac-list .ac-item .ac-muted
-  - .wishlist-item .wishlist-move
-
-  Lägg till dessa klasser i styles.css (eller kopiera in om de saknas):
-
-  .wl-meta{display:grid; grid-template-columns:112px 1fr; gap:12px; align-items:start; margin:6px 0 10px;}
-  .wl-poster{width:112px; height:auto; border-radius:10px; border:1px solid var(--border);}
-  .wl-poster-empty{width:112px; height:168px; border-radius:10px; border:1px dashed var(--border); background:transparent;}
-  .wl-imdb a{color:inherit; text-decoration:underline;}
-
-  // Streaming: visa ~2 rader och fäll ut med …
-  .streaming-row{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;}
-  .streaming-row.collapsed{max-height:64px; overflow:hidden;}
-  .streaming-toggle{margin-top:4px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted);}
-*/
