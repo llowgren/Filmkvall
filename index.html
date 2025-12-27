@@ -1,4 +1,29 @@
 <!doctype html>
+import { getTheme, on } from './store.js';
+
+function applyTheme(theme){
+  // theme: 'auto' | 'dark' | 'light'
+  const root = document.documentElement;
+
+  let mode = theme || 'auto';
+  if (mode === 'auto') {
+    mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+
+  // Din CSS: [data-theme="light"] = ljus, annars mörk via :root
+  if (mode === 'light') root.setAttribute('data-theme', 'light');
+  else root.removeAttribute('data-theme');
+  root.style.colorScheme = (mode === 'light') ? 'light' : 'dark';
+}
+
+// init + lyssna
+applyTheme(getTheme());
+on('theme', applyTheme);
+
+// auto: uppdatera om systemtema ändras
+const mql = window.matchMedia('(prefers-color-scheme: light)');
+mql.addEventListener?.('change', () => { if (getTheme() === 'auto') applyTheme('auto'); });
+mql.addListener?.(() => { if (getTheme() === 'auto') applyTheme('auto'); });
 <html lang="sv">
 <head>
   <meta charset="utf-8" />
