@@ -1,645 +1,713 @@
 // film-wishlist.js
-// Wishlist module: autocomplete + poster + IMDb + streaming (Watchmode) + reorder + autosave
+// Wishlist module ("Önskelista") – shows 1–5 upcoming picks for the logged-in user.
+// Includes:
+// - Autocomplete (TMDb) while typing
+// - Poster thumbnail + IMDb link
+// - Streaming availability (Watchmode) shown to the right (2 rows visible, expandable)
+// - Reorder (up/down)
+// - Calm autosave + explicit Save button
 
-import { api } from './api.js';
-import { getWho, on } from './store.js';
-import { getMovieTokens } from './film-login.js';
+import { getWho, setWho, on as onStore, getAuth } from './store.js';
+import { getApiUrl, getMovieTokens } from './film-login.js';
 
-customElements.define('film-wishlist', class FilmWishlist extends HTMLElement {
-  constructor(){
+const PEOPLE = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
+
+// --- tiny utils ---
+const $ = (root, sel) => root.querySelector(sel);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[m]));
+const normKey = (s) => String(s || '').trim().toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+
+function qs(obj) {
+  const p = new URLSearchParams();
+  Object.entries(obj || {}).forEach(([k, v]) => {
+    if (v === undefined || v === null) return;
+    p.set(k, String(v));
+  });
+  return p.toString();
+}
+
+async function api(action, params = {}) {
+  const url = getApiUrl();
+  const auth = getAuth();
+  const query = qs({
+    action,
+    pw: auth?.pw || '',
+    token: auth?.token || '',
+    ...params,
+  });
+  const res = await fetch(`${url}?${query}`, { cache: 'no-store' });
+  return res.json();
+}
+
+// --- external providers ---
+function tokens() {
+  // film-login.js is source-of-truth
+  return getMovieTokens();
+}
+
+async function tmdbSearch(q, limit = 7) {
+  const { tmdb } = tokens();
+  if (!tmdb || !q) return [];
+  const url = `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(tmdb)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`;
+  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
+  if (!r || !r.ok) return [];
+  const j = await r.json();
+  const arr = Array.isArray(j?.results) ? j.results : [];
+  return arr.slice(0, limit).map((it) => ({
+    title: it.title || it.original_title || '',
+    year: (it.release_date || '').slice(0, 4) || '',
+  }));
+}
+
+async function omdbLookupTitle(q) {
+  const { omdb } = tokens();
+  if (!omdb || !q) return null;
+
+  let title = String(q).trim();
+  let year = '';
+  const m = title.match(/\((\d{4})\)\s*$/);
+  if (m) {
+    year = m[1];
+    title = title.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+  }
+
+  // If user pasted IMDb id/url
+  const tt = (q.match(/tt\d{7,}/i) || q.match(/imdb\.com\/title\/(tt\d+)/i));
+  if (tt) {
+    const id = (tt[1] || tt[0]).replace(/^.*(tt\d+).*$/, '$1');
+    const u = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&i=${encodeURIComponent(id)}&plot=short`;
+    const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
+    const j = r ? await r.json() : null;
+    if (j && j.Response !== 'False') return j;
+    return null;
+  }
+
+  // Try direct title
+  {
+    const u = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&t=${encodeURIComponent(title)}${year ? `&y=${encodeURIComponent(year)}` : ''}&type=movie&plot=short`;
+    const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
+    const j = r ? await r.json() : null;
+    if (j && j.Response !== 'False') return j;
+  }
+
+  // Try search list then pick first
+  {
+    const u = `https://www.omdbapi.com/?apikey=${encodeURIComponent(omdb)}&s=${encodeURIComponent(title)}&type=movie`;
+    const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
+    const j = r ? await r.json() : null;
+    const hit = j?.Search?.[0];
+    if (hit?.Title) return omdbLookupTitle(`${hit.Title} (${hit.Year || ''})`);
+  }
+
+  return null;
+}
+
+function imdbUrl(imdbID) {
+  return imdbID ? `https://www.imdb.com/title/${imdbID}/` : '';
+}
+
+// --- Watchmode (streaming) with local cache ---
+const WM_CACHE_PREFIX = 'filmkvall_wm_sources_v2_';
+
+function cacheGet(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
+}
+function cacheSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch { }
+}
+
+async function watchmodeTitleIdFromImdb(imdbID) {
+  const { watchmode } = tokens();
+  if (!watchmode || !imdbID) return null;
+
+  // Prefer /find
+  try {
+    const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(watchmode)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
+    const r1 = await fetch(u1, { cache: 'no-store' }).catch(() => null);
+    const j1 = r1 ? await r1.json() : null;
+    if (j1?.title_id) return j1.title_id;
+  } catch { }
+
+  // Fallback search
+  try {
+    const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(watchmode)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
+    const r2 = await fetch(u2, { cache: 'no-store' }).catch(() => null);
+    const j2 = r2 ? await r2.json() : null;
+    const hit = Array.isArray(j2?.title_results)
+      ? j2.title_results.find((t) => String(t.imdb_id) === String(imdbID))
+      : null;
+    return hit?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getStreamingSources(imdbID) {
+  if (!imdbID) return null;
+  const { watchmode } = tokens();
+  if (!watchmode) return null;
+
+  const ck = WM_CACHE_PREFIX + imdbID;
+  const cached = cacheGet(ck);
+  const now = Date.now();
+  if (cached?.data && cached?.savedAt && (now - cached.savedAt) < 7 * 24 * 3600_000) {
+    return cached.data;
+  }
+
+  const titleId = await watchmodeTitleIdFromImdb(imdbID);
+  if (!titleId) {
+    cacheSet(ck, { savedAt: now, data: null });
+    return null;
+  }
+
+  const url = `https://api.watchmode.com/v1/title/${encodeURIComponent(titleId)}/sources/?apiKey=${encodeURIComponent(watchmode)}`;
+  const res = await fetch(url, { cache: 'no-store' }).catch(() => null);
+  const arr = res ? await res.json() : null;
+  if (!Array.isArray(arr)) {
+    cacheSet(ck, { savedAt: now, data: null });
+    return null;
+  }
+
+  const normalizeName = (s) => String(s || '')
+    .replace(/\s*\(with Ads\)$/i, '')
+    .replace(/\s+HD$/, '')
+    .trim();
+
+  const seen = new Set();
+  const filtered = arr
+    .filter((s) => s?.type === 'sub' && s?.name)
+    .map((s) => ({
+      service: normalizeName(s.name),
+      quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
+      region: s.region || '',
+      link: s.web_url || '',
+    }))
+    .filter((s) => {
+      const k = `${s.service}|${s.quality}|${s.region}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
+
+  const data = filtered.length ? filtered : null;
+  cacheSet(ck, { savedAt: now, data });
+  return data;
+}
+
+function renderStreamingPills(sources = [], collapsed = true) {
+  if (!sources || !sources.length) {
+    return `<div class="stream-empty">(ingen streaming hittad)</div>`;
+  }
+  const pills = sources.map((s) => {
+    const label = `${s.service}${s.quality ? ` ${s.quality}` : ''}${s.region ? ` · ${s.region}` : ''}`;
+    const href = s.link ? `href="${esc(s.link)}" target="_blank" rel="noopener"` : '';
+    return `<a class="pill" ${href}>${esc(label)} (ingår)</a>`;
+  }).join('');
+
+  return `
+    <div class="stream-wrap">
+      <div class="stream-title">Tillgängligt i abonnemang:</div>
+      <div class="stream-row ${collapsed ? 'collapsed' : ''}">${pills}</div>
+      <button type="button" class="stream-toggle" style="display:none">…</button>
+    </div>
+  `;
+}
+
+function installStreamingToggle(container) {
+  const row = container.querySelector('.stream-row');
+  const btn = container.querySelector('.stream-toggle');
+  if (!row || !btn) return;
+
+  const update = () => {
+    requestAnimationFrame(() => {
+      const needs = row.scrollHeight > row.clientHeight + 2;
+      btn.style.display = needs ? 'inline-block' : 'none';
+      btn.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
+    });
+  };
+
+  update();
+  btn.addEventListener('click', () => {
+    row.classList.toggle('collapsed');
+    btn.textContent = row.classList.contains('collapsed') ? '…' : 'visa färre';
+  });
+}
+
+// --- Component ---
+class FilmWishlist extends HTMLElement {
+  constructor() {
     super();
-    this.attachShadow({ mode:'open' });
+    this.attachShadow({ mode: 'open' });
+    this._autoTimer = null;
+    this._busySave = false;
+    this._busyLoad = false;
+    this._rows = [1, 2, 3, 4, 5];
+  }
 
-    this._who = getWho?.() || 'Maria';
-    this._tokens = getMovieTokens?.() || {};
+  connectedCallback() {
+    this.shadowRoot.innerHTML = this.render();
+    this.bind();
+    this.syncWhoLabel();
+    this.load({ quiet: true });
 
-    this._metaCache = new Map(); // key: normalized query -> meta
-    this._wmCache = new Map();   // imdbID -> sources[]
+    // Keep label and optionally reload when login changes user
+    this._unsubWho = onStore('who', () => {
+      this.syncWhoLabel();
+      this.load({ quiet: true });
+    });
+  }
 
-    this._autosaveTimer = null;
-    this._applying = false;
+  disconnectedCallback() {
+    this._unsubWho?.();
+  }
 
-    this.shadowRoot.innerHTML = `
+  render() {
+    return `
       <style>
         :host{display:block}
-        .card{background:var(--panel,#fff); border:1px solid var(--border,#dfe3ee); border-radius:16px; padding:16px; margin:14px 0; box-shadow:0 6px 20px rgba(0,0,0,.04)}
-        h3{margin:0 0 6px; font-size:20px}
-        .muted{color:var(--muted,#5b6475)}
-
-        .head{display:flex; align-items:flex-start; gap:12px}
-        .head .right{margin-left:auto; display:flex; gap:10px; align-items:center}
-        .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px; background:var(--pill-bg,#f1f3f8); border:1px solid var(--border,#dfe3ee); text-decoration:none; color:inherit; white-space:nowrap}
-
-        button{background:var(--btn,#eef0f6); color:var(--btn-text,#111826); cursor:pointer;
-          border:1px solid var(--border,#dfe3ee); padding:10px 14px; border-radius:999px; font-size:14px;}
-        button.primary{background:var(--accent,#f6c247); color:#1b1f2a; border-color:#c8a73a}
+        .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin:14px 0}
+        h3{margin:0 0 6px}
+        .sub{color:var(--muted); font-size:13px; margin-bottom:10px}
+        .rowTop{display:flex; align-items:center; gap:10px}
+        .spacer{flex:1}
+        button{background:var(--btn); color:var(--btn-text); cursor:pointer; border:1px solid var(--border); padding:8px 12px; border-radius:999px; font-size:14px; touch-action:manipulation}
+        button.primary{background:var(--accent); color:#1b1f2a; border-color:#c8a73a; font-weight:600}
         button:disabled{opacity:.55; cursor:not-allowed; filter:saturate(.6)}
 
         .list{display:flex; flex-direction:column; gap:12px; margin-top:12px}
 
-        .row{display:flex; gap:10px; align-items:center}
-        .rowline{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
-        .num{width:28px; color:var(--muted,#5b6475); font-size:14px; flex:0 0 auto}
+        .item{border:1px solid var(--border); border-radius:12px; padding:12px}
+        .head{display:flex; align-items:center; gap:10px}
+        .idx{min-width:28px; color:var(--muted); font-size:13px}
+        .inputWrap{flex:1; position:relative}
+        input{width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--input); color:var(--text); outline:none}
 
-        input{
-          width:100%; padding:10px 12px; border-radius:12px;
-          border:1px solid var(--border,#dfe3ee); background:var(--input,#fff); color:var(--text,#151823);
-          outline:none;
-        }
-
-        .item{border:1px solid var(--border,#dfe3ee); border-radius:14px; padding:12px}
-        .topline{display:flex; gap:10px; align-items:center}
-        .topline .inputwrap{flex:1 1 auto; min-width:0; position:relative}
-        .actions{display:flex; gap:8px; align-items:center}
-        .actions button{padding:10px 14px}
-        .actions .mini{width:44px; height:44px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:14px; font-size:18px; line-height:1}
+        .btnSok{border-radius:999px; padding:8px 12px}
+        .move{display:flex; gap:8px}
+        .move button{width:40px; height:40px; padding:0; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:18px; line-height:1}
 
         /* Autocomplete */
-        .ac{position:absolute; left:0; right:0; top:100%; margin-top:6px; z-index:50;
-          background:var(--panel,#fff); border:1px solid var(--border,#dfe3ee); border-radius:12px; overflow:hidden; display:none}
-        .ac-item{padding:10px 12px; border-top:1px solid var(--border,#dfe3ee); cursor:pointer; font-size:14px}
-        .ac-item:first-child{border-top:none}
-        .ac-item:hover{filter:brightness(1.05)}
-        .ac-muted{color:var(--muted,#5b6475); font-size:12px}
+        .ac{position:absolute; left:0; right:0; top:calc(100% + 6px); z-index:50; background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden; display:none}
+        .acItem{padding:10px 12px; cursor:pointer; border-top:1px solid var(--border); font-size:14px}
+        .acItem:first-child{border-top:none}
+        .acItem:hover{filter:brightness(1.08)}
+        .acMuted{color:var(--muted); font-size:12px}
 
-        /* Meta layout (like now): poster left, imdb mid, streaming right */
-        .meta{margin-top:10px; display:grid; grid-template-columns:92px 1fr; gap:12px; align-items:start}
-        .poster{
-          width:92px; height:138px; object-fit:cover; border-radius:12px; border:1px solid var(--border,#dfe3ee);
-          background:#fff;
-        }
-        .metaMain{display:grid; grid-template-columns:1fr 1.6fr; gap:12px; align-items:start}
-        .imdb{min-width:0}
+        /* Meta row: thumbnail left, imdb/title middle, streaming right */
+        .metaRow{display:flex; gap:12px; margin-top:10px; align-items:flex-start}
+        .poster{width:88px; height:auto; border-radius:10px; border:1px solid var(--border); background:var(--pill-bg)}
+        .metaMid{flex:1; min-width:160px}
+        .title{font-weight:700; margin:2px 0 4px}
         .imdb a{color:inherit; text-decoration:underline}
-        .imdb .title{font-weight:700}
 
-        .streaming{justify-self:end; text-align:left; min-width:0; max-width:520px}
-        .streaming strong{display:block; font-size:13px; color:var(--muted,#5b6475); margin-bottom:6px}
-        .streams{display:flex; flex-wrap:wrap; gap:6px}
+        .metaRight{flex:1; min-width:220px; display:flex; justify-content:flex-end}
+
+        .pill{display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px; background:var(--pill-bg); border:1px solid var(--border); text-decoration:none; color:inherit; white-space:nowrap}
+        .stream-wrap{min-width:220px; max-width:420px}
+        .stream-title{color:var(--muted); font-size:12px; margin-bottom:6px}
+        .stream-row{display:flex; flex-wrap:wrap; gap:6px}
         /* show ~2 rows */
-        .streams.collapsed{max-height:56px; overflow:hidden}
-        .toggle{margin-top:6px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted,#5b6475); font-size:12px}
+        .stream-row.collapsed{max-height:68px; overflow:hidden}
+        .stream-toggle{margin-top:6px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted)}
+        .stream-empty{color:var(--muted); font-size:12px}
 
-        .hint{color:var(--muted,#5b6475); font-size:13px}
-
-        @media (max-width:640px){
-          .meta{grid-template-columns:84px 1fr}
-          .poster{width:84px; height:126px}
-          .metaMain{grid-template-columns:1fr}
-          .streaming{justify-self:start; max-width:none}
+        @media (max-width:720px){
+          .metaRow{flex-direction:column}
+          .metaRight{justify-content:flex-start}
+          .stream-wrap{max-width:100%}
         }
       </style>
 
       <div class="card">
-        <div class="head">
+        <div class="rowTop">
           <div>
             <h3>Önskelista</h3>
-            <div class="muted">Användare: <span id="whoLabel"></span></div>
+            <div class="sub">Användare: <strong id="whoLabel">–</strong></div>
           </div>
-          <div class="right">
-            <button id="btnLoad">Hämta</button>
-            <button id="btnSave" class="primary">Spara</button>
-          </div>
+          <span class="spacer"></span>
+          <button id="btnLoad" type="button">Hämta</button>
+          <button id="btnSave" type="button" class="primary">Spara</button>
         </div>
 
-        <div class="list" id="list"></div>
+        <div class="list">
+          ${this._rows.map((i) => this.renderItem(i)).join('')}
+        </div>
       </div>
     `;
-
-    this.$ = (sel)=>this.shadowRoot.querySelector(sel);
-    this.$$ = (sel)=>Array.from(this.shadowRoot.querySelectorAll(sel));
   }
 
-  connectedCallback(){
-    this.$('#whoLabel').textContent = this._who;
-    this.$('#btnLoad').addEventListener('click', ()=>this.load(true));
-    this.$('#btnSave').addEventListener('click', ()=>this.save(true));
-
-    // react to login/user changes
-    if (typeof on === 'function'){
-      this._unsubWho = on('who', (w)=>{
-        this._who = w;
-        this.$('#whoLabel').textContent = w;
-        this.load(true);
-      });
-    }
-
-    this.renderEmpty();
-    this.load(true);
-  }
-
-  disconnectedCallback(){
-    this._unsubWho?.();
-  }
-
-  renderEmpty(){
-    const list = this.$('#list');
-    list.innerHTML = '';
-    for(let i=1;i<=5;i++) list.appendChild(this.renderItem(i));
-    this.bindAll();
-  }
-
-  renderItem(i){
-    const el = document.createElement('div');
-    el.className = 'item';
-    el.dataset.i = String(i);
-    el.innerHTML = `
-      <div class="topline">
-        <div class="num">#${i}</div>
-        <div class="inputwrap">
-          <input id="w${i}" placeholder="Film (${i})" autocomplete="off" spellcheck="false" />
-          <div class="ac" id="ac-w${i}"></div>
+  renderItem(i) {
+    return `
+      <div class="item" data-i="${i}">
+        <div class="head">
+          <div class="idx">#${i}</div>
+          <div class="inputWrap">
+            <input id="w${i}" placeholder="Film (${i})" autocomplete="off" spellcheck="false" />
+            <div class="ac" id="ac-w${i}"></div>
+          </div>
+          <button class="btnSok" type="button" data-lookup="w${i}">Sök</button>
+          <div class="move" aria-label="Flytta">
+            <button type="button" class="ghost" data-move="up" data-i="${i}" aria-label="Flytta upp" ${i === 1 ? 'disabled' : ''}>▲</button>
+            <button type="button" class="ghost" data-move="down" data-i="${i}" aria-label="Flytta ner" ${i === 5 ? 'disabled' : ''}>▼</button>
+          </div>
         </div>
-        <div class="actions">
-          <button class="btnSearch" data-i="${i}">Sök</button>
-          <button class="mini" title="Flytta upp" aria-label="Flytta upp" data-move="up" data-i="${i}" ${i===1?'disabled':''}>▲</button>
-          <button class="mini" title="Flytta ner" aria-label="Flytta ner" data-move="down" data-i="${i}" ${i===5?'disabled':''}>▼</button>
-        </div>
+
+        <div class="metaRow" id="meta-w${i}" style="display:none"></div>
       </div>
-
-      <div class="meta" id="meta${i}" style="display:none"></div>
-      <div class="hint" id="hint${i}"></div>
     `;
-    return el;
   }
 
-  bindAll(){
-    // search buttons
-    this.$$('.btnSearch').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        const i = Number(btn.dataset.i);
-        await this.lookupAndRender(i, {withStreaming:true});
+  bind() {
+    const root = this.shadowRoot;
+
+    // Buttons
+    $('#btnLoad', root).addEventListener('click', () => this.load({ quiet: false }));
+    $('#btnSave', root).addEventListener('click', () => this.save({ reason: 'manuell' }));
+
+    // Search buttons
+    root.querySelectorAll('[data-lookup]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-lookup');
+        await this.lookupAndRender(id);
       });
     });
 
-    // move
-    this.shadowRoot.addEventListener('click', (e)=>{
+    // Reorder
+    root.addEventListener('click', (e) => {
       const btn = e.target?.closest?.('[data-move][data-i]');
-      if(!btn) return;
-      const i = Number(btn.dataset.i);
-      const dir = btn.dataset.move;
-      if(dir === 'up' && i>1) this.swap(i, i-1);
-      if(dir === 'down' && i<5) this.swap(i, i+1);
+      if (!btn) return;
+      const i = Number(btn.getAttribute('data-i'));
+      const dir = btn.getAttribute('data-move');
+      if (dir === 'up' && i > 1) this.swap(i, i - 1);
+      if (dir === 'down' && i < 5) this.swap(i, i + 1);
     });
 
-    // inputs: autosave + enter lookup
-    for(let i=1;i<=5;i++){
-      const input = this.$(`#w${i}`);
-      input.addEventListener('input', ()=>this.scheduleAutosave('skriver'));
-      input.addEventListener('blur', ()=>this.commitAutosave('klar'));
-      input.addEventListener('keydown', async (e)=>{
-        if(e.key === 'Enter'){
+    // Autocomplete + autosave
+    this._rows.forEach((i) => {
+      const input = $(`#w${i}`, root);
+      this.bindAutocomplete(`w${i}`, input);
+      input.addEventListener('input', () => this.scheduleAutosave());
+      input.addEventListener('blur', () => this.commitAutosave('klar'));
+      input.addEventListener('change', () => this.lookupAndRender(`w${i}`));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
           e.preventDefault();
-          await this.lookupAndRender(i, {withStreaming:true});
+          this.lookupAndRender(`w${i}`);
         }
       });
+    });
 
-      this.bindAutocomplete(`w${i}`);
-    }
-
-    // close autocomplete when clicking outside
-    this.shadowRoot.addEventListener('click', (e)=>{
-      if(e.target?.closest?.('.inputwrap')) return;
-      for(let i=1;i<=5;i++) this.hideAc(`w${i}`);
+    // Close autocomplete if click outside
+    document.addEventListener('click', (e) => {
+      if (e.target?.closest?.('.inputWrap')) return;
+      this._rows.forEach((i) => this.hideAc(`w${i}`));
     });
   }
 
-  // ===== Data load/save =====
-  async load(useCache){
-    try{
-      const who = this._who;
+  syncWhoLabel() {
+    const who = getWho();
+    const root = this.shadowRoot;
+    $('#whoLabel', root).textContent = who || '–';
+  }
+
+  values() {
+    const root = this.shadowRoot;
+    const v = {};
+    this._rows.forEach((i) => { v[`R${i}`] = $(`#w${i}`, root).value || ''; });
+    return v;
+  }
+
+  setValues(obj = {}) {
+    const root = this.shadowRoot;
+    this._rows.forEach((i) => {
+      const el = $(`#w${i}`, root);
+      el.value = (obj[`R${i}`] ?? '').toString();
+    });
+  }
+
+  signature(who) {
+    const v = this.values();
+    return [who, v.R1, v.R2, v.R3, v.R4, v.R5].map(normKey).join('␟');
+  }
+
+  scheduleAutosave() {
+    clearTimeout(this._autoTimer);
+    this._autoTimer = setTimeout(() => this.commitAutosave('skriver'), 1400);
+  }
+
+  async commitAutosave(reason) {
+    const who = getWho();
+    if (!who) return;
+
+    const sig = this.signature(who);
+    const last = this._lastSigByWho || {};
+    if (last[who] === sig) return;
+
+    // Avoid autosaving completely empty lists
+    const any = sig.split('␟').slice(1).some((x) => x && x.length);
+    if (!any) return;
+
+    last[who] = sig;
+    this._lastSigByWho = last;
+
+    // autosave should feel calm – no button flashing
+    await this.save({ reason, quiet: true });
+  }
+
+  async load({ quiet } = { quiet: false }) {
+    if (this._busyLoad) return;
+    this._busyLoad = true;
+
+    const root = this.shadowRoot;
+    const btn = $('#btnLoad', root);
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = 'Hämtar…';
+
+    try {
+      const who = getWho() || 'Lars';
+      if (!PEOPLE.includes(who)) setWho('Lars');
+
       const j = await api('getWishlist', { person: who });
-      if(!j?.ok) throw new Error(j?.error || 'getWishlist');
+      if (!j?.ok) throw new Error(j?.error || 'getWishlist');
 
-      this._applying = true;
-      for(let i=1;i<=5;i++){
-        const val = (j[`R${i}`] || '').trim();
-        this.$(`#w${i}`).value = val;
-        this.$(`#hint${i}`).textContent = '';
-        this.$(`#meta${i}`).style.display = 'none';
-        this.$(`#meta${i}`).innerHTML = '';
-      }
-      this._applying = false;
+      this.setValues(j);
 
-      // render metas in background
-      for(let i=1;i<=5;i++){
-        const q = (this.$(`#w${i}`).value || '').trim();
-        if(q) this.lookupAndRender(i, {withStreaming:false});
-      }
-    }catch(err){
-      console.error(err);
-      // Keep UI, show hints
-      for(let i=1;i<=5;i++) this.$(`#hint${i}`).textContent = (i===1 ? 'Kunde inte hämta listan.' : '');
+      // update sig so autosave doesn't immediately trigger
+      const sig = this.signature(who);
+      this._lastSigByWho = { ...(this._lastSigByWho || {}), [who]: sig };
+
+      // Render metas (including streaming) – in parallel but calmly
+      await Promise.allSettled(this._rows.map((i) => this.lookupAndRender(`w${i}`, { lazyStreaming: true })));
+    } catch (e) {
+      if (!quiet) console.error('wishlist load:', e);
+    } finally {
+      btn.textContent = oldText;
+      btn.disabled = false;
+      this._busyLoad = false;
     }
   }
 
-  async save(flash){
-    const who = this._who;
-    const body = { person: who };
-    for(let i=1;i<=5;i++) body[`R${i}`] = (this.$(`#w${i}`).value || '').trim();
+  async save({ reason = '', quiet = false } = {}) {
+    if (this._busySave) return;
+    this._busySave = true;
 
-    const btn = this.$('#btnSave');
+    const root = this.shadowRoot;
+    const btn = $('#btnSave', root);
+    const oldText = btn.textContent;
     btn.disabled = true;
-    const old = btn.textContent;
     btn.textContent = 'Sparar…';
 
-    try{
-      const j = await api('saveWishlist', body);
-      if(!j?.ok) throw new Error(j?.error || 'saveWishlist');
+    try {
+      const who = getWho();
+      const v = this.values();
+      const payload = { person: who, ...v };
+      const j = await api('saveWishlist', payload);
+      if (!j?.ok) throw new Error(j?.error || 'saveWishlist');
+
+      // update sig baseline
+      this._lastSigByWho = { ...(this._lastSigByWho || {}), [who]: this.signature(who) };
+
+      // small UX: return label
       btn.textContent = 'Sparad';
-      setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 650);
-    }catch(err){
-      console.error(err);
+      setTimeout(() => { btn.textContent = oldText; }, 900);
+    } catch (e) {
+      if (!quiet) console.error('wishlist save:', e);
       btn.textContent = 'Fel';
-      setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 900);
+      setTimeout(() => { btn.textContent = oldText; }, 900);
+    } finally {
+      setTimeout(() => { btn.disabled = false; this._busySave = false; }, 250);
     }
   }
 
-  scheduleAutosave(reason){
-    if(this._applying) return;
-    clearTimeout(this._autosaveTimer);
-    this._autosaveTimer = setTimeout(()=>this.commitAutosave(reason), 1500);
+  swap(i, j) {
+    const root = this.shadowRoot;
+    const a = $(`#w${i}`, root);
+    const b = $(`#w${j}`, root);
+    const tmp = a.value;
+    a.value = b.value;
+    b.value = tmp;
+
+    // Re-render metas for the swapped rows
+    this.lookupAndRender(`w${i}`, { lazyStreaming: true });
+    this.lookupAndRender(`w${j}`, { lazyStreaming: true });
+
+    // autosave after reorder
+    this.scheduleAutosave();
   }
 
-  commitAutosave(reason){
-    if(this._applying) return;
-    // don't autosave completely empty list
-    const any = [1,2,3,4,5].some(i => (this.$(`#w${i}`).value||'').trim().length);
-    if(!any) return;
-    this.save(false);
-  }
+  async lookupAndRender(id, { lazyStreaming = false } = {}) {
+    const root = this.shadowRoot;
+    const input = $(`#${id}`, root);
+    if (!input) return;
 
-  swap(a,b){
-    const A = this.$(`#w${a}`);
-    const B = this.$(`#w${b}`);
-    if(!A || !B) return;
+    const q = (input.value || '').trim();
+    const meta = $(`#meta-${id}`, root);
+    if (!meta) return;
 
-    this._applying = true;
-    const tmp = A.value;
-    A.value = B.value;
-    B.value = tmp;
-    this._applying = false;
-
-    // re-render metas for both
-    this.lookupAndRender(a, {withStreaming:false});
-    this.lookupAndRender(b, {withStreaming:false});
-
-    this.scheduleAutosave('ordning');
-  }
-
-  // ===== Lookup / Render meta =====
-  normKey(s){
-    return String(s||'')
-      .trim()
-      .toLowerCase()
-      .normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g,'')
-      .replace(/\s+/g,' ');
-  }
-
-  imdbUrl(meta){
-    return meta?.imdbID ? `https://www.imdb.com/title/${meta.imdbID}/` : '';
-  }
-
-  async smartLookup(query){
-    const q = (query||'').trim();
-    if(!q) return null;
-
-    const key = this.normKey(q);
-    if(this._metaCache.has(key)) return this._metaCache.get(key);
-
-    const { tmdb, omdb } = this._tokens || {};
-
-    // If query includes imdb tt-id, go straight to OMDb
-    if(/\btt\d{7,}\b/i.test(q) || /imdb\.com\/title\/tt\d+/i.test(q)){
-      const om = await this.omdbLookup(q, omdb);
-      if(om) { this._metaCache.set(key, om); return om; }
-    }
-
-    // TMDb first (better search), then OMDb for details if imdbID exists
-    const tm = await this.tmdbLookup(q, tmdb);
-    if(tm){
-      if(tm.imdbID){ this._metaCache.set(key, tm); return tm; }
-      const tryOm = await this.omdbLookup(`${tm.Title} (${tm.Year||''})`, omdb);
-      const best = tryOm || tm;
-      this._metaCache.set(key, best);
-      return best;
-    }
-
-    const om = await this.omdbLookup(q, omdb);
-    this._metaCache.set(key, om);
-    return om;
-  }
-
-  async omdbLookup(q, key){
-    if(!key) return null;
-    let query = (q||'').trim();
-
-    // pull out year from (YYYY)
-    let year = '';
-    const m = query.match(/\((\d{4})\)\s*$/);
-    if(m){ year = m[1]; query = query.replace(/\s*\(\d{4}\)\s*$/,'').trim(); }
-
-    // imdb id direct
-    const tt = query.match(/tt\d{7,}/i) || query.match(/imdb\.com\/title\/(tt\d+)/i);
-    if(tt){
-      const id = (tt[1] || tt[0]).replace(/^.*(tt\d+).*$/,'$1');
-      const r = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&i=${encodeURIComponent(id)}&plot=short`, {cache:'no-store'}).catch(()=>null);
-      const j = r ? await r.json() : null;
-      return (j && j.Response !== 'False') ? j : null;
-    }
-
-    // title
-    const u = `https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&t=${encodeURIComponent(query)}&type=movie&plot=short${year?`&y=${encodeURIComponent(year)}`:''}`;
-    const r = await fetch(u, {cache:'no-store'}).catch(()=>null);
-    const j = r ? await r.json() : null;
-    if(j && j.Response !== 'False') return j;
-
-    // fallback: search
-    const rs = await fetch(`https://www.omdbapi.com/?apikey=${encodeURIComponent(key)}&s=${encodeURIComponent(query)}&type=movie`, {cache:'no-store'}).catch(()=>null);
-    const js = rs ? await rs.json() : null;
-    if(js && js.Response !== 'False' && Array.isArray(js.Search) && js.Search.length){
-      // pick first
-      return await this.omdbLookup(js.Search[0].Title, key);
-    }
-    return null;
-  }
-
-  async tmdbLookup(query, key){
-    if(!key) return null;
-    const q = (query||'').trim();
-    if(!q) return null;
-
-    // search sv
-    const sr = await fetch(
-      `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(key)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`,
-      {cache:'no-store'}
-    ).catch(()=>null);
-    if(!sr || !sr.ok) return null;
-    const sj = await sr.json();
-    const hit = Array.isArray(sj?.results) && sj.results.length ? sj.results[0] : null;
-    if(!hit) return null;
-
-    // external ids for imdb
-    let imdbID = '';
-    try{
-      const er = await fetch(
-        `https://api.themoviedb.org/3/movie/${hit.id}/external_ids?api_key=${encodeURIComponent(key)}`,
-        {cache:'no-store'}
-      );
-      if(er.ok){
-        const ej = await er.json();
-        imdbID = ej?.imdb_id || '';
-      }
-    }catch(_){ }
-
-    const year = (hit.release_date || '').slice(0,4) || '';
-    const poster = hit.poster_path ? `https://image.tmdb.org/t/p/w185${hit.poster_path}` : 'N/A';
-
-    return {
-      Title: hit.title || hit.original_title || '',
-      Year: year,
-      Poster: poster,
-      imdbID,
-      imdbRating: '-'
-    };
-  }
-
-  async getStreaming(imdbID){
-    const { watchmode } = this._tokens || {};
-    if(!watchmode || !imdbID) return null;
-
-    if(this._wmCache.has(imdbID)) return this._wmCache.get(imdbID);
-
-    const titleId = await this.wmTitleIdFromImdb(imdbID, watchmode);
-    if(!titleId){ this._wmCache.set(imdbID, null); return null; }
-
-    const r = await fetch(`https://api.watchmode.com/v1/title/${titleId}/sources/?apiKey=${encodeURIComponent(watchmode)}`, {cache:'no-store'}).catch(()=>null);
-    if(!r || !r.ok){ this._wmCache.set(imdbID, null); return null; }
-    const data = await r.json();
-    if(!Array.isArray(data)){ this._wmCache.set(imdbID, null); return null; }
-
-    const seen = new Set();
-    const normName = (s)=>String(s||'').replace(/\s*\(with Ads\)$/i,'').replace(/\s+HD$/,'').trim();
-
-    const filtered = data
-      .filter(s=>s.type==='sub' && s.name)
-      .map(s=>({
-        service: normName(s.name),
-        region: s.region || '',
-        quality: (s.format==='4K' || s.format==='HD') ? s.format : '',
-        link: s.web_url || ''
-      }))
-      .filter(s=>{
-        const k = `${s.service}|${s.region}|${s.quality}`;
-        if(seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      })
-      .sort((a,b)=>(a.service+a.region+a.quality).localeCompare(b.service+b.region+b.quality));
-
-    const out = filtered.length ? filtered : null;
-    this._wmCache.set(imdbID, out);
-    return out;
-  }
-
-  async wmTitleIdFromImdb(imdbID, apiKey){
-    try{
-      const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(apiKey)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
-      const r1 = await fetch(u1, {cache:'no-store'}).catch(()=>null);
-      if(r1 && r1.ok){
-        const j = await r1.json();
-        if(j?.title_id) return j.title_id;
-      }
-      const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(apiKey)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
-      const r2 = await fetch(u2, {cache:'no-store'}).catch(()=>null);
-      if(r2 && r2.ok){
-        const j = await r2.json();
-        const hit = Array.isArray(j?.title_results) ? j.title_results.find(t=>String(t.imdb_id)===String(imdbID)) : null;
-        if(hit?.id) return hit.id;
-      }
-    }catch(_){ }
-    return null;
-  }
-
-  esc(s){
-    return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
-  }
-
-  async lookupAndRender(i, {withStreaming=true}={}){
-    const input = this.$(`#w${i}`);
-    const q = (input?.value || '').trim();
-    const metaEl = this.$(`#meta${i}`);
-    const hintEl = this.$(`#hint${i}`);
-
-    if(!q){
-      metaEl.style.display = 'none';
-      metaEl.innerHTML = '';
-      hintEl.textContent = '';
+    if (!q) {
+      meta.style.display = 'none';
+      meta.innerHTML = '';
       return;
     }
 
-    hintEl.textContent = 'Söker…';
-
-    const meta = await this.smartLookup(q);
-    if(!meta){
-      metaEl.style.display = 'none';
-      metaEl.innerHTML = '';
-      hintEl.textContent = `Hittade inget för: ${q}`;
+    // OMDb
+    const data = await omdbLookupTitle(q);
+    if (!data) {
+      meta.style.display = 'block';
+      meta.innerHTML = `<div class="metaMid" style="color:var(--muted)">Hittade inget för: ${esc(q)}</div>`;
       return;
     }
 
-    hintEl.textContent = '';
+    const title = `${data.Title || ''}${data.Year ? ` (${data.Year})` : ''}`;
+    const poster = (data.Poster && data.Poster !== 'N/A') ? data.Poster : '';
+    const imdbID = data.imdbID || '';
 
-    // streaming can be heavy; fetch only if asked and imdbID exists
-    let streams = null;
-    if(withStreaming && meta.imdbID){
-      // show hint while loading
-      streams = await this.getStreaming(meta.imdbID);
-    }
+    // Streaming: show cached immediately if available, else lazy button that fetches
+    const cacheKey = WM_CACHE_PREFIX + imdbID;
+    const cached = imdbID ? (cacheGet(cacheKey)?.data || null) : null;
 
-    const poster = (meta.Poster && meta.Poster !== 'N/A')
-      ? meta.Poster
-      : '';
+    const leftPoster = poster
+      ? `<img class="poster" src="${esc(poster)}" alt="poster" loading="lazy" decoding="async">`
+      : `<div class="poster" aria-hidden="true"></div>`;
 
-    const title = this.esc(meta.Title || q);
-    const year  = this.esc(meta.Year || '');
-    const rating = this.esc(meta.imdbRating || '-');
-    const imdb = this.imdbUrl(meta);
-
-    const streamPills = (streams && streams.length)
-      ? streams.map(s=>{
-          const label = `${s.service}${s.quality?` ${s.quality}`:''}${s.region?` · ${s.region}`:''}`;
-          const href = s.link ? `href="${this.esc(s.link)}" target="_blank" rel="noopener"` : '';
-          return `<a class="pill" ${href}>${this.esc(label)} (ingår)</a>`;
-        }).join('')
-      : '';
-
-    metaEl.innerHTML = `
-      ${poster ? `<img class="poster" src="${this.esc(poster)}" alt="poster" loading="lazy" decoding="async" />` : `<div class="poster" aria-hidden="true"></div>`}
-      <div class="metaMain">
+    const mid = `
+      <div class="metaMid">
+        <div class="title">${esc(title)}</div>
         <div class="imdb">
-          <div class="title">${title}${year?` (${year})`:''}</div>
-          <div>IMDb ${rating}${imdb ? ` — <a href="${this.esc(imdb)}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}</div>
-        </div>
-
-        <div class="streaming" ${withStreaming ? '' : 'style="display:none"'}>
-          <strong>Tillgängligt i abonnemang (globalt):</strong>
-          ${streams === null ? `<div class="muted">(klicka Sök för att hämta)</div>` : ''}
-          ${streamPills ? `<div class="streams collapsed">${streamPills}</div>
-            <button type="button" class="toggle" style="display:none">…</button>`
-          : (withStreaming ? `<div class="muted">Inget abonnemang hittades just nu.</div>` : '')}
+          IMDb ${esc(data.imdbRating || '–')}
+          ${imdbID ? ` — <a href="${esc(imdbUrl(imdbID))}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
         </div>
       </div>
     `;
 
-    metaEl.style.display = 'grid';
+    let right = '';
 
-    // collapse toggle (only if we have pills)
-    const streamsEl = metaEl.querySelector('.streams');
-    const toggle = metaEl.querySelector('.toggle');
-    if(streamsEl && toggle){
-      requestAnimationFrame(()=>{
-        const needs = streamsEl.scrollHeight > streamsEl.clientHeight + 2;
-        toggle.style.display = needs ? 'inline-block' : 'none';
-        toggle.textContent = '…';
-      });
-      toggle.addEventListener('click', ()=>{
-        const collapsed = streamsEl.classList.toggle('collapsed');
-        toggle.textContent = collapsed ? '…' : 'visa färre';
-      });
+    if (imdbID) {
+      if (cached) {
+        right = `<div class="metaRight">${renderStreamingPills(cached, true)}</div>`;
+      } else {
+        // If lazyStreaming: don't fetch immediately; show the small toggle (…)
+        right = `
+          <div class="metaRight">
+            <div class="stream-wrap" data-imdb="${esc(imdbID)}">
+              <div class="stream-title">Tillgängligt i abonnemang:</div>
+              <div class="stream-empty">(klicka … för att hämta)</div>
+              <button type="button" class="stream-toggle" style="display:inline-block">…</button>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    meta.innerHTML = `${leftPoster}${mid}${right}`;
+    meta.style.display = 'flex';
+
+    // If we rendered cached pills, install expand toggle
+    installStreamingToggle(meta);
+
+    // Lazy fetch: attach handler if we are in "click to fetch" state
+    const wrap = meta.querySelector('.stream-wrap');
+    const btn = meta.querySelector('.stream-toggle');
+    if (wrap && btn && !meta.querySelector('.stream-row')) {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'hämtar…';
+        const imdb = wrap.getAttribute('data-imdb') || '';
+        const sources = await getStreamingSources(imdb);
+        wrap.innerHTML = renderStreamingPills(sources || [], true);
+        // after replacing, restore a real toggle and measure
+        const newBtn = wrap.querySelector('.stream-toggle');
+        const row = wrap.querySelector('.stream-row');
+        if (newBtn && row) {
+          newBtn.style.display = 'inline-block';
+          installStreamingToggle(wrap);
+        }
+      }, { once: true });
+
+      // Optional: if not lazyStreaming (e.g. user pressed "Sök"), fetch immediately
+      if (!lazyStreaming) {
+        btn.click();
+      }
     }
   }
 
-  // ===== Autocomplete (TMDb) =====
-  debounce(fn, ms=380){
-    let t;
-    return (...args)=>{ clearTimeout(t); t = setTimeout(()=>fn(...args), ms); };
-  }
-
-  async tmdbSuggest(query, limit=8){
-    const { tmdb } = this._tokens || {};
-    if(!tmdb) return [];
-    const q = (query||'').trim();
-    if(q.length < 3) return [];
-
-    const r = await fetch(
-      `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(tmdb)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`,
-      {cache:'no-store'}
-    ).catch(()=>null);
-
-    if(!r || !r.ok) return [];
-    const j = await r.json();
-    const res = Array.isArray(j?.results) ? j.results : [];
-    return res.slice(0, limit).map(it=>({
-      title: it.title || it.original_title || '',
-      year: (it.release_date||'').slice(0,4) || ''
-    }));
-  }
-
-  hideAc(id){
-    const box = this.$(`#ac-${id}`);
-    if(!box) return;
+  // --- Autocomplete ---
+  hideAc(id) {
+    const box = this.shadowRoot.getElementById(`ac-${id}`);
+    if (!box) return;
     box.style.display = 'none';
     box.innerHTML = '';
   }
 
-  showAc(id, items, onPick){
-    const box = this.$(`#ac-${id}`);
-    if(!box) return;
-    if(!items.length){ this.hideAc(id); return; }
+  showAc(id, items, onPick) {
+    const box = this.shadowRoot.getElementById(`ac-${id}`);
+    if (!box) return;
 
-    box.innerHTML = items.map((x, idx)=>`
-      <div class="ac-item" data-i="${idx}">
-        <div><strong>${this.esc(x.title)}</strong> <span class="ac-muted">${this.esc(x.year)}</span></div>
+    if (!items.length) {
+      this.hideAc(id);
+      return;
+    }
+
+    box.innerHTML = items.map((x, idx) => `
+      <div class="acItem" data-i="${idx}">
+        <div><strong>${esc(x.title)}</strong> <span class="acMuted">${esc(x.year)}</span></div>
       </div>
     `).join('');
 
     box.style.display = 'block';
 
-    box.querySelectorAll('.ac-item').forEach(el=>{
-      const handler = (ev)=>{
-        ev.preventDefault();
-        ev.stopPropagation();
+    box.querySelectorAll('.acItem').forEach((el) => {
+      const pick = (ev) => {
+        ev?.preventDefault?.();
+        ev?.stopPropagation?.();
         const i = Number(el.getAttribute('data-i'));
         onPick(items[i]);
         this.hideAc(id);
       };
-      // iOS friendly
-      el.addEventListener('pointerdown', handler, {passive:false});
-      el.addEventListener('touchstart', handler, {passive:false});
-      el.addEventListener('click', handler);
+      el.addEventListener('pointerdown', pick, { passive: false });
+      el.addEventListener('touchstart', pick, { passive: false });
+      el.addEventListener('click', pick);
     });
   }
 
-  bindAutocomplete(id){
-    const input = this.$(`#${id}`);
-    const box = this.$(`#ac-${id}`);
-    if(!input || !box) return;
-
+  bindAutocomplete(id, input) {
     let composing = false;
-    input.addEventListener('compositionstart', ()=>{ composing = true; });
-    input.addEventListener('compositionend', ()=>{ composing = false; });
+    input.addEventListener('compositionstart', () => { composing = true; });
+    input.addEventListener('compositionend', () => { composing = false; });
 
-    const search = this.debounce(async ()=>{
-      if(composing) return;
-      if(this.shadowRoot.activeElement !== input) return;
+    const debounced = this.debounce(async () => {
+      if (composing) return;
+      if (this.shadowRoot.activeElement !== input) return;
 
-      const q = (input.value||'').trim();
-      if(q.length < 3){ this.hideAc(id); return; }
+      const q = (input.value || '').trim();
+      if (q.length < 3) { this.hideAc(id); return; }
 
-      const hits = await this.tmdbSuggest(q, 8);
-      if(this.shadowRoot.activeElement !== input) return;
+      const hits = await tmdbSearch(q, 7);
+      if (this.shadowRoot.activeElement !== input) return;
 
-      this.showAc(id, hits, (pick)=>{
+      this.showAc(id, hits, (pick) => {
         input.value = pick.year ? `${pick.title} (${pick.year})` : pick.title;
-        input.dispatchEvent(new Event('input', {bubbles:true}));
-        input.dispatchEvent(new Event('change', {bubbles:true}));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
       });
     }, 420);
 
-    input.addEventListener('input', search);
-    input.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') this.hideAc(id); });
-    input.addEventListener('blur', ()=>{ setTimeout(()=>this.hideAc(id), 140); });
+    input.addEventListener('input', debounced);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.hideAc(id); });
+    input.addEventListener('blur', () => setTimeout(() => this.hideAc(id), 150));
   }
-});
+
+  debounce(fn, ms = 250) {
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+  }
+}
+
+customElements.define('film-wishlist', FilmWishlist);
