@@ -240,6 +240,13 @@ class FilmNow extends HTMLElement {
     return this.querySelector(sel);
   }
 
+  setJumpMsg(text = '') {
+    const el = this.$('#jumpMsg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.display = text ? 'block' : 'none';
+  }
+
   _canRun() {
     if (this._busy) return false;
     if (Date.now() < this._cooldownUntil) return false;
@@ -293,7 +300,6 @@ class FilmNow extends HTMLElement {
     const input = this.$('#suggested');
     if (input) {
       input.value = sug;
-      // Tillåt edit, men håll det lugnt: autocomplete dyker bara upp om man börjar skriva
       input.readOnly = false;
     }
 
@@ -309,11 +315,22 @@ class FilmNow extends HTMLElement {
     this.updateJumpOptions({ forceDefault: true });
   }
 
+  // Viktigt: listan ska börja på NÄSTA i tur (inte nuvarande),
+  // annars känns "Byt tur" som om den inte gör något.
   orderedTurnList() {
     const cur = (this.$('#picker')?.value || '').trim();
-    const idx = Math.max(0, PEOPLE.indexOf(cur));
+    const idx = PEOPLE.indexOf(cur);
+    if (idx < 0) {
+      // fallback: visa alla om vi inte vet vem som står på tur
+      return [...PEOPLE];
+    }
+
     const order = [];
-    for (let k = 0; k < PEOPLE.length; k++) order.push(PEOPLE[(idx + k) % PEOPLE.length]);
+    for (let k = 1; k <= PEOPLE.length; k++) {
+      const p = PEOPLE[(idx + k) % PEOPLE.length];
+      // exkludera nuvarande helt från dropdown (minskar “inget händer”-känslan)
+      if (p !== cur) order.push(p);
+    }
     return order;
   }
 
@@ -326,11 +343,13 @@ class FilmNow extends HTMLElement {
     const prev = (sel.value || '').trim();
     sel.innerHTML = order.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
 
+    // Default ska vara NÄSTA i tur
     let nextVal = order[0] || '';
     if (!forceDefault && preserveSelection && prev && order.includes(prev)) nextVal = prev;
     sel.value = nextVal;
 
-    btn.disabled = this.stepsToPerson(sel.value) === 0;
+    const steps = this.stepsToPerson(sel.value);
+    btn.disabled = !sel.value || steps === 0;
   }
 
   stepsToPerson(target) {
@@ -347,14 +366,17 @@ class FilmNow extends HTMLElement {
     if (!row) return;
     const open = row.style.display !== 'none';
     row.style.display = open ? 'none' : 'block';
+    this.setJumpMsg('');
     if (!open) this.updateJumpOptions({ preserveSelection: false, forceDefault: true });
   }
 
   async doSkipOne() {
     await this.runLocked(async () => {
+      this.setJumpMsg('Hoppar en…');
       await api('skipNext');
       this.resetScoresUI();
       await this.refresh();
+      this.setJumpMsg('');
     });
   }
 
@@ -365,11 +387,20 @@ class FilmNow extends HTMLElement {
     if (steps === 0) return;
 
     await this.runLocked(async () => {
+      // Direkt feedback + dubbeltrycksskydd (setBusy sker i runLocked)
+      this.setJumpMsg(`Byter till ${target}…`);
+
       for (let i = 0; i < steps; i++) await api('skipNext');
+
       this.resetScoresUI();
       await this.refresh();
+
+      // Stäng panel + bekräftelse
       const row = this.$('#advancedRow');
       if (row) row.style.display = 'none';
+
+      this.setJumpMsg(`Nu är det ${target} på tur.`);
+      setTimeout(() => this.setJumpMsg(''), 1800);
     });
   }
 
@@ -392,7 +423,6 @@ class FilmNow extends HTMLElement {
       await api('saveScores', { scores: JSON.stringify(this.getScoresPayload()) });
       await api('saveNight', { who, film, comment });
 
-      // Nollställ poäng och kommentar efter spar/hopp enligt krav
       this.resetScoresUI();
       const c = this.$('#comment');
       if (c) c.value = '';
@@ -428,8 +458,6 @@ class FilmNow extends HTMLElement {
       ? `<img class="thumb" src="${escapeHtml(data.Poster)}" alt="poster" loading="lazy" decoding="async">`
       : `<div class="thumb ph" aria-hidden="true"></div>`;
 
-    // Layout enligt önskemål:
-    // Rad 1: thumbnail (vänster), IMDb (mitten), streaming (höger)
     return `
       <div class="metaGrid">
         <div class="metaThumb">${poster}</div>
@@ -480,7 +508,6 @@ class FilmNow extends HTMLElement {
       row.innerHTML = pills;
       row.style.display = 'flex';
 
-      // Visa ungefär 2 rader (låg höjd) tills man fäller ut
       row.classList.add('collapsed');
 
       requestAnimationFrame(() => {
@@ -504,7 +531,6 @@ class FilmNow extends HTMLElement {
     toggle.onclick = async () => {
       if (!imdbID) return;
 
-      // Första klick = hämta + visa (som i gamla index)
       if (!loaded) {
         await loadOnce();
         return;
@@ -568,7 +594,6 @@ class FilmNow extends HTMLElement {
       show(items);
     }, 520);
 
-    // Visa autocomplete bara när användaren faktiskt skriver (lugnt)
     input.addEventListener('input', doSearch);
 
     input.addEventListener('keydown', (e) => {
@@ -611,7 +636,7 @@ class FilmNow extends HTMLElement {
 
     this.$('#jumpTo')?.addEventListener('change', () => {
       const t = (this.$('#jumpTo')?.value || '').trim();
-      this.$('#btnDoJump').disabled = this.stepsToPerson(t) === 0;
+      this.$('#btnDoJump').disabled = !t || this.stepsToPerson(t) === 0;
     });
 
     this.$('#btnDoJump')?.addEventListener('click', () => this.doJumpToSelected());
@@ -649,7 +674,6 @@ class FilmNow extends HTMLElement {
     this.innerHTML = `
       <div class="card" id="nowCard">
 
-        <!-- Rad 1: Filmväljare (vänster) + knappar (höger) -->
         <div class="topRow">
           <div class="topLeft">
             <h3 style="margin:0">På tur nu</h3>
@@ -668,7 +692,6 @@ class FilmNow extends HTMLElement {
           </div>
         </div>
 
-        <!-- Rad 2: film + sök (samma rad) -->
         <div class="row" style="margin-top:6px">
           <div class="col" style="flex:1 1 520px">
             <label>Film (förslag)</label>
@@ -680,10 +703,8 @@ class FilmNow extends HTMLElement {
           </div>
         </div>
 
-        <!-- Rad 3: thumb / IMDb / streaming -->
         <div id="suggested-info" class="omdb-info"></div>
 
-        <!-- Avancerat hoppa över-panel (välja nästa i tur) -->
         <div id="advancedRow" class="advancedRow" style="display:none">
           <div class="row" style="align-items:end">
             <div class="col" style="min-width:260px; flex:0 0 300px">
@@ -695,12 +716,12 @@ class FilmNow extends HTMLElement {
               <button id="btnSkipOne" class="ghost" style="margin-left:8px">Hoppa en</button>
             </div>
             <div class="col" style="flex:1 1 auto">
-              <div class="muted" style="font-size:12px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
+              <div id="jumpMsg" class="muted" style="font-size:12px; display:none"></div>
+              <div class="muted" style="font-size:12px; margin-top:4px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
             </div>
           </div>
         </div>
 
-        <!-- Poäng -->
         <div class="row" style="margin-top:14px">
           <div class="col" style="flex:1 1 100%">
             <label>Poäng</label>
@@ -740,7 +761,6 @@ class FilmNow extends HTMLElement {
 
         .omdb-info{margin-top:10px}
 
-        /* Meta layout: thumb left, IMDb in middle, streaming right */
         .metaGrid{
           display:grid;
           grid-template-columns:112px 1fr 1.6fr;
@@ -760,24 +780,20 @@ class FilmNow extends HTMLElement {
 
         .metaStream{align-self:start}
 
-        /* Streaming: 2 rader tills expand */
         .streamRow{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
         .streamRow.collapsed{max-height:86px; overflow:hidden}
         .streamToggle{margin-top:4px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted, #5b6475)}
 
-        /* Autocomplete */
         .ac-list{position:absolute; left:0; right:0; top:100%; z-index:50; background:var(--panel, #fff); border:1px solid var(--border, #dfe3ee); border-radius:12px; margin-top:6px; overflow:hidden}
         .ac-item{padding:10px 12px; cursor:pointer; border-top:1px solid var(--border, #dfe3ee); font-size:14px}
         .ac-item:first-child{border-top:none}
         .ac-item:hover{filter:brightness(1.03)}
         .ac-muted{color:var(--muted, #5b6475); font-size:12px}
 
-        /* Scores row */
         .scoresRow{display:flex; gap:10px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
         .score-col{min-width:100px; flex:1 1 0}
         .score-col select{padding:8px 10px; border-radius:10px; text-align:center; text-align-last:center}
 
-        /* Busy feel / dubbeltrycksskydd */
         button.is-busy{opacity:.55; cursor:not-allowed}
       </style>
     `;
