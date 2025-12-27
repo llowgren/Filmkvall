@@ -1,17 +1,81 @@
-/* styles.css */
+/* styles.css — theme via CSS variables
+   - Dark is default (:root)
+   - Light is html[data-theme="light"]
+   - Optional explicit dark: html[data-theme="dark"] (works too)
+*/
 
 :root{
+  /* ===== DARK (default) ===== */
+  --bg: #0b1220;
+  --card: #0f172a;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --border: #223049;
+  --shadow: 0 14px 40px rgba(0, 0, 0, .35);
+  --radius: 18px;
+
+  /* surfaces */
+  --control: #0b1220;     /* inputs/buttons */
+  --control2: #0b1324;    /* pre/secondary panels */
+  --controlHover: #0f1a33;
+
+  /* focus */
+  --focus: rgba(99, 102, 241, .22);
+  --focusBorder: #7c8cff;
+
+  /* accents */
+  --primary: #f3c84b;
+  --primaryText: #1b1b1b;
+
+  /* pills */
+  --pillBg: rgba(255,255,255,.06);
+  --pillOkBg: rgba(16,185,129,.12);
+  --pillOkText: #a7f3d0;
+  --pillErrBg: rgba(239,68,68,.12);
+  --pillErrText: #fecaca;
+
+  /* misc */
+  --link: #a5b4fc;
+  --linkHover: #c7d2fe;
+}
+
+html[data-theme="light"]{
+  /* ===== LIGHT ===== */
   --bg:#f4f7fb;
   --card:#ffffff;
   --text:#1f2937;
   --muted:#6b7280;
   --border:#e5e7eb;
   --shadow: 0 8px 24px rgba(15, 23, 42, .08);
-  --radius: 18px;
+
+  --control:#ffffff;
+  --control2:#f9fafb;
+  --controlHover:#f3f4f6;
+
+  --focus: rgba(99, 102, 241, .12);
+  --focusBorder: #b9c5ff;
+
+  --primary: #f3c84b;
+  --primaryText: #1b1b1b;
+
+  --pillBg: rgba(15,23,42,.06);
+  --pillOkBg: rgba(16,185,129,.14);
+  --pillOkText: #065f46;
+  --pillErrBg: rgba(239,68,68,.14);
+  --pillErrText: #7f1d1d;
+
+  --link: #4f46e5;
+  --linkHover: #4338ca;
+}
+
+/* Optional: if you ever set explicit dark attribute */
+html[data-theme="dark"]{
+  /* keep same as :root (no-op), but explicit for clarity */
 }
 
 *{ box-sizing:border-box; }
 html,body{ height:100%; }
+
 body{
   margin:0;
   background:var(--bg);
@@ -19,6 +83,9 @@ body{
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   line-height:1.35;
 }
+
+a{ color: var(--link); }
+a:hover{ color: var(--linkHover); }
 
 .wrap{
   max-width: 980px;
@@ -47,6 +114,18 @@ body{
   font-size: 15px;
 }
 
+.muted{ color:var(--muted); }
+
+/* Ensure custom elements behave like blocks */
+film-login,
+film-now,
+film-wishlist,
+film-tops,
+film-history,
+film-system{
+  display:block;
+}
+
 /* Cards */
 .card{
   background:var(--card);
@@ -66,80 +145,7 @@ body{
   margin: 0 0 10px 0;
 }
 
-.muted{ color:var(--muted); }
-
-/* Ensure custom elements behave like blocks */
-film-login,
-film-now,
-film-wishlist,
-film-tops,
-film-history,
-film-system{
-  display:block;
-}
-
-/* Form elements */
-label{
-  font-size: 14px;
-  color: var(--muted);
-}
-
-input[type="text"],
-input[type="search"],
-input[type="number"],
-select,
-textarea{
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 11px 12px;
-  background:#fff;
-  color: var(--text);
-  outline:none;
-}
-
-textarea{ min-height: 90px; resize: vertical; }
-
-input:focus,
-select:focus,
-textarea:focus{
-  border-color: #b9c5ff;
-  box-shadow: 0 0 0 4px rgba(99, 102, 241, .12);
-}
-
-/* Buttons */
-button{
-  appearance:none;
-  border:1px solid var(--border);
-  background:#fff;
-  color: var(--text);
-  border-radius: 999px;
-  padding: 9px 14px;
-  font-size: 15px;
-  cursor:pointer;
-}
-
-button:hover{ filter: brightness(.98); }
-button:active{ transform: translateY(1px); }
-
-button.primary{
-  border-color: transparent;
-  background: #f3c84b;
-  color:#1b1b1b;
-  padding: 10px 16px;
-  font-weight: 600;
-}
-
-button.ghost{
-  background:#fff;
-}
-
-button.small{
-  padding: 7px 12px;
-  font-size: 14px;
-}
-
-/* Small layout helpers */
+/* Layout helpers */
 .row{
   display:flex;
   gap: 12px;
@@ -158,15 +164,130 @@ button.small{
   gap: 10px;
 }
 
+/* Form elements */
+label{
+  font-size: 14px;
+  color: var(--muted);
+}
+
+input[type="text"],
+input[type="search"],
+input[type="number"],
+select,
+textarea{
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: var(--control);
+  color: var(--text);
+  outline:none;
+}
+
+textarea{ min-height: 90px; resize: vertical; }
+
+input::placeholder,
+textarea::placeholder{
+  color: color-mix(in oklab, var(--muted), transparent 30%);
+}
+
+input:focus,
+select:focus,
+textarea:focus{
+  border-color: var(--focusBorder);
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
+select{
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+/* Buttons */
+button{
+  appearance:none;
+  border:1px solid var(--border);
+  background: var(--control);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 15px;
+  cursor:pointer;
+}
+
+button:hover{ background: var(--controlHover); }
+button:active{ transform: translateY(1px); }
+
+button:disabled{
+  opacity: .65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+button.primary{
+  border-color: transparent;
+  background: var(--primary);
+  color: var(--primaryText);
+  padding: 10px 16px;
+  font-weight: 600;
+}
+
+button.ghost{
+  background: var(--control);
+}
+
+button.small{
+  padding: 7px 12px;
+  font-size: 14px;
+}
+
+/* Pills / status */
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--pillBg);
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill.ok{
+  background: var(--pillOkBg);
+  color: var(--pillOkText);
+  border-color: color-mix(in oklab, var(--pillOkText), var(--border) 80%);
+}
+
+.pill.err{
+  background: var(--pillErrBg);
+  color: var(--pillErrText);
+  border-color: color-mix(in oklab, var(--pillErrText), var(--border) 80%);
+}
+
+/* Pre / debug boxes */
 pre{
-  background: #f9fafb;
+  background: var(--control2);
   border: 1px dashed var(--border);
   border-radius: 14px;
   padding: 12px;
   overflow:auto;
+  color: var(--text);
 }
 
-/* Boot-card: göm om tom */
+/* Boot-card: hide if empty */
 #bootCard:empty{ display:none; }
 
 /* Mobile tweaks */
