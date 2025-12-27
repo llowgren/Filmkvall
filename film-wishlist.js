@@ -223,7 +223,7 @@ function ensureStyles() {
   .wl-stream-row.collapsed{max-height:72px; overflow:hidden}
   .wl-stream-toggle{margin-top:6px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted); float:right}
 
-  /* Autocomplete (återanvänder klasser från styles.css om de finns, men säkrar här också) */
+  /* Autocomplete */
   .ac-list{position:absolute; left:0; right:0; top:100%; z-index:60; background:var(--panel); border:1px solid var(--border); border-radius:12px; margin-top:6px; overflow:hidden}
   .ac-item{padding:10px 12px; cursor:pointer; border-top:1px solid var(--border); font-size:14px}
   .ac-item:first-child{border-top:none}
@@ -250,6 +250,21 @@ class FilmWishlist extends HTMLElement {
     this._autoTimer = null;
     this._lastSig = '';
     this._who = '';
+
+    // ✅ ny: skydd mot race conditions i load()
+    this._loadSeq = 0;
+
+    // ✅ ny: unsub-lista
+    this._unsubs = [];
+
+    // (behåll befintligt debounce-register)
+    this._acDebouncers = null;
+
+    // ✅ bindade handlers så vi kan städa
+    this._onDocClick = (e) => {
+      if (e.target?.closest?.('.wl-inputwrap')) return;
+      for (let i = 1; i <= 5; i++) this.hideAc(i);
+    };
   }
 
   connectedCallback() {
@@ -258,6 +273,15 @@ class FilmWishlist extends HTMLElement {
     this.bind();
     this.syncWhoFromStore();
     this.load({ useCache: true }).catch(() => this.setNote('Kunde inte hämta önskelista.'));
+  }
+
+  disconnectedCallback() {
+    for (const u of this._unsubs) {
+      try { typeof u === 'function' && u(); } catch { /* ignore */ }
+    }
+    this._unsubs = [];
+    document.removeEventListener('click', this._onDocClick);
+    clearTimeout(this._autoTimer);
   }
 
   render() {
@@ -363,20 +387,14 @@ class FilmWishlist extends HTMLElement {
     }
 
     // Klick utanför => stäng autocomplete
-    document.addEventListener('click', (e) => {
-      if (e.target?.closest?.('.wl-inputwrap')) return;
-      for (let i = 1; i <= 5; i++) this.hideAc(i);
-    });
+    document.addEventListener('click', this._onDocClick);
 
-    // Store: who
-    const onWho = Store.on || Store.subscribe || null;
-    if (typeof onWho === 'function') {
-      // store.js (vår) har on(key, fn)
+    // ✅ Store: who (robust)
+    // Förväntat: Store.on('who', fn) returnerar unsubscribe (eller inte)
+    if (typeof Store.on === 'function') {
       try {
-        if (onWho.length >= 2) {
-          // Store.on('who', fn)
-          Store.on('who', (who) => this.onWhoChange(who));
-        }
+        const unsub = Store.on('who', (who) => this.onWhoChange(who));
+        if (typeof unsub === 'function') this._unsubs.push(unsub);
       } catch { /* ignore */ }
     }
   }
@@ -392,14 +410,16 @@ class FilmWishlist extends HTMLElement {
     }
 
     this._who = who;
-    this.querySelector('#wlWho').textContent = who;
+    const el = this.querySelector('#wlWho');
+    if (el) el.textContent = who;
     this._lastSig = this.sig();
   }
 
   onWhoChange(who) {
     if (!who || who === this._who) return;
     this._who = who;
-    this.querySelector('#wlWho').textContent = who;
+    const el = this.querySelector('#wlWho');
+    if (el) el.textContent = who;
     this._lastSig = this.sig();
     this.load({ useCache: true }).catch(() => this.setNote('Kunde inte hämta önskelista.'));
   }
@@ -415,11 +435,17 @@ class FilmWishlist extends HTMLElement {
     this.syncWhoFromStore();
     const who = this._who;
 
+    // ✅ ny: bump seq och bind "denna load"
+    const seq = ++this._loadSeq;
+
     const cacheKey = `wl_v2_${who}`;
     if (useCache) {
       const cached = lsGet(cacheKey, null);
       if (cached?.data?.ok) {
-        this.applyWishlist(cached.data);
+        // bara applicera om vi fortfarande är “latest”
+        if (seq === this._loadSeq && who === this._who) {
+          this.applyWishlist(cached.data);
+        }
         // fortsätt i bakgrunden
         this.load({ useCache: false }).catch(() => {});
         return;
@@ -427,6 +453,10 @@ class FilmWishlist extends HTMLElement {
     }
 
     const j = await callApi('getWishlist', { person: who });
+
+    // ✅ ignorera om användaren hann bytas eller nyare load startade
+    if (seq !== this._loadSeq || who !== this._who) return;
+
     if (!j?.ok) {
       this.setNote(j?.error || 'Kunde inte hämta önskelista.');
       return;
@@ -648,11 +678,8 @@ class FilmWishlist extends HTMLElement {
       return `<a ${href} class="pill" style="text-decoration:none">${esc(label)} (ingår)</a>`;
     }).join('');
 
-    // Vi kör alltid två-rader-kollaps + toggle om det behövs.
-    // Toggle styrs av scrollHeight efter render (liten hack: vi returnerar HTML med knapp och init efter paint)
     const uid = `wl_stream_${Math.random().toString(16).slice(2)}`;
 
-    // Init-script: sätt toggle visibility + klick
     queueMicrotask(() => {
       const host = this.querySelector(`[data-stream-uid="${uid}"]`);
       if (!host) return;
@@ -672,7 +699,6 @@ class FilmWishlist extends HTMLElement {
         update();
       });
 
-      // ifall font/laddning ändrar höjd
       setTimeout(update, 60);
     });
 
@@ -738,7 +764,6 @@ class FilmWishlist extends HTMLElement {
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
         this.hideAc(i);
-        // rendera meta lugnt
         this.lookupAndRender(i, { withStreaming: true }).catch(() => {});
       };
 
