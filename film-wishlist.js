@@ -1,11 +1,11 @@
 // film-wishlist.js
 // <film-wishlist> – Önskelista (1–5)
-// Förbättringar i denna version:
-// - Mycket bättre “hitta rätt film”: OMDb söker först (&s) och väljer bästa träff, sen hämtar detaljer via imdbID (&i)
-// - Normalisering (The/A/An, skiljetecken, extra mellanslag) + enkel scoring mot titel/år
-// - Fallback: TMDb-autocomplete kan användas som “hint” vid sök (om användaren valt en titel därifrån blir träffen nästan alltid rätt)
-// - Sök-knappar disable: undviker dubbelklick och race
-// - Lite bättre cache-nycklar (inkl år) och försiktigare lagring
+//
+// Ändringar i denna version:
+// ✅ Autocomplete skriver INTE in årtal i input (bara titel)
+// ✅ Autocomplete visar fortfarande år i listan (muted)
+// ✅ Robust tolkning av "Titel (1985)" och "Titel 1985" vid lookup (OMDb)
+// ✅ Hint från TMDb används för bättre OMDb-träff, utan att år hamnar i input
 
 import * as Store from './store.js';
 import * as Api from './api.js';
@@ -33,8 +33,6 @@ function lsGet(key, fallback = null) {
 function lsSet(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ }
 }
-
-function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
 // ---------- API wrapper (tålig mot olika export-namn) ----------
 async function callApi(action, params = {}) {
@@ -64,32 +62,45 @@ function splitTitleAndYear(raw) {
   let q = String(raw || '').trim();
   if (!q) return { title: '', year: '' };
 
-  // stöd: "Titel (ÅÅÅÅ)"
   let year = '';
-  const m = q.match(/\((\d{4})\)\s*$/);
+
+  // 1) "Titel (1985)"
+  let m = q.match(/\((\d{4})\)\s*$/);
   if (m) {
     year = m[1];
     q = q.replace(/\s*\(\d{4}\)\s*$/, '').trim();
+  } else {
+    // 2) "Titel 1985" (eller "Titel - 1985")
+    m = q.match(/(?:\s|^)(\d{4})\s*$/);
+    if (m) {
+      const y = m[1];
+      const yn = Number(y);
+      if (yn >= 1870 && yn <= 2100) {
+        year = y;
+        q = q.replace(/(?:\s|^)\d{4}\s*$/, '').trim();
+      }
+    }
   }
+
+  // städa bort avslutande separators
+  q = q.replace(/[\s\-–—:,.]+$/g, '').trim();
+
   return { title: q, year };
 }
 
 function normalizeTitle(s) {
-  // enkel, men effektiv för jämförelse/scoring
   let t = String(s || '').toLowerCase().trim();
-  t = t.normalize('NFKD').replace(/[\u0300-\u036f]/g, ''); // ta bort accenter
+  t = t.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
   t = t.replace(/['’`]/g, '');
   t = t.replace(/[^a-z0-9]+/g, ' ').trim();
   t = t.replace(/\s+/g, ' ');
-  // droppa inledande artiklar
   t = t.replace(/^(the|a|an)\s+/i, '');
   return t;
 }
 
 function tokenSet(s) {
   const n = normalizeTitle(s);
-  if (!n) return new Set();
-  return new Set(n.split(' ').filter(Boolean));
+  return new Set(n ? n.split(' ').filter(Boolean) : []);
 }
 
 function jaccard(aSet, bSet) {
@@ -178,7 +189,6 @@ function pickBestOmdbHit(searchResults, wantedTitle, wantedYear = '') {
     const candTokens = tokenSet(t);
     const candNorm = normalizeTitle(t);
 
-    // score komponenter
     const sim = jaccard(wantTokens, candTokens); // 0..1
     const prefixBoost = (candNorm.startsWith(wantNorm) || wantNorm.startsWith(candNorm)) ? 0.12 : 0;
     const exactBoost = (candNorm === wantNorm) ? 0.25 : 0;
@@ -188,7 +198,6 @@ function pickBestOmdbHit(searchResults, wantedTitle, wantedYear = '') {
       const dy = Math.abs(Number(y) - wantYearNum);
       yearBoost = dy === 0 ? 0.22 : dy <= 1 ? 0.12 : dy <= 2 ? 0.06 : 0;
     } else if (!wantedYear) {
-      // om vi inte vet år: liten boost för 4-siffrigt år (inte tv-serier etc)
       yearBoost = /^\d{4}$/.test(String(y)) ? 0.03 : 0;
     }
 
@@ -200,7 +209,6 @@ function pickBestOmdbHit(searchResults, wantedTitle, wantedYear = '') {
     }
   }
 
-  // kräver “tillräckligt bra” matchning om det finns många
   if (!best) return null;
   if (bestScore < 0.25 && (searchResults?.length || 0) >= 3) return null;
   return best;
@@ -213,14 +221,13 @@ async function omdbBestMatch(rawQuery, tmdbHint = null) {
   const { title, year } = splitTitleAndYear(rawQuery);
   if (!title) return null;
 
-  // Cache: normaliserad titel + år (om finns)
-  const cacheKey = `omdb_best_v2_${normalizeTitle(title)}_${year || '----'}`;
+  const cacheKey = `omdb_best_v3_${normalizeTitle(title)}_${year || '----'}`;
   const cached = lsGet(cacheKey, null);
-  if (cached?.savedAt && (Date.now() - cached.savedAt) < 30 * 24 * 3600_000 && cached?.data) {
-    return cached.data;
+  if (cached?.savedAt && (Date.now() - cached.savedAt) < 30 * 24 * 3600_000) {
+    return cached.data ?? null;
   }
 
-  // 0) Om vi har TMDb-hint (t.ex. från autocomplete): prova först med exakt titel+år
+  // 0) hint (autocomplete) först
   if (tmdbHint?.title) {
     const d0 = await omdbLookupByTitleExactish(tmdbHint.title, tmdbHint.year || year);
     if (d0?.imdbID) {
@@ -229,7 +236,7 @@ async function omdbBestMatch(rawQuery, tmdbHint = null) {
     }
   }
 
-  // 1) OMDb search (&s) – bästa träff -> detaljer (&i)
+  // 1) search -> best -> details
   const list1 = await omdbSearchList(title, 1);
   if (list1?.length) {
     const best = pickBestOmdbHit(list1, title, year);
@@ -242,30 +249,20 @@ async function omdbBestMatch(rawQuery, tmdbHint = null) {
     }
   }
 
-  // 2) fallback: prova “exakt-ish” med title (och ev år)
-  //    + prova droppa inledande "the " i råsträngen om användaren skrev den
+  // 2) fallback: exact-ish title
   const d1 = await omdbLookupByTitleExactish(title, year);
   if (d1?.imdbID) {
     lsSet(cacheKey, { savedAt: Date.now(), data: d1 });
     return d1;
   }
 
+  // 3) droppa artikel
   const title2 = String(title).replace(/^(the|a|an)\s+/i, '').trim();
   if (title2 && title2 !== title) {
     const d2 = await omdbLookupByTitleExactish(title2, year);
     if (d2?.imdbID) {
       lsSet(cacheKey, { savedAt: Date.now(), data: d2 });
       return d2;
-    }
-  }
-
-  // 3) sista fallback: sök på en “renare” titel (ta bort småord i mitten gör vi inte; det blir för aggressivt)
-  const clean = normalizeTitle(title);
-  if (clean && clean !== normalizeTitle(title2)) {
-    const d3 = await omdbLookupByTitleExactish(clean, year);
-    if (d3?.imdbID) {
-      lsSet(cacheKey, { savedAt: Date.now(), data: d3 });
-      return d3;
     }
   }
 
@@ -360,7 +357,6 @@ function ensureStyles() {
   const s = document.createElement('style');
   s.id = 'filmWishlistStyles';
   s.textContent = `
-  /* Wishlist layout */
   .wishlist-head{display:flex; align-items:flex-start; gap:12px; justify-content:space-between}
   .wishlist-head-left{display:flex; flex-direction:column; gap:2px}
   .wishlist-actions{display:flex; gap:10px; align-items:center}
@@ -388,11 +384,9 @@ function ensureStyles() {
   .wl-stream{margin-left:auto; max-width:520px}
   .wl-stream strong{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
   .wl-stream-row{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end}
-  /* två rader synliga, resten dolt */
   .wl-stream-row.collapsed{max-height:72px; overflow:hidden}
   .wl-stream-toggle{margin-top:6px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted); float:right}
 
-  /* Autocomplete */
   .ac-list{position:absolute; left:0; right:0; top:100%; z-index:60; background:var(--panel); border:1px solid var(--border); border-radius:12px; margin-top:6px; overflow:hidden}
   .ac-item{padding:10px 12px; cursor:pointer; border-top:1px solid var(--border); font-size:14px}
   .ac-item:first-child{border-top:none}
@@ -424,10 +418,10 @@ class FilmWishlist extends HTMLElement {
     this._unsubs = [];
     this._acDebouncers = null;
 
-    // hint per rad (från autocomplete) för att förbättra OMDb-matchningen
+    // ✅ hint per rad (autocomplete) – används i lookup, men skrivs INTE in i input
     this._hints = { 1: null, 2: null, 3: null, 4: null, 5: null };
 
-    // per-rad lookup seq för att undvika att “gamla” svar skriver över nya
+    // per rad lookup seq (race-skydd)
     this._lookupSeq = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
     this._onDocClick = (e) => {
@@ -505,11 +499,9 @@ class FilmWishlist extends HTMLElement {
   }
 
   bind() {
-    // Buttons
     this.querySelector('#wlLoad')?.addEventListener('click', () => this.load({ useCache: false }));
     this.querySelector('#wlSave')?.addEventListener('click', () => this.save({ manual: true }));
 
-    // Move
     this.addEventListener('click', (e) => {
       const btn = e.target?.closest?.('[data-move][data-i]');
       if (!btn) return;
@@ -519,12 +511,10 @@ class FilmWishlist extends HTMLElement {
       if (dir === 'down') this.swap(i, i + 1);
     });
 
-    // Search (disable under async)
     this.addEventListener('click', async (e) => {
       const btn = e.target?.closest?.('[data-search]');
       if (!btn) return;
       const i = Number(btn.getAttribute('data-search'));
-
       btn.disabled = true;
       const t0 = btn.textContent;
       btn.textContent = '…';
@@ -536,7 +526,6 @@ class FilmWishlist extends HTMLElement {
       }
     });
 
-    // Inputs: autosave lugnt + autocomplete
     for (let i = 1; i <= 5; i++) {
       const inp = this.querySelector(`#wl-${i}`);
       if (!inp) continue;
@@ -545,8 +534,7 @@ class FilmWishlist extends HTMLElement {
         this.scheduleAutoSave('skriver');
         this.scheduleAutocomplete(i);
 
-        // Om användaren börjar skriva manuellt: släpp hint (annars kan gammal hint styra för hårt)
-        // Vi behåller hint om input matchar hintens titel prefix.
+        // om användaren skriver manuellt: släpp hint om den inte längre matchar
         const h = this._hints[i];
         if (h?.title) {
           const v = String(inp.value || '').trim();
@@ -576,7 +564,6 @@ class FilmWishlist extends HTMLElement {
 
     document.addEventListener('click', this._onDocClick);
 
-    // Store: who
     if (typeof Store.on === 'function') {
       try {
         const unsub = Store.on('who', (who) => this.onWhoChange(who));
@@ -615,12 +602,10 @@ class FilmWishlist extends HTMLElement {
     if (el) el.textContent = msg || '';
   }
 
-  // ----- load/save -----
   async load({ useCache = true } = {}) {
     this.setNote('');
     this.syncWhoFromStore();
     const who = this._who;
-
     const seq = ++this._loadSeq;
 
     const cacheKey = `wl_v2_${who}`;
@@ -636,7 +621,6 @@ class FilmWishlist extends HTMLElement {
     }
 
     const j = await callApi('getWishlist', { person: who });
-
     if (seq !== this._loadSeq || who !== this._who) return;
 
     if (!j?.ok) {
@@ -707,7 +691,6 @@ class FilmWishlist extends HTMLElement {
     }
   }
 
-  // ----- autosave -----
   sig() {
     const who = this._who || '';
     const v = (i) => (this.querySelector(`#wl-${i}`)?.value || '').trim();
@@ -732,7 +715,6 @@ class FilmWishlist extends HTMLElement {
     this.save({ manual: false });
   }
 
-  // ----- reorder -----
   updateMoveButtons() {
     for (let i = 1; i <= 5; i++) {
       const up = this.querySelector(`[data-move="up"][data-i="${i}"]`);
@@ -753,7 +735,6 @@ class FilmWishlist extends HTMLElement {
     a.value = b.value;
     b.value = tmp;
 
-    // flytta hintar också
     const ht = this._hints[i];
     this._hints[i] = this._hints[j];
     this._hints[j] = ht;
@@ -768,7 +749,6 @@ class FilmWishlist extends HTMLElement {
     this.scheduleAutoSave();
   }
 
-  // ----- meta rendering -----
   clearMeta(i) {
     const box = this.querySelector(`#wl-meta-${i}`);
     if (box) box.style.display = 'none';
@@ -789,7 +769,6 @@ class FilmWishlist extends HTMLElement {
     const mySeq = ++this._lookupSeq[i];
     const hint = this._hints[i];
 
-    // Visa “hämtar…” tidigt
     const box = this.querySelector(`#wl-meta-${i}`);
     if (box) {
       box.style.display = 'grid';
@@ -799,13 +778,10 @@ class FilmWishlist extends HTMLElement {
       if (stream) stream.innerHTML = '';
     }
 
-    // Bättre matchning: OMDb best-match (search -> pick -> details)
     const data = await omdbBestMatch(q, hint);
 
-    // Om användaren hann skriva nytt: avbryt
     if (mySeq !== this._lookupSeq[i]) return;
-    if ((input?.value || '').trim() !== q) return;
-
+    if (((input?.value || '').trim()) !== q) return;
     if (!box) return;
 
     if (!data) {
@@ -820,7 +796,6 @@ class FilmWishlist extends HTMLElement {
       return;
     }
 
-    // poster
     const poster = this.querySelector(`#wl-poster-${i}`);
     const hasPoster = data.Poster && data.Poster !== 'N/A';
     if (poster) {
@@ -828,7 +803,6 @@ class FilmWishlist extends HTMLElement {
       poster.style.display = hasPoster ? 'block' : 'none';
     }
 
-    // imdb block
     const imdb = this.querySelector(`#wl-imdb-${i}`);
     const title = esc(data.Title || q);
     const year = esc(data.Year || '');
@@ -842,7 +816,6 @@ class FilmWishlist extends HTMLElement {
       `;
     }
 
-    // streaming
     const stream = this.querySelector(`#wl-stream-${i}`);
     if (stream) {
       if (!withStreaming || !data.imdbID || !watchmodeKey()) {
@@ -851,9 +824,8 @@ class FilmWishlist extends HTMLElement {
         stream.innerHTML = `<strong>Tillgängligt i abonnemang (globalt):</strong><div class="muted" style="font-size:12px">hämtar…</div>`;
         const options = await getStreamingInfo(data.imdbID);
 
-        // avbryt om användaren hann skriva nytt
         if (mySeq !== this._lookupSeq[i]) return;
-        if ((input?.value || '').trim() !== q) return;
+        if (((input?.value || '').trim()) !== q) return;
 
         stream.innerHTML = this.renderStreaming(options);
       }
@@ -960,13 +932,14 @@ class FilmWishlist extends HTMLElement {
         const idx = Number(el.getAttribute('data-i'));
         const it = items[idx];
 
-        // spara hint för bättre OMDb-träff
+        // ✅ spara hint (inkl år) men skriv bara TITEL i input
         this._hints[i] = it?.title ? { title: it.title, year: it.year || '' } : null;
 
-        input.value = it.year ? `${it.title} (${it.year})` : it.title;
+        input.value = it?.title || '';
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
         this.hideAc(i);
+
         this.lookupAndRender(i, { withStreaming: true }).catch(() => {});
       };
 
