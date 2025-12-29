@@ -2,6 +2,7 @@
 // <film-wishlist> – Önskelista (1–5)
 //
 // Ändringar i denna version:
+// ✅ Mobilfix: på smal skärm stackas wl-top så ▲▼ inte hamnar utanför (ingen horisontell scroll)
 // ✅ Autocomplete skriver INTE in årtal i input (bara titel)
 // ✅ Autocomplete visar fortfarande år i listan (muted)
 // ✅ Robust tolkning av "Titel (1985)" och "Titel 1985" vid lookup (OMDb)
@@ -15,9 +16,14 @@ import { getMovieTokens } from './film-login.js';
 const PEOPLE = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
 const $$ = (root, sel) => Array.from(root.querySelectorAll(sel));
 const $ = (root, sel) => root.querySelector(sel);
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-}[m]));
+const esc = (s) =>
+  String(s ?? '').replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[m]));
 
 function debounce(fn, ms = 350) {
   let t;
@@ -28,10 +34,18 @@ function debounce(fn, ms = 350) {
 }
 
 function lsGet(key, fallback = null) {
-  try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; }
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 function lsSet(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch {
+    /* ignore */
+  }
 }
 
 // ---------- API wrapper (tålig mot olika export-namn) ----------
@@ -51,11 +65,21 @@ async function callApi(action, params = {}) {
 
 // ---------- Token helpers ----------
 function tokens() {
-  try { return getMovieTokens() || {}; } catch { return {}; }
+  try {
+    return getMovieTokens() || {};
+  } catch {
+    return {};
+  }
 }
-function tmdbKey() { return tokens()?.tmdb || ''; }
-function omdbKey() { return tokens()?.omdb || ''; }
-function watchmodeKey() { return tokens()?.watchmode || ''; }
+function tmdbKey() {
+  return tokens()?.tmdb || '';
+}
+function omdbKey() {
+  return tokens()?.omdb || '';
+}
+function watchmodeKey() {
+  return tokens()?.watchmode || '';
+}
 
 // ---------- Query-normalisering ----------
 function splitTitleAndYear(raw) {
@@ -119,14 +143,16 @@ async function tmdbSearchMovies(query, limit = 8) {
   const q = (query || '').trim();
   if (q.length < 2) return [];
 
-  const url = `${TMDB_URL}/search/movie?api_key=${encodeURIComponent(key)}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`;
+  const url = `${TMDB_URL}/search/movie?api_key=${encodeURIComponent(
+    key
+  )}&language=sv-SE&include_adult=false&query=${encodeURIComponent(q)}`;
   const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
   if (!r || !r.ok) return [];
   const j = await r.json().catch(() => null);
   const res = Array.isArray(j?.results) ? j.results : [];
-  return res.slice(0, limit).map(it => ({
+  return res.slice(0, limit).map((it) => ({
     title: it.title || it.original_title || '',
-    year: (it.release_date || '').slice(0, 4) || ''
+    year: (it.release_date || '').slice(0, 4) || '',
   }));
 }
 
@@ -136,7 +162,9 @@ const OMDB_URL = 'https://www.omdbapi.com/';
 async function omdbGetByImdbId(imdbID) {
   const key = omdbKey();
   if (!key || !imdbID) return null;
-  const u = `${OMDB_URL}?apikey=${encodeURIComponent(key)}&i=${encodeURIComponent(imdbID)}&plot=short`;
+  const u = `${OMDB_URL}?apikey=${encodeURIComponent(
+    key
+  )}&i=${encodeURIComponent(imdbID)}&plot=short`;
   const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
   if (!r || !r.ok) return null;
   const j = await r.json().catch(() => null);
@@ -150,7 +178,11 @@ async function omdbLookupByTitleExactish(title, year = '') {
   const t = String(title || '').trim();
   if (!t) return null;
 
-  const u = `${OMDB_URL}?apikey=${encodeURIComponent(key)}&t=${encodeURIComponent(t)}${year ? `&y=${encodeURIComponent(year)}` : ''}&type=movie&plot=short`;
+  const u = `${OMDB_URL}?apikey=${encodeURIComponent(
+    key
+  )}&t=${encodeURIComponent(t)}${
+    year ? `&y=${encodeURIComponent(year)}` : ''
+  }&type=movie&plot=short`;
   const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
   if (!r || !r.ok) return null;
   const j = await r.json().catch(() => null);
@@ -164,7 +196,9 @@ async function omdbSearchList(title, page = 1) {
   const t = String(title || '').trim();
   if (!t) return null;
 
-  const u = `${OMDB_URL}?apikey=${encodeURIComponent(key)}&s=${encodeURIComponent(t)}&type=movie&page=${encodeURIComponent(page)}`;
+  const u = `${OMDB_URL}?apikey=${encodeURIComponent(
+    key
+  )}&s=${encodeURIComponent(t)}&type=movie&page=${encodeURIComponent(page)}`;
   const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
   if (!r || !r.ok) return null;
   const j = await r.json().catch(() => null);
@@ -180,7 +214,7 @@ function pickBestOmdbHit(searchResults, wantedTitle, wantedYear = '') {
   let best = null;
   let bestScore = -1;
 
-  for (const it of (searchResults || [])) {
+  for (const it of searchResults || []) {
     const t = it?.Title || '';
     const y = it?.Year || '';
     const imdbID = it?.imdbID || '';
@@ -190,8 +224,9 @@ function pickBestOmdbHit(searchResults, wantedTitle, wantedYear = '') {
     const candNorm = normalizeTitle(t);
 
     const sim = jaccard(wantTokens, candTokens); // 0..1
-    const prefixBoost = (candNorm.startsWith(wantNorm) || wantNorm.startsWith(candNorm)) ? 0.12 : 0;
-    const exactBoost = (candNorm === wantNorm) ? 0.25 : 0;
+    const prefixBoost =
+      candNorm.startsWith(wantNorm) || wantNorm.startsWith(candNorm) ? 0.12 : 0;
+    const exactBoost = candNorm === wantNorm ? 0.25 : 0;
 
     let yearBoost = 0;
     if (wantedYear && /^\d{4}$/.test(String(y))) {
@@ -223,7 +258,7 @@ async function omdbBestMatch(rawQuery, tmdbHint = null) {
 
   const cacheKey = `omdb_best_v3_${normalizeTitle(title)}_${year || '----'}`;
   const cached = lsGet(cacheKey, null);
-  if (cached?.savedAt && (Date.now() - cached.savedAt) < 30 * 24 * 3600_000) {
+  if (cached?.savedAt && Date.now() - cached.savedAt < 30 * 24 * 3600_000) {
     return cached.data ?? null;
   }
 
@@ -281,21 +316,29 @@ async function wmTitleIdFromImdb(imdbID) {
   if (!key || !imdbID) return null;
 
   try {
-    const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(key)}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
+    const u1 = `https://api.watchmode.com/v1/find/?apiKey=${encodeURIComponent(
+      key
+    )}&source=imdb&external_id=${encodeURIComponent(imdbID)}`;
     let r = await fetch(u1, { cache: 'no-store' });
     if (r.ok) {
       const j = await r.json();
       if (j?.title_id) return j.title_id;
     }
 
-    const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(key)}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
+    const u2 = `https://api.watchmode.com/v1/search/?apiKey=${encodeURIComponent(
+      key
+    )}&search_field=imdb_id&search_value=${encodeURIComponent(imdbID)}`;
     r = await fetch(u2, { cache: 'no-store' });
     if (r.ok) {
       const j = await r.json();
-      const hit = Array.isArray(j?.title_results) ? j.title_results.find(t => String(t.imdb_id) === String(imdbID)) : null;
+      const hit = Array.isArray(j?.title_results)
+        ? j.title_results.find((t) => String(t.imdb_id) === String(imdbID))
+        : null;
       if (hit?.id) return hit.id;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   return null;
 }
@@ -308,7 +351,11 @@ async function getStreamingInfo(imdbID) {
   const cacheKey = `wm_sources_v1_${imdbID}`;
   const cached = lsGet(cacheKey, null);
   const now = Date.now();
-  if (cached?.savedAt && (now - cached.savedAt) < 7 * 24 * 3600_000 && Array.isArray(cached?.data)) {
+  if (
+    cached?.savedAt &&
+    now - cached.savedAt < 7 * 24 * 3600_000 &&
+    Array.isArray(cached?.data)
+  ) {
     return cached.data;
   }
 
@@ -316,33 +363,40 @@ async function getStreamingInfo(imdbID) {
     const wmId = await wmTitleIdFromImdb(imdbID);
     if (!wmId) return null;
 
-    const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${encodeURIComponent(key)}`;
+    const url = `https://api.watchmode.com/v1/title/${wmId}/sources/?apiKey=${encodeURIComponent(
+      key
+    )}`;
     const r = await fetch(url, { cache: 'no-store' });
     if (!r.ok) return null;
     const data = await r.json();
     if (!Array.isArray(data)) return null;
 
     const seen = new Set();
-    const normalizeName = (s) => String(s || '')
-      .replace(/\s*$begin:math:text$with Ads$end:math:text$$/i, '')
-      .replace(/\s+HD$/i, '')
-      .trim();
+    const normalizeName = (s) =>
+      String(s || '')
+        .replace(/\s*with Ads$/i, '')
+        .replace(/\s+HD$/i, '')
+        .trim();
 
     const filtered = data
-      .filter(s => s.type === 'sub' && s.name)
-      .map(s => ({
+      .filter((s) => s.type === 'sub' && s.name)
+      .map((s) => ({
         service: normalizeName(s.name),
-        quality: (s.format === '4K' || s.format === 'HD') ? s.format : '',
+        quality: s.format === '4K' || s.format === 'HD' ? s.format : '',
         region: s.region || '',
-        link: s.web_url || ''
+        link: s.web_url || '',
       }))
-      .filter(s => {
+      .filter((s) => {
         const k = `${s.service}|${s.quality}|${s.region}`;
         if (seen.has(k)) return false;
         seen.add(k);
         return true;
       })
-      .sort((a, b) => (a.service + a.region + a.quality).localeCompare(b.service + b.region + b.quality));
+      .sort((a, b) =>
+        (a.service + a.region + a.quality).localeCompare(
+          b.service + b.region + b.quality
+        )
+      );
 
     lsSet(cacheKey, { savedAt: now, data: filtered });
     return filtered.length ? filtered : null;
@@ -400,6 +454,33 @@ function ensureStyles() {
     .wl-stream{max-width:none}
     .wl-stream-row{justify-content:flex-start}
     .wl-stream-toggle{float:none}
+
+    /* ✅ Mobilfix: wl-top ska inte tvinga in ▲▼ på samma rad som input */
+    .wl-top{
+      grid-template-columns: 1fr;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .wl-num{
+      width:auto;
+      font-size:12px;
+    }
+    .wl-inputline{
+      width:100%;
+    }
+    .wl-inputline button{
+      flex:0 0 auto;
+      white-space:nowrap;
+    }
+    .wl-controls{
+      justify-content:flex-end;
+    }
+    .wl-controls button{
+      width:40px;
+      height:40px;
+      border-radius:12px;
+      font-size:16px;
+    }
   }
   `;
   document.head.appendChild(s);
@@ -440,7 +521,11 @@ class FilmWishlist extends HTMLElement {
 
   disconnectedCallback() {
     for (const u of this._unsubs) {
-      try { typeof u === 'function' && u(); } catch { /* ignore */ }
+      try {
+        typeof u === 'function' && u();
+      } catch {
+        /* ignore */
+      }
     }
     this._unsubs = [];
     document.removeEventListener('click', this._onDocClick);
@@ -568,7 +653,9 @@ class FilmWishlist extends HTMLElement {
       try {
         const unsub = Store.on('who', (who) => this.onWhoChange(who));
         if (typeof unsub === 'function') this._unsubs.push(unsub);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -709,7 +796,7 @@ class FilmWishlist extends HTMLElement {
     if (!s || s === this._lastSig) return;
 
     const parts = s.split('␟').slice(1);
-    const hasAny = parts.some(x => x && x.length);
+    const hasAny = parts.some((x) => x && x.length);
     if (!hasAny) return;
 
     this.save({ manual: false });
@@ -743,8 +830,10 @@ class FilmWishlist extends HTMLElement {
 
     const va = a.value.trim();
     const vb = b.value.trim();
-    if (va) this.lookupAndRender(i, { withStreaming: true }).catch(() => {}); else this.clearMeta(i);
-    if (vb) this.lookupAndRender(j, { withStreaming: true }).catch(() => {}); else this.clearMeta(j);
+    if (va) this.lookupAndRender(i, { withStreaming: true }).catch(() => {});
+    else this.clearMeta(i);
+    if (vb) this.lookupAndRender(j, { withStreaming: true }).catch(() => {});
+    else this.clearMeta(j);
 
     this.scheduleAutoSave();
   }
@@ -781,7 +870,7 @@ class FilmWishlist extends HTMLElement {
     const data = await omdbBestMatch(q, hint);
 
     if (mySeq !== this._lookupSeq[i]) return;
-    if (((input?.value || '').trim()) !== q) return;
+    if ((input?.value || '').trim() !== q) return;
     if (!box) return;
 
     if (!data) {
@@ -825,7 +914,7 @@ class FilmWishlist extends HTMLElement {
         const options = await getStreamingInfo(data.imdbID);
 
         if (mySeq !== this._lookupSeq[i]) return;
-        if (((input?.value || '').trim()) !== q) return;
+        if ((input?.value || '').trim() !== q) return;
 
         stream.innerHTML = this.renderStreaming(options);
       }
@@ -839,15 +928,13 @@ class FilmWishlist extends HTMLElement {
       return `<strong>Tillgängligt i abonnemang (globalt):</strong><div class="muted" style="font-size:12px">Inget abonnemang hittades just nu.</div>`;
     }
 
-    const pills = options.map(opt => {
-      const label = [
-        opt.service,
-        opt.quality ? ` ${opt.quality}` : '',
-        opt.region ? ` · ${opt.region}` : ''
-      ].join('');
-      const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
-      return `<a ${href} class="pill" style="text-decoration:none">${esc(label)} (ingår)</a>`;
-    }).join('');
+    const pills = options
+      .map((opt) => {
+        const label = [opt.service, opt.quality ? ` ${opt.quality}` : '', opt.region ? ` · ${opt.region}` : ''].join('');
+        const href = opt.link ? `href="${opt.link}" target="_blank" rel="noopener"` : '';
+        return `<a ${href} class="pill" style="text-decoration:none">${esc(label)} (ingår)</a>`;
+      })
+      .join('');
 
     const uid = `wl_stream_${Math.random().toString(16).slice(2)}`;
 
@@ -892,7 +979,10 @@ class FilmWishlist extends HTMLElement {
     if (!this._acDebouncers[i]) {
       this._acDebouncers[i] = debounce(async () => {
         const q = (input.value || '').trim();
-        if (q.length < 2) { this.hideAc(i); return; }
+        if (q.length < 2) {
+          this.hideAc(i);
+          return;
+        }
         const hits = await tmdbSearchMovies(q, 8);
         if (document.activeElement !== input) return;
         this.showAc(i, hits);
@@ -918,14 +1008,18 @@ class FilmWishlist extends HTMLElement {
       return;
     }
 
-    box.innerHTML = items.map((x, idx) => `
+    box.innerHTML = items
+      .map(
+        (x, idx) => `
       <div class="ac-item" data-i="${idx}">
         <div><strong>${esc(x.title)}</strong> <span class="ac-muted">${esc(x.year)}</span></div>
       </div>
-    `).join('');
+    `
+      )
+      .join('');
     box.style.display = 'block';
 
-    $$(box, '.ac-item').forEach(el => {
+    $$(box, '.ac-item').forEach((el) => {
       const pick = (ev) => {
         ev?.preventDefault?.();
         ev?.stopPropagation?.();
