@@ -1,9 +1,5 @@
 // film-now.js
 // <film-now> – På tur nu (film + betyg + spara kväll + hoppa över / byt tur)
-// Uppdaterad med:
-// - “best match” via OMDb: (&s -> välj -> &i) + normalisering/scoring
-// - Autocomplete-hint (TMDb) för säkrare träff
-// - ✅ Nytt: om ingen (eller tveksam) träff: visa flera förslag (klickbara) från OMDb-sök
 
 import { api } from './api.js';
 import { getWho, on as onStore } from './store.js';
@@ -135,7 +131,6 @@ function topSuggestions(searchResults, wantedTitle, wantedYear = '', limit = 5) 
     .filter((x) => x.imdbID && x.score >= 0)
     .sort((a, b) => b.score - a.score);
 
-  // plocka ut unika titlar/år för snygg lista
   const out = [];
   const seen = new Set();
   for (const s of scored) {
@@ -151,7 +146,6 @@ function topSuggestions(searchResults, wantedTitle, wantedYear = '', limit = 5) 
 function pickBestSuggestion(suggestions) {
   if (!suggestions?.length) return null;
   const best = suggestions[0];
-  // “tillräckligt bra” om vi har flera träffar
   if (best.score < 0.25 && suggestions.length >= 3) return null;
   return best;
 }
@@ -162,7 +156,6 @@ async function smartLookupMovieDetailed(query, hint = null) {
 
   const { title, year } = splitTitleAndYear(q);
 
-  // cache 30 dagar (per normaliserad titel + år)
   const cacheKey = `now_omdb_best_v2_${normalizeTitle(title)}_${year || '----'}`;
   try {
     const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
@@ -171,7 +164,6 @@ async function smartLookupMovieDetailed(query, hint = null) {
     }
   } catch (_) {}
 
-  // 0) hint från TMDb => prova exakt först
   if (hint?.title) {
     const d0 = await omdbLookupByTitle(hint.title, hint.year || year);
     if (d0?.imdbID) {
@@ -181,7 +173,6 @@ async function smartLookupMovieDetailed(query, hint = null) {
     }
   }
 
-  // 1) OMDb search -> scoring -> best -> details
   const list1 = await omdbSearchList(title, 1);
   const suggestions = list1?.length ? topSuggestions(list1, title, year, 5) : null;
   const best = pickBestSuggestion(suggestions);
@@ -189,7 +180,6 @@ async function smartLookupMovieDetailed(query, hint = null) {
   if (best?.imdbID) {
     const d = await omdbGetByImdbId(best.imdbID);
     if (d?.imdbID) {
-      // Om vi matchade men titeln ser “annorlunda” ut: visa ändå förslag som hjälp
       const wantN = normalizeTitle(title);
       const gotN = normalizeTitle(d.Title || '');
       const shouldOffer = suggestions?.length && wantN && gotN && wantN !== gotN;
@@ -204,7 +194,6 @@ async function smartLookupMovieDetailed(query, hint = null) {
     }
   }
 
-  // 2) fallback: title lookup (med/utan artikel)
   const d1 = await omdbLookupByTitle(title, year);
   if (d1?.imdbID) {
     const wantN = normalizeTitle(title);
@@ -226,7 +215,6 @@ async function smartLookupMovieDetailed(query, hint = null) {
     }
   }
 
-  // Ingen data: returnera förslag om vi har dem
   const payload = { data: null, suggestions: suggestions?.length ? suggestions : null, reason: 'not_found' };
   try { localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), payload })); } catch (_) {}
   return payload;
@@ -260,7 +248,6 @@ async function watchmodeSources(imdbID) {
   const { watchmode } = getMovieTokens();
   if (!watchmode || !imdbID) return null;
 
-  // cache 7 days
   const k = `wm_sources_${imdbID}`;
   try {
     const cached = JSON.parse(localStorage.getItem(k) || 'null');
@@ -302,7 +289,7 @@ async function watchmodeSources(imdbID) {
     if (!Array.isArray(data)) return null;
 
     const seen = new Set();
-    const normalizeName = (s) => String(s || '').replace(/\s*$begin:math:text$with Ads$end:math:text$$/i, '').replace(/\s+HD$/, '').trim();
+    const normalizeName = (s) => String(s || '').replace(/\s*with Ads$/i, '').replace(/\s+HD$/, '').trim();
 
     const filtered = data
       .filter((s) => s.type === 'sub' && s.name)
@@ -338,7 +325,6 @@ class FilmNow extends HTMLElement {
     this._cooldownUntil = 0;
     this._lastCurrent = null;
 
-    // hint från autocomplete + race-skydd för lookup
     this._lookupSeq = 0;
     this._hint = null;
   }
@@ -549,7 +535,6 @@ class FilmNow extends HTMLElement {
     });
   }
 
-  // ✅ Ny: rendera förslagslista
   renderSuggestions(suggestions, heading = 'Menade du:') {
     if (!suggestions || !suggestions.length) return '';
     const items = suggestions
@@ -568,7 +553,7 @@ class FilmNow extends HTMLElement {
 
     return `
       <div class="sugBox">
-        <div class="muted" style="font-size:12px; margin:10px 0 6px">${escapeHtml(heading)}</div>
+        <div class="muted sugHead">${escapeHtml(heading)}</div>
         <div class="sugRow">${items}</div>
       </div>
     `;
@@ -590,7 +575,6 @@ class FilmNow extends HTMLElement {
 
     const out = await smartLookupMovieDetailed(q, this._hint);
 
-    // race-skydd
     if (mySeq !== this._lookupSeq) return;
     if (((input?.value || '').trim()) !== q) return;
 
@@ -601,7 +585,6 @@ class FilmNow extends HTMLElement {
       return;
     }
 
-    // data finns: rendera meta + ev “alternativ”
     const meta = this.renderMovieMeta(out.data, q);
     const sug = out?.suggestions?.length ? this.renderSuggestions(out.suggestions, 'Om det blev fel, välj:') : '';
     info.innerHTML = meta + sug;
@@ -625,12 +608,14 @@ class FilmNow extends HTMLElement {
     return `
       <div class="metaGrid">
         <div class="metaThumb">${poster}</div>
+
         <div class="metaImdb">
           <div><strong>IMDb</strong> ${rating}</div>
           ${imdbUrl ? `<a href="${imdbUrl}" target="_blank" rel="noopener">Öppna på IMDb</a>` : ''}
         </div>
+
         <div class="metaStream">
-          <div class="muted" style="font-size:12px">Tillgängligt i abonnemang (globalt):</div>
+          <div class="muted streamHead">Tillgängligt i abonnemang (globalt):</div>
           <div class="streamWrap" data-imdb="${escapeHtml(imdbID)}">
             <div class="streamRow collapsed" style="display:none"></div>
             <button type="button" class="streamToggle">…</button>
@@ -657,7 +642,7 @@ class FilmNow extends HTMLElement {
       if (!options || !options.length) {
         row.style.display = 'none';
         toggle.style.display = 'none';
-        wrap.insertAdjacentHTML('afterbegin', `<div class="muted" style="font-size:12px">Inget abonnemang hittades just nu.</div>`);
+        wrap.insertAdjacentHTML('afterbegin', `<div class="muted streamEmpty">Inget abonnemang hittades just nu.</div>`);
         return;
       }
 
@@ -739,7 +724,6 @@ class FilmNow extends HTMLElement {
           const i = Number(el.getAttribute('data-i'));
           const it = items[i];
 
-          // hint för säkrare OMDb-lookup
           this._hint = it?.title ? { title: it.title, year: it.year || '' } : null;
 
           input.value = it.year ? `${it.title} (${it.year})` : it.title;
@@ -763,7 +747,6 @@ class FilmNow extends HTMLElement {
     }, 520);
 
     input.addEventListener('input', () => {
-      // om man skriver manuellt: släpp hint om den inte längre matchar
       if (this._hint?.title) {
         const v = String(input.value || '').trim();
         const nV = normalizeTitle(v);
@@ -835,7 +818,6 @@ class FilmNow extends HTMLElement {
       });
     });
 
-    // ✅ Ny: klick på “förslag”
     this.addEventListener('click', (e) => {
       const btn = e.target?.closest?.('[data-pick-suggestion]');
       if (!btn) return;
@@ -844,7 +826,6 @@ class FilmNow extends HTMLElement {
       const year = btn.getAttribute('data-year') || '';
       if (!title) return;
 
-      // sätt hint + fyll input + lookup
       this._hint = { title, year };
 
       const input = this.$('#suggested');
@@ -862,7 +843,7 @@ class FilmNow extends HTMLElement {
 
         <div class="topRow">
           <div class="topLeft">
-            <h3 style="margin:0">På tur nu</h3>
+            <h3 class="nowTitle">På tur nu</h3>
             <div class="muted">Inloggad: <span id="loggedIn">–</span></div>
           </div>
           <div class="topRight">
@@ -871,15 +852,15 @@ class FilmNow extends HTMLElement {
           </div>
         </div>
 
-        <div class="row" style="margin-top:10px">
-          <div class="col" style="flex:1 1 340px">
+        <div class="row nowRow">
+          <div class="col nowCol">
             <label>Filmväljare</label>
             <input id="picker" type="text" readonly>
           </div>
         </div>
 
-        <div class="row" style="margin-top:6px">
-          <div class="col" style="flex:1 1 520px">
+        <div class="row nowRow">
+          <div class="col nowCol">
             <label>Film (förslag)</label>
             <div class="filmRow ac-wrap">
               <input id="suggested" class="lookup-input" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -892,29 +873,31 @@ class FilmNow extends HTMLElement {
         <div id="suggested-info" class="omdb-info"></div>
 
         <div id="advancedRow" class="advancedRow" style="display:none">
-          <div class="row" style="align-items:end">
-            <div class="col" style="min-width:260px; flex:0 0 300px">
+          <div class="row advRow">
+            <div class="col advCol">
               <label>Hoppa till (nästa i tur överst)</label>
               <select id="jumpTo"></select>
             </div>
-            <div class="col" style="flex:0 0 auto">
+
+            <div class="col advBtns">
               <button id="btnDoJump" class="ghost" disabled>Byt tur</button>
-              <button id="btnSkipOne" class="ghost" style="margin-left:8px">Hoppa en</button>
+              <button id="btnSkipOne" class="ghost">Hoppa en</button>
             </div>
-            <div class="col" style="flex:1 1 auto">
+
+            <div class="col advInfo">
               <div id="jumpMsg" class="muted" style="font-size:12px; display:none"></div>
-              <div class="muted" style="font-size:12px; margin-top:4px">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
+              <div class="muted advHelp">Används bara vid undantag. Vanligtvis tar man sin tur.</div>
             </div>
           </div>
         </div>
 
-        <div class="row" style="margin-top:14px">
-          <div class="col" style="flex:1 1 100%">
+        <div class="row nowRow nowScores">
+          <div class="col nowCol">
             <label>Poäng</label>
-            <div id="scoresRow" class="scoresRow">
+            <div id="scoresRow" class="scoresGrid">
               ${PEOPLE.map(
                 (p) => `
-                <div class="score-col">
+                <div class="scoreCell">
                   <label>${escapeHtml(p)}</label>
                   <select id="s-${escapeHtml(p)}" class="score-select">
                     <option value="">–</option>
@@ -927,65 +910,119 @@ class FilmNow extends HTMLElement {
           </div>
         </div>
 
-        <div class="row" style="align-items:end; margin-top:10px">
-          <div class="col">
+        <div class="row saveRow">
+          <div class="col saveCol">
             <label>Kommentar</label>
             <input id="comment" placeholder="valfritt">
           </div>
-          <div class="col" style="flex:0 0 auto">
+          <div class="col saveBtnCol">
             <button id="btnSave" class="primary">Spara kväll</button>
           </div>
         </div>
       </div>
 
       <style>
+        /* --- Topp --- */
+        .nowTitle{margin:0}
         .topRow{display:flex; align-items:flex-start; gap:12px}
-        .topRight{margin-left:auto; display:flex; gap:10px}
+        .topRight{margin-left:auto; display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end}
 
+        /* Tajtare vertikalt */
+        .nowRow{margin-top:10px}
+        .omdb-info{margin-top:10px}
+
+        /* Film-sök */
         .filmRow{display:flex; gap:8px; align-items:center; position:relative}
         .lookup-input{flex:1 1 auto; min-width:0}
 
-        .omdb-info{margin-top:10px}
-
+        /* --- OMDb meta --- */
         .metaGrid{
           display:grid;
           grid-template-columns:112px 1fr 1.6fr;
           gap:14px;
           align-items:start;
         }
-        @media (max-width:760px){
-          .metaGrid{grid-template-columns:112px 1fr;}
-          .metaStream{grid-column:1 / -1;}
-        }
 
         .thumb{width:112px; height:auto; border-radius:12px; border:1px solid var(--border, #dfe3ee)}
         .thumb.ph{height:168px; background:rgba(0,0,0,.06)}
-
         .metaImdb{display:flex; flex-direction:column; gap:4px; align-self:start}
         .metaImdb a{ text-decoration:underline }
-
         .metaStream{align-self:start}
-
+        .streamHead{font-size:12px}
         .streamRow{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
         .streamRow.collapsed{max-height:86px; overflow:hidden}
         .streamToggle{margin-top:4px; font-size:12px; padding:0; border:none; background:transparent; text-decoration:underline; cursor:pointer; color:var(--muted, #5b6475)}
+        .streamEmpty{font-size:12px; margin-top:6px}
 
+        /* --- Autocomplete --- */
         .ac-list{position:absolute; left:0; right:0; top:100%; z-index:50; background:var(--panel, #fff); border:1px solid var(--border, #dfe3ee); border-radius:12px; margin-top:6px; overflow:hidden}
         .ac-item{padding:10px 12px; cursor:pointer; border-top:1px solid var(--border, #dfe3ee); font-size:14px}
         .ac-item:first-child{border-top:none}
         .ac-item:hover{filter:brightness(1.03)}
         .ac-muted{color:var(--muted, #5b6475); font-size:12px}
 
-        .scoresRow{display:flex; gap:10px; flex-wrap:nowrap; overflow:auto; padding-bottom:2px}
-        .score-col{min-width:100px; flex:1 1 0}
-        .score-col select{padding:8px 10px; border-radius:10px; text-align:center; text-align-last:center}
+        /* --- Poäng: grid istället för horisontell scroll --- */
+        .scoresGrid{
+          display:grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap:10px;
+          align-items:end;
+        }
+        .scoreCell label{display:block}
+        .scoreCell select{width:100%; padding:8px 10px; border-radius:10px; text-align:center; text-align-last:center}
+
+        /* --- Spara-rad: responsiv --- */
+        .saveRow{align-items:end; margin-top:10px}
+        .saveBtnCol{flex:0 0 auto}
 
         button.is-busy{opacity:.55; cursor:not-allowed}
 
-        /* ✅ Förslagslista */
+        /* Förslagslista */
         .sugBox{margin-top:8px}
+        .sugHead{font-size:12px; margin:10px 0 6px}
         .sugRow{display:flex; flex-wrap:wrap; gap:8px}
         .sugItem{padding:10px 12px; border-radius:12px}
+
+        /* --- Mobil --- */
+        @media (max-width: 600px){
+          /* Topp: stacka och undvik tom luft */
+          .topRow{flex-direction:column; align-items:stretch}
+          .topRight{margin-left:0; justify-content:flex-start}
+
+          /* Filmrad: knapp får plats */
+          .lookup-btn{flex:0 0 auto}
+          .filmRow{align-items:stretch}
+          .filmRow .lookup-input{height:auto}
+
+          /* Meta: en kolumn (minskar tomma områden) */
+          .metaGrid{
+            grid-template-columns:1fr;
+            gap:10px;
+          }
+          .metaThumb{display:flex; justify-content:center}
+          .thumb{width:160px; max-width:60vw}
+
+          /* Poäng: en per rad */
+          .scoresGrid{grid-template-columns:1fr}
+
+          /* Spara: knapp under kommentar */
+          .saveRow{flex-direction:column; align-items:stretch; gap:10px}
+          .saveBtnCol{flex:1 1 auto}
+          #btnSave{width:100%}
+
+          /* Advanced: också stackad */
+          .advRow{flex-direction:column; align-items:stretch; gap:10px}
+          .advBtns{display:flex; gap:10px; flex-wrap:wrap}
+        }
+
+        /* Mellansteg: 2 kolumner för poäng */
+        @media (min-width: 601px) and (max-width: 900px){
+          .scoresGrid{grid-template-columns: repeat(2, minmax(0, 1fr));}
+        }
+
+        @media (min-width: 901px) and (max-width: 1100px){
+          .scoresGrid{grid-template-columns: repeat(3, minmax(0, 1fr));}
+        }
       </style>
     `;
   }
