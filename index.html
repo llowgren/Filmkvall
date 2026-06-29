@@ -66,6 +66,7 @@
         './api.js',
         './film-now.js',
         './film-wishlist.js',
+        './movie-recommendations.js',
         './film-tops.js',
         './film-history.js',
         './film-system.js',
@@ -95,8 +96,13 @@
       verEl.title = `SHA-256: ${hex}\n` + location.href;
     }
 
-    // Kör signatur-beräkningen utan att blockera resten av appen
-    computeBuildSignature().catch(() => {});
+    // Kör signatur-beräkningen när sidan är igång, så första responsen inte bromsas.
+    const runBuildSignature = () => computeBuildSignature().catch(() => {});
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(runBuildSignature, { timeout: 4000 });
+    } else {
+      setTimeout(runBuildSignature, 2500);
+    }
 
     // 1) Store först (sätter tema direkt vid import)
     await import('./store.js');
@@ -107,12 +113,19 @@
     // 3) API (läser auth från store + apiUrl från film-login)
     await import('./api.js');
 
-    // 4) UI-moduler
-    await import('./film-now.js');
-    await import('./film-wishlist.js');
-    await import('./film-tops.js');
-    await import('./film-history.js');
-    await import('./film-system.js');
+    // 4) UI-moduler kan laddas parallellt när basmodulerna finns.
+    await Promise.all([
+      import('./film-now.js'),
+      import('./film-wishlist.js'),
+      import('./film-tops.js'),
+      import('./film-history.js'),
+      import('./film-system.js'),
+    ]);
+
+    // 5) Personliga, snabba förslag baserade på historik och betyg.
+    import('./movie-recommendations.js')
+      .then((m) => m.installMovieRecommendations?.())
+      .catch(() => {});
   </script>
 </body>
 </html>
