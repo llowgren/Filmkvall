@@ -1,15 +1,18 @@
 // movie-recommendations.js
-// Snabba personliga filmforslag baserat pa historik, val och betyg.
+// Snabba personliga filmforslag baserat pa historik, val, betyg och onskelistor.
 
 import { api } from './api.js';
 import { getWho, on as onStore } from './store.js';
 
 const PEOPLE = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
 const HISTORY_TTL_MS = 10 * 60 * 1000;
+const WISHLIST_TTL_MS = 2 * 60 * 1000;
 
 let activeWho = getWho();
 let historyCache = null;
 let historyPromise = null;
+let wishlistCache = null;
+let wishlistPromise = null;
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (m) => ({
@@ -58,10 +61,31 @@ function personRating(row, who) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function avgRating(row) {
-  const nums = PEOPLE.map((p) => personRating(row, p)).filter(Boolean);
+function ratingsFrom(row, people = PEOPLE) {
+  return people.map((p) => personRating(row, p)).filter(Boolean);
+}
+
+function avg(nums) {
   if (!nums.length) return 0;
   return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+function hasUserSeen(row, who) {
+  return personRating(row, who) > 0 || picker(row) === who;
+}
+
+function titleMatchScore(title, query) {
+  const t = normalizeTitle(title);
+  const q = normalizeTitle(query);
+  if (!t) return -1;
+  if (!q) return 0.16;
+  if (t === q) return 2.4;
+  if (t.startsWith(q)) return 1.75;
+  if (t.includes(q)) return 1.2;
+
+  const tokens = q.split(' ').filter(Boolean);
+  const hits = tokens.filter((token) => t.includes(token)).length;
+  return tokens.length && hits ? hits / tokens.length : -1;
 }
 
 async function loadHistory({ force = false } = {}) {
@@ -71,7 +95,7 @@ async function loadHistory({ force = false } = {}) {
   }
   if (!force && historyPromise) return historyPromise;
 
-  historyPromise = api('getHistory', { limit: 80 })
+  historyPromise = api('getHistory', { limit: 300 })
     .then((j) => {
       const rows = Array.isArray(j?.rows) ? j.rows : [];
       historyCache = { savedAt: Date.now(), rows };
@@ -85,63 +109,161 @@ async function loadHistory({ force = false } = {}) {
   return historyPromise;
 }
 
-function uniqueLatest(rows) {
-  const seen = new Map();
-  for (const row of rows || []) {
+async function loadWishlists({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && wishlistCache?.savedAt && now - wishlistCache.savedAt < WISHLIST_TTL_MS) {
+    return wishlistCache.rows;
+  }
+  if (!force && wishlistPromise) return wishlistPromise;
+
+  wishlistPromise = Promise.all(
+    PEOPLE.map((person) => api('getWishlist', { person }).catch(() => null))
+  )
+    .then((lists) => {
+      const rows = [];
+      lists.forEach((j, idx) => {
+        const person = PEOPLE[idx];
+        if (!j?.ok) return;
+        for (let rank = 1; rank <= 5; rank++) {
+          const title = String(j[`R${rank}`] || '').trim();
+          if (title) rows.push({ title, person, rank });
+        }
+      });
+      wishlistCache = { savedAt: Date.now(), rows };
+      return rows;
+    })
+    .catch(() => wishlistCache?.rows || [])
+    .finally(() => {
+      wishlistPromise = null;
+    });
+
+  return wishlistPromise;
+}
+
+function buildUserProfile(historyRows, who) {
+  const seen = new Set();
+  const trust = new Map();
+
+  for (const row of historyRows || []) {
     const title = filmTitle(row);
     const key = normalizeTitle(title);
     if (!key) continue;
-    const prev = seen.get(key);
-    if (!prev || dateMs(row) > dateMs(prev)) seen.set(key, row);
+
+    if (hasUserSeen(row, who)) seen.add(key);
+
+    const own = personRating(row, who);
+    const pickedBy = picker(row);
+    if (own && pickedBy && pickedBy !== who) {
+      if (!trust.has(pickedBy)) trust.set(pickedBy, []);
+      trust.get(pickedBy).push(own / 10);
+    }
   }
-  return [...seen.values()];
+
+  const pickerTrust = new Map();
+  PEOPLE.forEach((person) => {
+    const values = trust.get(person) || [];
+    pickerTrust.set(person, values.length ? avg(values) : 0.52);
+  });
+  pickerTrust.set(who, 0.95);
+
+  return { seen, pickerTrust };
 }
 
-function score(row, query, who) {
-  const title = normalizeTitle(filmTitle(row));
-  const q = normalizeTitle(query);
-  if (!title) return -1;
-
-  let match = 0;
-  if (!q) match = 0.12;
-  else if (title === q) match = 2.2;
-  else if (title.startsWith(q)) match = 1.7;
-  else if (title.includes(q)) match = 1.15;
-  else {
-    const tokens = q.split(' ').filter(Boolean);
-    const hits = tokens.filter((token) => title.includes(token)).length;
-    match = tokens.length ? hits / tokens.length : 0;
+function ensureCandidate(map, title) {
+  const key = normalizeTitle(title);
+  if (!key) return null;
+  if (!map.has(key)) {
+    map.set(key, {
+      key,
+      title: String(title || '').trim(),
+      wishlistOwners: [],
+      bestWishlistRank: 99,
+      historyRows: []
+    });
   }
-  if (q && match <= 0) return -1;
-
-  const own = personRating(row, who) / 10;
-  const avg = avgRating(row) / 10;
-  const pickedByMe = picker(row) === who ? 0.65 : 0;
-  const age = dateMs(row) ? (Date.now() - dateMs(row)) / (365 * 24 * 3600_000) : 1;
-  const recent = Math.max(0, 1 - age) * 0.2;
-
-  return match + pickedByMe + own * 0.8 + avg * 0.55 + recent;
+  return map.get(key);
 }
 
-function rank(rows, query, who, limit = 5) {
-  return uniqueLatest(rows)
-    .map((row) => ({
-      title: filmTitle(row),
-      pickedBy: picker(row),
-      mine: personRating(row, who),
-      avg: avgRating(row),
-      score: score(row, query, who)
-    }))
+function buildCandidates(historyRows, wishlistRows, who) {
+  const profile = buildUserProfile(historyRows, who);
+  const candidates = new Map();
+
+  for (const item of wishlistRows || []) {
+    const c = ensureCandidate(candidates, item.title);
+    if (!c) continue;
+    c.wishlistOwners.push(item.person);
+    c.bestWishlistRank = Math.min(c.bestWishlistRank, Number(item.rank) || 99);
+  }
+
+  for (const row of historyRows || []) {
+    const others = ratingsFrom(row, PEOPLE.filter((p) => p !== who));
+    if (!others.length || hasUserSeen(row, who)) continue;
+    const c = ensureCandidate(candidates, filmTitle(row));
+    if (c) c.historyRows.push(row);
+  }
+
+  for (const [key, c] of candidates) {
+    if (profile.seen.has(key)) {
+      candidates.delete(key);
+      continue;
+    }
+    c.wishlistOwners = [...new Set(c.wishlistOwners)];
+  }
+
+  return { candidates: [...candidates.values()], profile };
+}
+
+function scoreCandidate(candidate, query, who, profile) {
+  const match = titleMatchScore(candidate.title, query);
+  if (match < 0) return -1;
+
+  const owners = candidate.wishlistOwners;
+  const ownerTrust = owners.length ? avg(owners.map((p) => profile.pickerTrust.get(p) || 0.52)) : 0;
+  const onMyWishlist = owners.includes(who) ? 1 : 0;
+  const ownerAcceptance = Math.min(owners.length, 4) * 0.18;
+  const rankBoost = candidate.bestWishlistRank < 99 ? (6 - candidate.bestWishlistRank) * 0.07 : 0;
+
+  const otherRatings = candidate.historyRows.flatMap((row) => ratingsFrom(row, PEOPLE.filter((p) => p !== who)));
+  const communityAvg = otherRatings.length ? avg(otherRatings) / 10 : 0;
+  const communityCount = Math.min(otherRatings.length, 4) * 0.12;
+  const recent = candidate.historyRows.reduce((best, row) => Math.max(best, dateMs(row)), 0);
+  const recentBoost = recent ? Math.max(0, 1 - ((Date.now() - recent) / (365 * 24 * 3600_000))) * 0.12 : 0;
+
+  return match
+    + onMyWishlist * 1.1
+    + ownerTrust * 0.75
+    + ownerAcceptance
+    + rankBoost
+    + communityAvg * 0.95
+    + communityCount
+    + recentBoost;
+}
+
+function rank(rows, wishlists, query, who, limit = 5) {
+  const { candidates, profile } = buildCandidates(rows, wishlists, who);
+
+  return candidates
+    .map((candidate) => {
+      const otherRatings = candidate.historyRows.flatMap((row) => ratingsFrom(row, PEOPLE.filter((p) => p !== who)));
+      return {
+        title: candidate.title,
+        owners: candidate.wishlistOwners,
+        avg: otherRatings.length ? avg(otherRatings) : 0,
+        n: otherRatings.length,
+        score: scoreCandidate(candidate, query, who, profile)
+      };
+    })
     .filter((x) => x.title && x.score >= 0)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title, 'sv'))
     .slice(0, limit);
 }
 
 function metaText(item, who) {
   const parts = [];
-  if (item.mine) parts.push(`ditt betyg ${item.mine}`);
-  if (!item.mine && item.avg) parts.push(`snitt ${Math.round(item.avg * 10) / 10}`);
-  if (item.pickedBy && item.pickedBy !== who) parts.push(`vald av ${item.pickedBy}`);
+  const others = item.owners.filter((p) => p !== who);
+  if (item.owners.includes(who)) parts.push('på din lista');
+  if (others.length) parts.push(`på ${others.join(', ')}s lista`);
+  if (item.avg) parts.push(`andra gav ${Math.round(item.avg * 10) / 10}${item.n ? ` (${item.n})` : ''}`);
   return parts.join(' · ');
 }
 
@@ -166,7 +288,7 @@ function getBox(input, anchor) {
   if (box?.isConnected) return box;
   box = document.createElement('div');
   box.className = 'personalSuggest';
-  box.innerHTML = '<div class="personalSuggest__head">Personliga forslag</div><div class="personalSuggest__row"></div>';
+  box.innerHTML = '<div class="personalSuggest__head">Osedda forslag</div><div class="personalSuggest__row"></div>';
   anchor.insertAdjacentElement('afterend', box);
   input._personalSuggestBox = box;
   return box;
@@ -181,10 +303,10 @@ function hide(input) {
 }
 
 async function render(input, anchor, onPick) {
-  const rows = await loadHistory();
+  const [rows, wishlists] = await Promise.all([loadHistory(), loadWishlists()]);
   if (!input?.isConnected) return;
 
-  const items = rank(rows, input.value, activeWho);
+  const items = rank(rows, wishlists, input.value, activeWho);
   if (!items.length) return hide(input);
 
   const box = getBox(input, anchor);
@@ -264,11 +386,14 @@ export function installMovieRecommendations() {
   try {
     onStore('who', (who) => {
       activeWho = who || activeWho;
-      loadHistory({ force: true }).catch(() => {});
+      Promise.all([
+        loadHistory({ force: true }),
+        loadWishlists({ force: true })
+      ]).catch(() => {});
     });
   } catch {}
 
-  const warm = () => loadHistory().catch(() => {});
+  const warm = () => Promise.all([loadHistory(), loadWishlists()]).catch(() => {});
   if ('requestIdleCallback' in window) window.requestIdleCallback(warm, { timeout: 3500 });
   else setTimeout(warm, 1200);
 }
