@@ -62,6 +62,7 @@ class FilmLogin extends HTMLElement {
 
   render() {
     const who = (typeof getWho === 'function' ? getWho() : 'Maria') || 'Maria';
+    const email = getLocalEmail(who);
 
     this.innerHTML = `
       <section class="card">
@@ -82,6 +83,16 @@ class FilmLogin extends HTMLElement {
               }>${escapeHtml(u)}</option>`
           ).join('')}
         </select>
+
+        <label class="muted" style="display:block;margin:.75rem 0 .25rem 0">
+          E-post för betygslänk
+        </label>
+
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="emailInput" type="email" autocomplete="email" inputmode="email" value="${escapeAttr(email)}" placeholder="namn@example.com" style="flex:1;min-width:0">
+          <button id="emailSave" class="ghost" type="button">Spara</button>
+        </div>
+        <div id="emailMsg" class="muted" style="margin-top:.4rem;font-size:12px"></div>
       </section>
     `;
   }
@@ -94,7 +105,43 @@ class FilmLogin extends HTMLElement {
       const v = String(sel.value || '').trim();
       if (typeof setWho === 'function') setWho(v);
       this.render(); // refresh "Inloggad: ..."
+      this.bind();
     });
+
+    this.querySelector('#emailSave')?.addEventListener('click', () => this.saveEmail());
+    this.querySelector('#emailInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.saveEmail();
+      }
+    });
+  }
+
+  async saveEmail() {
+    const who = (this.querySelector('#whoSelect')?.value || '').trim();
+    const email = (this.querySelector('#emailInput')?.value || '').trim();
+    const msg = this.querySelector('#emailMsg');
+    const btn = this.querySelector('#emailSave');
+    if (!who) return;
+
+    if (email && !isValidEmail(email)) {
+      if (msg) msg.textContent = 'Ogiltig e-postadress.';
+      return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (msg) msg.textContent = 'Sparar...';
+
+    try {
+      const j = await postBackend('saveUserEmail', { person: who, email });
+      if (!j?.ok) throw new Error(j?.error || 'Kunde inte spara e-post');
+      setLocalEmail(who, email);
+      if (msg) msg.textContent = email ? 'Sparad.' : 'E-post borttagen.';
+    } catch (e) {
+      if (msg) msg.textContent = String(e?.message || e);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 }
 
@@ -127,4 +174,39 @@ function escapeHtml(s) {
 
 function escapeAttr(s) {
   return escapeHtml(s).replace(/"/g, '&quot;');
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function emailKey(who) {
+  return `film_email_${String(who || '').trim().toLowerCase()}`;
+}
+
+function getLocalEmail(who) {
+  try { return localStorage.getItem(emailKey(who)) || ''; } catch { return ''; }
+}
+
+function setLocalEmail(who, email) {
+  try {
+    const key = emailKey(who);
+    if (email) localStorage.setItem(key, email);
+    else localStorage.removeItem(key);
+  } catch {}
+}
+
+async function postBackend(action, params = {}) {
+  const body = new URLSearchParams({
+    action,
+    pw: AUTH.pw,
+    ...params
+  });
+
+  const r = await fetch(API_URL, {
+    method: 'POST',
+    body,
+    cache: 'no-store'
+  });
+  return r.json();
 }

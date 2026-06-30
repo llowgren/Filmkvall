@@ -11,6 +11,7 @@
 
 const TZ = 'Europe/Stockholm';
 const PEOPLE_DEFAULT = ['Hannah','Maria','Tuva','Alva','Lars'];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // MÅSTE matcha din index.htm:
 const PW_REQUIRED = 'Look4fun';
@@ -22,6 +23,13 @@ function doPost(e){ return handle_(e); } // ok om du råkar posta senare
 function handle_(e){
   try{
     const p = (e && e.parameter) ? e.parameter : {};
+    const path = String((e && e.pathInfo) || '').replace(/^\/+/, '');
+    if(path.indexOf('rate/') === 0){
+      ensureSheets_();
+      const token = path.slice('rate/'.length);
+      return rateByToken_(token, p.rating);
+    }
+
     const action = String(p.action || '').trim();
     const pw = String(p.pw || '');
 
@@ -40,6 +48,7 @@ function handle_(e){
       case 'getCurrent':   return json_(getCurrent_());
       case 'getScores':    return json_(getScores_());
       case 'saveScores':   return json_(saveScores_(p));
+      case 'saveUserEmail': return json_(saveUserEmail_(p));
 
       case 'getWishlist':  return json_(getWishlist_(p));
       case 'saveWishlist': return json_(saveWishlist_(p));
@@ -49,6 +58,7 @@ function handle_(e){
 
       case 'skipNext':     return json_(skipNext_());
       case 'saveNight':    return json_(saveNight_(p));
+      case 'sendTestRatingEmails': return json_(sendTestRatingEmails_(p));
 
       default:
         return json_({ ok:false, error:'unknown action', got:action });
@@ -63,6 +73,25 @@ function json_(obj){
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function html_(title, body){
+  const safeTitle = escapeHtml_(title || 'Filmkväll');
+  const safeBody = String(body || '');
+  return HtmlService
+    .createHtmlOutput(`<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeTitle}</title><style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:32px;line-height:1.5;color:#111}main{max-width:680px;margin:auto}.msg{font-size:20px}</style></head><body><main>${safeBody}</main></body></html>`)
+    .setTitle(safeTitle)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function escapeHtml_(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;',
+    '<':'&lt;',
+    '>':'&gt;',
+    '"':'&quot;',
+    "'":'&#39;'
+  }[c]));
 }
 
 /** ===== Sheet helpers ===== */
@@ -162,6 +191,51 @@ function ensureSheets_(){
     }
     shH.getRange(1,1,1,headH.length).setValues([headH]);
   }
+
+  // Users: privat kontaktdata. Returneras aldrig av publika list-/historik-API:er.
+  const shU = getOrCreateSheet_('Users');
+  const headU = ['Person','Email','UpdatedAt'];
+  if(shU.getLastRow() === 0){
+    shU.getRange(1,1,1,headU.length).setValues([headU]);
+    shU.getRange(2,1,PEOPLE.length,headU.length).setValues(PEOPLE.map(p=>[p,'','']));
+  }else{
+    if(shU.getLastColumn() < headU.length){
+      shU.insertColumnsAfter(shU.getLastColumn(), headU.length - shU.getLastColumn());
+    }
+    shU.getRange(1,1,1,headU.length).setValues([headU]);
+    const last = shU.getLastRow();
+    const existing = last >= 2
+      ? shU.getRange(2,1,last-1,1).getValues().map(r=>normName_(r[0]))
+      : [];
+    const existingSet = new Set(existing);
+    PEOPLE.forEach(p=>{
+      if(!existingSet.has(p)) shU.appendRow([p,'','']);
+    });
+  }
+
+  // RatingTokens: en slumpad token per användare och film/historikrad.
+  const shR = getOrCreateSheet_('RatingTokens');
+  const headR = ['Token','HistoryRow','Date','Film','Person','Rating','RatedAt','CreatedAt'];
+  if(shR.getLastRow() === 0){
+    shR.getRange(1,1,1,headR.length).setValues([headR]);
+  }else{
+    if(shR.getLastColumn() < headR.length){
+      shR.insertColumnsAfter(shR.getLastColumn(), headR.length - shR.getLastColumn());
+    }
+    shR.getRange(1,1,1,headR.length).setValues([headR]);
+  }
+
+  // Development-läge: lokala mejl utan klartextadress.
+  const shD = getOrCreateSheet_('DevEmails');
+  const headD = ['CreatedAt','Mode','Recipient','Person','Film','Subject','Text','Html'];
+  if(shD.getLastRow() === 0){
+    shD.getRange(1,1,1,headD.length).setValues([headD]);
+  }else{
+    if(shD.getLastColumn() < headD.length){
+      shD.insertColumnsAfter(shD.getLastColumn(), headD.length - shD.getLastColumn());
+    }
+    shD.getRange(1,1,1,headD.length).setValues([headD]);
+  }
 }
 
 /** ===== Config get/set ===== */
@@ -194,6 +268,159 @@ function setConfig_(key,value){
     }
   }
   sh.appendRow([key,value]);
+}
+
+/** ===== Env / email helpers ===== */
+function getEnv_(key, fallback){
+  try{
+    const v = PropertiesService.getScriptProperties().getProperty(key);
+    return (v == null || String(v).trim() === '') ? fallback : String(v).trim();
+  }catch(_){
+    return fallback;
+  }
+}
+
+function envBool_(key, fallback){
+  const raw = String(getEnv_(key, fallback ? 'true' : 'false')).trim().toLowerCase();
+  return ['1','true','yes','ja','on'].indexOf(raw) >= 0;
+}
+
+function isValidEmail_(email){
+  const e = trim_(email);
+  return e.length <= 254 && EMAIL_RE.test(e);
+}
+
+function maskEmail_(email){
+  const e = trim_(email);
+  const at = e.indexOf('@');
+  if(at <= 0) return '';
+  const local = e.slice(0, at);
+  const domain = e.slice(at + 1);
+  const safeLocal = local.length <= 2 ? local[0] + '*' : local[0] + '***' + local[local.length - 1];
+  const dot = domain.lastIndexOf('.');
+  const safeDomain = dot > 0 ? domain[0] + '***' + domain.slice(dot) : '***';
+  return safeLocal + '@' + safeDomain;
+}
+
+function baseUrl_(){
+  const configured = getEnv_('APP_BASE_URL', '');
+  if(configured) return configured.replace(/\/+$/,'');
+  try{
+    const serviceUrl = ScriptApp.getService().getUrl();
+    if(serviceUrl) return serviceUrl.replace(/\/+$/,'');
+  }catch(_){}
+  return '';
+}
+
+function newRatingToken_(){
+  const seed = [
+    Utilities.getUuid(),
+    Utilities.getUuid(),
+    String(Math.random()),
+    String(new Date().getTime())
+  ].join(':');
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, seed);
+  return Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '');
+}
+
+function saveUserEmail_(p){
+  const who = normName_(p && p.person);
+  const email = trim_(p && p.email).toLowerCase();
+  if(!who) return { ok:false, error:'person required' };
+  if(getPeople_().indexOf(who) < 0) return { ok:false, error:'unknown person' };
+  if(email && !isValidEmail_(email)) return { ok:false, error:'bad email' };
+
+  const sh = ss_().getSheetByName('Users');
+  const lastRow = sh.getLastRow();
+  const now = new Date().toISOString();
+  if(lastRow >= 2){
+    const rows = sh.getRange(2,1,lastRow-1,3).getValues();
+    for(let r=0;r<rows.length;r++){
+      if(normName_(rows[r][0]) === who){
+        sh.getRange(r+2,1,1,3).setValues([[who,email,now]]);
+        return { ok:true, emailSet: !!email };
+      }
+    }
+  }
+  sh.appendRow([who,email,now]);
+  return { ok:true, emailSet: !!email };
+}
+
+function getUserEmailMap_(){
+  const out = {};
+  const sh = ss_().getSheetByName('Users');
+  if(!sh || sh.getLastRow() < 2) return out;
+  const rows = sh.getRange(2,1,sh.getLastRow()-1,2).getValues();
+  rows.forEach(row=>{
+    const person = normName_(row[0]);
+    const email = trim_(row[1]).toLowerCase();
+    if(person && isValidEmail_(email)) out[person] = email;
+  });
+  return out;
+}
+
+function buildRatingEmail_(film, token){
+  const base = baseUrl_();
+  const links = [];
+  for(let i=1;i<=10;i++){
+    const href = base
+      ? `${base}/rate/${encodeURIComponent(token)}?rating=${i}`
+      : `/rate/${encodeURIComponent(token)}?rating=${i}`;
+    links.push({ rating:i, href });
+  }
+  const text = `Du har tittat på filmen ${film}. Sätt ditt betyg mellan 1 och 10.\n\n` +
+    links.map(x => `${x.rating}: ${x.href}`).join('\n');
+  const htmlLinks = links.map(x => `<a href="${escapeHtml_(x.href)}" style="display:inline-block;margin:4px;padding:10px 13px;border:1px solid #111;border-radius:8px;text-decoration:none;color:#111">${x.rating}</a>`).join('');
+  const html = `<p>Du har tittat på filmen ${escapeHtml_(film)}. Sätt ditt betyg mellan 1 och 10.</p><p>${htmlLinks}</p>`;
+  return { subject:`Betygsätt ${film}`, text, html };
+}
+
+function deliverRatingEmail_(person, email, film, token){
+  const msg = buildRatingEmail_(film, token);
+  const provider = String(getEnv_('MAIL_PROVIDER', '')).toLowerCase();
+  const mode = String(getEnv_('EMAIL_MODE', '')).toLowerCase();
+  const shouldSend = provider === 'mailapp' && mode === 'send';
+
+  if(shouldSend){
+    MailApp.sendEmail({
+      to: email,
+      subject: msg.subject,
+      body: msg.text,
+      htmlBody: msg.html,
+      name: getEnv_('MAIL_FROM_NAME', 'Filmkväll')
+    });
+    return 'sent';
+  }
+
+  const sh = ss_().getSheetByName('DevEmails');
+  sh.appendRow([new Date().toISOString(), 'development', maskEmail_(email), person, film, msg.subject, msg.text, msg.html]);
+  return 'development';
+}
+
+function createRatingTokensAndSendEmails_(film, historyRow){
+  const PEOPLE = getPeople_();
+  const emails = getUserEmailMap_();
+  const sh = ss_().getSheetByName('RatingTokens');
+  const createdAt = new Date().toISOString();
+  const date = today_();
+  let sent = 0;
+  let dev = 0;
+  let skipped = 0;
+
+  PEOPLE.forEach(person=>{
+    const email = emails[person];
+    if(!email){
+      skipped++;
+      return;
+    }
+    const token = newRatingToken_();
+    sh.appendRow([token, historyRow, date, film, person, '', '', createdAt]);
+    const status = deliverRatingEmail_(person, email, film, token);
+    if(status === 'sent') sent++;
+    else dev++;
+  });
+
+  return { sent, development: dev, skippedNoEmail: skipped };
 }
 
 /** ===== Actions ===== */
@@ -396,6 +623,94 @@ function getTops_(p){
   return { ok:true, bestFilms, bestPickers };
 }
 
+function rateByToken_(tokenRaw, ratingRaw){
+  const token = trim_(tokenRaw);
+  const rating = Number(ratingRaw);
+  if(!token || !Number.isInteger(rating) || rating < 1 || rating > 10){
+    return html_('Ogiltigt betyg', '<p class="msg">Ogiltig länk eller ogiltigt betyg.</p>');
+  }
+
+  const lock = LockService.getScriptLock();
+  if(!lock.tryLock(15000)){
+    return html_('Försök igen', '<p class="msg">Systemet är upptaget. Försök igen om en liten stund.</p>');
+  }
+
+  try{
+    const shR = ss_().getSheetByName('RatingTokens');
+    if(!shR || shR.getLastRow() < 2){
+      return html_('Ogiltig token', '<p class="msg">Ogiltig eller utgången rating-token.</p>');
+    }
+
+    const lastCol = shR.getLastColumn();
+    const headers = shR.getRange(1,1,1,lastCol).getValues()[0];
+    const rows = shR.getRange(2,1,shR.getLastRow()-1,lastCol).getValues();
+    const idx = {};
+    headers.forEach((h,i)=> idx[String(h)] = i);
+
+    for(let r=0;r<rows.length;r++){
+      if(String(rows[r][idx.Token]) !== token) continue;
+
+        const historyRow = Number(rows[r][idx.HistoryRow]);
+        const film = trim_(rows[r][idx.Film]);
+        const person = normName_(rows[r][idx.Person]);
+        if(!historyRow || !film || !person){
+          return html_('Ogiltig token', '<p class="msg">Ogiltig eller utgången rating-token.</p>');
+        }
+
+        const shH = ss_().getSheetByName('History');
+        const headH = shH.getRange(1,1,1,shH.getLastColumn()).getValues()[0].map(normName_);
+        const personCol = headH.indexOf(person) + 1;
+        if(personCol <= 0 || historyRow < 2 || historyRow > shH.getLastRow()){
+          return html_('Ogiltig token', '<p class="msg">Ogiltig eller utgången rating-token.</p>');
+        }
+
+        shH.getRange(historyRow, personCol).setValue(rating);
+        shR.getRange(r+2, idx.Rating + 1).setValue(rating);
+        shR.getRange(r+2, idx.RatedAt + 1).setValue(new Date().toISOString());
+
+        return html_(
+          'Betyg sparat',
+          `<p class="msg">Tack! Ditt betyg ${rating} för filmen ${escapeHtml_(film)} är sparat.</p>`
+        );
+    }
+
+    return html_('Ogiltig token', '<p class="msg">Ogiltig eller utgången rating-token.</p>');
+  }finally{
+    lock.releaseLock();
+  }
+}
+
+function sendTestRatingEmails_(p){
+  if(!envBool_('TEST_MOVIES_ENABLED', false)){
+    return { ok:false, error:'test movies disabled' };
+  }
+
+  const film = trim_((p && p.film) || getEnv_('TEST_MOVIE_TITLE', 'Testfilm'));
+  const who = normName_((p && p.who) || getPeople_()[0]);
+  if(!film) return { ok:false, error:'film required' };
+  if(getPeople_().indexOf(who) < 0) return { ok:false, error:'unknown person' };
+
+  const lock = LockService.getScriptLock();
+  if(!lock.tryLock(15000)) return { ok:false, error:'lock timeout' };
+
+  try{
+    const shH = ss_().getSheetByName('History');
+    const headers = shH.getRange(1,1,1,shH.getLastColumn()).getValues()[0];
+    const row = headers.map(h=>{
+      if(h === 'Datum') return today_();
+      if(h === 'Film') return film;
+      if(h === 'Vem valde') return who;
+      if(h === 'Kommentar') return 'TEST';
+      return '';
+    });
+    shH.appendRow(row);
+    const mail = createRatingTokensAndSendEmails_(film, shH.getLastRow());
+    return { ok:true, film, mail };
+  }finally{
+    lock.releaseLock();
+  }
+}
+
 function skipNext_(){
   const PEOPLE = getPeople_();
   const lock = LockService.getScriptLock();
@@ -445,6 +760,8 @@ function saveNight_(p){
     });
 
     shH.appendRow(row);
+    const historyRow = shH.getLastRow();
+    const mail = createRatingTokensAndSendEmails_(film, historyRow);
 
     // Nollställ scores
     const shS = ss_().getSheetByName('Scores');
@@ -469,7 +786,7 @@ function saveNight_(p){
     const nextIdx = (whoIdx >= 0) ? (whoIdx + 1) % PEOPLE.length : 0;
     setConfig_('nextIndex', String(nextIdx));
 
-    return { ok:true, nextPerson: PEOPLE[nextIdx] };
+    return { ok:true, nextPerson: PEOPLE[nextIdx], mail };
   }finally{
     lock.releaseLock();
   }

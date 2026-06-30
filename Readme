@@ -148,3 +148,30 @@ Utvecklingsflöde (rekommenderat)
 	1.	Skapa ny branch per förbättring: feature/xyz
 	2.	Testa i GitHub Pages på den branchen
 	3.	Merge till main när det är stabilt
+
+⸻
+
+## E-postbetyg
+
+Backend stöder e-postadresser per användare i sheetet `Users`. Adresserna returneras inte i historik, topplistor eller ratinglänkar. E-post sparas via POST från login-modulen för att inte hamna i URL-parametrar.
+
+När `saveNight` körs skapas en unik rating-token per användare och film i sheetet `RatingTokens`. Mejlet innehåller länkar på formen:
+
+`/rate/<token>?rating=8`
+
+När länken öppnas valideras token och betyg 1-10. Samma token kan användas igen för att ändra betyget.
+
+Miljövariabler sätts i Google Apps Script som Script Properties:
+
+```
+MAIL_PROVIDER=mailapp
+EMAIL_MODE=send
+APP_BASE_URL=https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
+MAIL_FROM_NAME=Filmkväll
+TEST_MOVIES_ENABLED=false
+TEST_MOVIE_TITLE=Testfilm
+```
+
+Om `MAIL_PROVIDER=mailapp` och `EMAIL_MODE=send` saknas används development-läge. Då skickas inget mejl; mejlet skrivs till sheetet `DevEmails` med maskerad mottagare.
+
+Testfilmer kan skapas via API-action `sendTestRatingEmails` när `TEST_MOVIES_ENABLED=true`.
