@@ -5,7 +5,7 @@ import { api } from './api.js';
 import { getWho, on as onStore } from './store.js';
 
 const PEOPLE = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
-const HISTORY_TTL_MS = 10 * 60 * 1000;
+const HISTORY_TTL_MS = 2 * 60 * 1000;
 const WISHLIST_TTL_MS = 2 * 60 * 1000;
 
 let activeWho = getWho();
@@ -24,14 +24,34 @@ function esc(s) {
   }[m]));
 }
 
+function normalizePerson(s) {
+  return String(s || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function samePerson(a, b) {
+  return normalizePerson(a) === normalizePerson(b);
+}
+
+function rowValue(row, wantedKey) {
+  if (!row || !wantedKey) return '';
+  if (Object.prototype.hasOwnProperty.call(row, wantedKey)) return row[wantedKey];
+  const wanted = normalizePerson(wantedKey);
+  const key = Object.keys(row).find((k) => normalizePerson(k) === wanted);
+  return key ? row[key] : '';
+}
+
 function normalizeTitle(s) {
   let t = String(s || '').toLowerCase().trim();
   try { t = t.normalize('NFKD').replace(/[\u0300-\u036f]/g, ''); } catch {}
   return t
+    .replace(/\((18|19|20|21)\d{2}\)\s*$/g, '')
+    .replace(/[\s\-–—:,.]+(18|19|20|21)\d{2}\s*$/g, '')
     .replace(/['’`]/g, '')
+    .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
-    .replace(/^(the|a|an)\s+/i, '')
+    .replace(/^(the|a|an)
++/i, '')
     .trim();
 }
 
@@ -44,20 +64,20 @@ function debounce(fn, ms = 140) {
 }
 
 function filmTitle(row) {
-  return String(row?.Film ?? row?.film ?? row?.Title ?? '').trim();
+  return String(rowValue(row, 'Film') || row?.film || row?.Title || '').trim();
 }
 
 function picker(row) {
-  return String(row?.['Vem valde'] ?? row?.who ?? row?.picker ?? '').trim();
+  return String(rowValue(row, 'Vem valde') || row?.who || row?.picker || '').trim();
 }
 
 function dateMs(row) {
-  const d = new Date(row?.Datum ?? row?.date ?? row?.Date ?? '');
+  const d = new Date(rowValue(row, 'Datum') || row?.date || row?.Date || '');
   return Number.isFinite(d.getTime()) ? d.getTime() : 0;
 }
 
 function personRating(row, who) {
-  const n = Number(row?.[who]);
+  const n = Number(rowValue(row, who));
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
@@ -71,7 +91,7 @@ function avg(nums) {
 }
 
 function hasUserSeen(row, who) {
-  return personRating(row, who) > 0 || picker(row) === who;
+  return personRating(row, who) > 0 || samePerson(picker(row), who);
 }
 
 function titleMatchScore(title, query) {
@@ -95,7 +115,7 @@ async function loadHistory({ force = false } = {}) {
   }
   if (!force && historyPromise) return historyPromise;
 
-  historyPromise = api('getHistory', { limit: 300 })
+  historyPromise = api('getHistory', { limit: 10000 })
     .then((j) => {
       const rows = Array.isArray(j?.rows) ? j.rows : [];
       historyCache = { savedAt: Date.now(), rows };
@@ -153,9 +173,10 @@ function buildUserProfile(historyRows, who) {
 
     const own = personRating(row, who);
     const pickedBy = picker(row);
-    if (own && pickedBy && pickedBy !== who) {
-      if (!trust.has(pickedBy)) trust.set(pickedBy, []);
-      trust.get(pickedBy).push(own / 10);
+    if (own && pickedBy && !samePerson(pickedBy, who)) {
+      const trustKey = PEOPLE.find((p) => samePerson(p, pickedBy)) || pickedBy;
+      if (!trust.has(trustKey)) trust.set(trustKey, []);
+      trust.get(trustKey).push(own / 10);
     }
   }
 
@@ -196,7 +217,7 @@ function buildCandidates(historyRows, wishlistRows, who) {
   }
 
   for (const row of historyRows || []) {
-    const others = ratingsFrom(row, PEOPLE.filter((p) => p !== who));
+    const others = ratingsFrom(row, PEOPLE.filter((p) => !samePerson(p, who)));
     if (!others.length || hasUserSeen(row, who)) continue;
     const c = ensureCandidate(candidates, filmTitle(row));
     if (c) c.historyRows.push(row);
@@ -219,11 +240,11 @@ function scoreCandidate(candidate, query, who, profile) {
 
   const owners = candidate.wishlistOwners;
   const ownerTrust = owners.length ? avg(owners.map((p) => profile.pickerTrust.get(p) || 0.52)) : 0;
-  const onMyWishlist = owners.includes(who) ? 1 : 0;
+  const onMyWishlist = owners.some((p) => samePerson(p, who)) ? 1 : 0;
   const ownerAcceptance = Math.min(owners.length, 4) * 0.18;
   const rankBoost = candidate.bestWishlistRank < 99 ? (6 - candidate.bestWishlistRank) * 0.07 : 0;
 
-  const otherRatings = candidate.historyRows.flatMap((row) => ratingsFrom(row, PEOPLE.filter((p) => p !== who)));
+  const otherRatings = candidate.historyRows.flatMap((row) => ratingsFrom(row, PEOPLE.filter((p) => !samePerson(p, who))));
   const communityAvg = otherRatings.length ? avg(otherRatings) / 10 : 0;
   const communityCount = Math.min(otherRatings.length, 4) * 0.12;
   const recent = candidate.historyRows.reduce((best, row) => Math.max(best, dateMs(row)), 0);
@@ -244,7 +265,7 @@ function rank(rows, wishlists, query, who, limit = 5) {
 
   return candidates
     .map((candidate) => {
-      const otherRatings = candidate.historyRows.flatMap((row) => ratingsFrom(row, PEOPLE.filter((p) => p !== who)));
+      const otherRatings = candidate.historyRows.flatMap((row) => ratingsFrom(row, PEOPLE.filter((p) => !samePerson(p, who))));
       return {
         title: candidate.title,
         owners: candidate.wishlistOwners,
@@ -253,16 +274,16 @@ function rank(rows, wishlists, query, who, limit = 5) {
         score: scoreCandidate(candidate, query, who, profile)
       };
     })
-    .filter((x) => x.title && x.score >= 0)
+    .filter((x) => x.title && x.score >= 0 && !profile.seen.has(normalizeTitle(x.title)))
     .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title, 'sv'))
     .slice(0, limit);
 }
 
 function metaText(item, who) {
   const parts = [];
-  const others = item.owners.filter((p) => p !== who);
-  if (item.owners.includes(who)) parts.push('på din lista');
-  if (others.length) parts.push(`på ${others.join(', ')}s lista`);
+  const others = item.owners.filter((p) => !samePerson(p, who));
+  if (item.owners.some((p) => samePerson(p, who))) parts.push('pa din lista');
+  if (others.length) parts.push(`pa ${others.join(', ')}s lista`);
   if (item.avg) parts.push(`andra gav ${Math.round(item.avg * 10) / 10}${item.n ? ` (${item.n})` : ''}`);
   return parts.join(' · ');
 }
@@ -303,6 +324,7 @@ function hide(input) {
 }
 
 async function render(input, anchor, onPick) {
+  activeWho = getWho() || activeWho;
   const [rows, wishlists] = await Promise.all([loadHistory(), loadWishlists()]);
   if (!input?.isConnected) return;
 
@@ -386,6 +408,8 @@ export function installMovieRecommendations() {
   try {
     onStore('who', (who) => {
       activeWho = who || activeWho;
+      historyCache = null;
+      wishlistCache = null;
       Promise.all([
         loadHistory({ force: true }),
         loadWishlists({ force: true })
