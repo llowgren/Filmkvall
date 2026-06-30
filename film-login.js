@@ -88,9 +88,10 @@ class FilmLogin extends HTMLElement {
           E-post för betygslänk
         </label>
 
-        <div style="display:flex;gap:8px;align-items:center">
-          <input id="emailInput" type="email" autocomplete="email" inputmode="email" value="${escapeAttr(email)}" placeholder="namn@example.com" style="flex:1;min-width:0">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="emailInput" type="email" autocomplete="email" inputmode="email" value="${escapeAttr(email)}" placeholder="namn@example.com" style="flex:1 1 220px;min-width:0">
           <button id="emailSave" class="ghost" type="button">Spara</button>
+          <button id="emailTest" class="ghost" type="button">Testa</button>
         </div>
         <div id="emailMsg" class="muted" style="margin-top:.4rem;font-size:12px"></div>
       </section>
@@ -109,6 +110,7 @@ class FilmLogin extends HTMLElement {
     });
 
     this.querySelector('#emailSave')?.addEventListener('click', () => this.saveEmail());
+    this.querySelector('#emailTest')?.addEventListener('click', () => this.testEmail());
     this.querySelector('#emailInput')?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -137,6 +139,46 @@ class FilmLogin extends HTMLElement {
       if (!j?.ok) throw new Error(j?.error || 'Kunde inte spara e-post');
       setLocalEmail(who, email);
       if (msg) msg.textContent = email ? 'Sparad.' : 'E-post borttagen.';
+    } catch (e) {
+      if (msg) msg.textContent = String(e?.message || e);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async testEmail() {
+    const who = (this.querySelector('#whoSelect')?.value || '').trim();
+    const email = (this.querySelector('#emailInput')?.value || '').trim();
+    const msg = this.querySelector('#emailMsg');
+    const btn = this.querySelector('#emailTest');
+    if (!who) return;
+
+    if (!email || !isValidEmail(email)) {
+      if (msg) msg.textContent = 'Fyll i en giltig e-postadress först.';
+      return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (msg) msg.textContent = 'Skickar test...';
+
+    try {
+      const saved = await postBackend('saveUserEmail', { person: who, email });
+      if (!saved?.ok) throw new Error(saved?.error || 'Kunde inte spara e-post');
+      setLocalEmail(who, email);
+
+      const j = await postBackend('sendTestRatingEmails', {
+        who,
+        film: `Testfilm för ${who}`
+      });
+      if (!j?.ok) throw new Error(j?.error || 'Kunde inte skicka test');
+
+      const sent = Number(j.mail?.sent || 0);
+      const dev = Number(j.mail?.development || 0);
+      if (msg) {
+        msg.textContent = sent
+          ? 'Testmejl skickat.'
+          : (dev ? 'Testmejl skapat i DevEmails.' : 'Test klart, men ingen mottagare hittades.');
+      }
     } catch (e) {
       if (msg) msg.textContent = String(e?.message || e);
     } finally {
