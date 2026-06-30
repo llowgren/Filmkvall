@@ -50,8 +50,7 @@ function normalizeTitle(s) {
     .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
-    .replace(/^(the|a|an)
-+/i, '')
+    .replace(/^(the|a|an)\s+/i, '')
     .trim();
 }
 
