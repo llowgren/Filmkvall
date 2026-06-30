@@ -162,15 +162,13 @@ class FilmLogin extends HTMLElement {
     if (msg) msg.textContent = 'Skickar test...';
 
     try {
-      const saved = await postBackend('saveUserEmail', { person: who, email });
-      if (!saved?.ok) throw new Error(saved?.error || 'Kunde inte spara e-post');
-      setLocalEmail(who, email);
-
-      const j = await postBackend('sendTestRatingEmails', {
+      const j = await postBackend('sendTestRatingEmail', {
         who,
+        email,
         film: `Testfilm för ${who}`
       });
       if (!j?.ok) throw new Error(j?.error || 'Kunde inte skicka test');
+      setLocalEmail(who, email);
 
       const sent = Number(j.mail?.sent || 0);
       const dev = Number(j.mail?.development || 0);

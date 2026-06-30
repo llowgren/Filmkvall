@@ -58,6 +58,7 @@ function handle_(e){
 
       case 'skipNext':     return json_(skipNext_());
       case 'saveNight':    return json_(saveNight_(p));
+      case 'sendTestRatingEmail': return json_(sendTestRatingEmail_(p));
       case 'sendTestRatingEmails': return json_(sendTestRatingEmails_(p));
 
       default:
@@ -423,6 +424,18 @@ function createRatingTokensAndSendEmails_(film, historyRow){
   return { sent, development: dev, skippedNoEmail: skipped };
 }
 
+function createRatingTokenAndSendEmail_(film, historyRow, person, email){
+  const sh = ss_().getSheetByName('RatingTokens');
+  const token = newRatingToken_();
+  sh.appendRow([token, historyRow, today_(), film, person, '', '', new Date().toISOString()]);
+  const status = deliverRatingEmail_(person, email, film, token);
+  return {
+    sent: status === 'sent' ? 1 : 0,
+    development: status === 'sent' ? 0 : 1,
+    skippedNoEmail: 0
+  };
+}
+
 /** ===== Actions ===== */
 function getCurrent_(){
   const PEOPLE = getPeople_();
@@ -706,6 +719,40 @@ function sendTestRatingEmails_(p){
     shH.appendRow(row);
     const mail = createRatingTokensAndSendEmails_(film, shH.getLastRow());
     return { ok:true, film, mail };
+  }finally{
+    lock.releaseLock();
+  }
+}
+
+function sendTestRatingEmail_(p){
+  const who = normName_((p && p.who) || (p && p.person) || getPeople_()[0]);
+  const email = trim_(p && p.email).toLowerCase();
+  const film = trim_((p && p.film) || getEnv_('TEST_MOVIE_TITLE', 'Testfilm'));
+
+  if(!who) return { ok:false, error:'person required' };
+  if(getPeople_().indexOf(who) < 0) return { ok:false, error:'unknown person' };
+  if(!email || !isValidEmail_(email)) return { ok:false, error:'bad email' };
+  if(!film) return { ok:false, error:'film required' };
+
+  const lock = LockService.getScriptLock();
+  if(!lock.tryLock(15000)) return { ok:false, error:'lock timeout' };
+
+  try{
+    saveUserEmail_({ person: who, email });
+
+    const shH = ss_().getSheetByName('History');
+    const headers = shH.getRange(1,1,1,shH.getLastColumn()).getValues()[0];
+    const row = headers.map(h=>{
+      if(h === 'Datum') return today_();
+      if(h === 'Film') return film;
+      if(h === 'Vem valde') return who;
+      if(h === 'Kommentar') return 'TEST EMAIL';
+      return '';
+    });
+    shH.appendRow(row);
+
+    const mail = createRatingTokenAndSendEmail_(film, shH.getLastRow(), who, email);
+    return { ok:true, film, person: who, mail };
   }finally{
     lock.releaseLock();
   }
