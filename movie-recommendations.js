@@ -49,8 +49,8 @@ function normalizeTitle(s) {
   try { t = t.normalize('NFKD').replace(/[\u0300-\u036f]/g, ''); } catch {}
   return t
     .replace(/\((18|19|20|21)\d{2}\)\s*$/g, '')
-    .replace(/[\s\-â€“â€”:,.]+(18|19|20|21)\d{2}\s*$/g, '')
-    .replace(/['â€™`]/g, '')
+    .replace(/[\s\-–—:,.]+(18|19|20|21)\d{2}\s*$/g, '')
+    .replace(/['’`]/g, '')
     .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -429,7 +429,7 @@ function metaText(item, who) {
   if (item.owners.some((p) => samePerson(p, who))) parts.push('pa din lista');
   if (others.length) parts.push(`pa ${others.join(', ')}s lista`);
   if (item.avg) parts.push(`betyg ${Math.round(item.avg * 10) / 10}${item.n && !item.seeds?.length ? ` (${item.n})` : ''}`);
-  return parts.join(' Â· ');
+  return parts.join(' · ');
 }
 
 function ensureStyles() {
