@@ -2,17 +2,21 @@
 // Snabba personliga filmforslag baserat pa historik, val, betyg och onskelistor.
 
 import { api } from './api.js';
+import { getMovieTokens } from './film-login.js';
 import { getWho, on as onStore } from './store.js';
 
 const PEOPLE = ['Hannah', 'Maria', 'Tuva', 'Alva', 'Lars'];
 const HISTORY_TTL_MS = 2 * 60 * 1000;
 const WISHLIST_TTL_MS = 2 * 60 * 1000;
+const TMDB_TTL_MS = 24 * 60 * 60 * 1000;
+const TMDB_URL = 'https://api.themoviedb.org/3';
 
 let activeWho = getWho();
 let historyCache = null;
 let historyPromise = null;
 let wishlistCache = null;
 let wishlistPromise = null;
+let tmdbCache = new Map();
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (m) => ({
@@ -45,8 +49,8 @@ function normalizeTitle(s) {
   try { t = t.normalize('NFKD').replace(/[\u0300-\u036f]/g, ''); } catch {}
   return t
     .replace(/\((18|19|20|21)\d{2}\)\s*$/g, '')
-    .replace(/[\s\-–—:,.]+(18|19|20|21)\d{2}\s*$/g, '')
-    .replace(/['’`]/g, '')
+    .replace(/[\s\-â€“â€”:,.]+(18|19|20|21)\d{2}\s*$/g, '')
+    .replace(/['â€™`]/g, '')
     .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -87,6 +91,10 @@ function ratingsFrom(row, people = PEOPLE) {
 function avg(nums) {
   if (!nums.length) return 0;
   return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+function groupAvg(row) {
+  return avg(ratingsFrom(row, PEOPLE));
 }
 
 function hasUserSeen(row, who) {
@@ -159,6 +167,120 @@ async function loadWishlists({ force = false } = {}) {
   return wishlistPromise;
 }
 
+function blockedTitleSet(historyRows, wishlistRows) {
+  const blocked = new Set();
+  for (const row of historyRows || []) {
+    const key = normalizeTitle(filmTitle(row));
+    if (key) blocked.add(key);
+  }
+  for (const item of wishlistRows || []) {
+    const key = normalizeTitle(item?.title);
+    if (key) blocked.add(key);
+  }
+  return blocked;
+}
+
+function tmdbKey() {
+  try {
+    return getMovieTokens()?.tmdb || '';
+  } catch {
+    return '';
+  }
+}
+
+async function tmdbFetch(path, params = {}) {
+  const key = tmdbKey();
+  if (!key) return null;
+
+  const qs = new URLSearchParams({
+    api_key: key,
+    language: 'sv-SE',
+    include_adult: 'false',
+    ...params
+  });
+  const url = `${TMDB_URL}${path}?${qs}`;
+  const cached = tmdbCache.get(url);
+  if (cached?.savedAt && Date.now() - cached.savedAt < TMDB_TTL_MS) return cached.data;
+
+  const r = await fetch(url, { cache: 'no-store' }).catch(() => null);
+  if (!r || !r.ok) return null;
+  const data = await r.json().catch(() => null);
+  tmdbCache.set(url, { savedAt: Date.now(), data });
+  return data;
+}
+
+async function tmdbFindMovie(title) {
+  const q = String(title || '').trim();
+  if (!q) return null;
+  const j = await tmdbFetch('/search/movie', { query: q });
+  const rows = Array.isArray(j?.results) ? j.results : [];
+  const wanted = normalizeTitle(q);
+  return rows
+    .filter((it) => it?.id && (it.title || it.original_title))
+    .map((it) => {
+      const found = normalizeTitle(it.title || it.original_title || '');
+      const exact = found === wanted ? 1 : 0;
+      const prefix = found.startsWith(wanted) || wanted.startsWith(found) ? 0.2 : 0;
+      return { ...it, _matchScore: exact + prefix + Number(it.popularity || 0) / 1000 };
+    })
+    .sort((a, b) => b._matchScore - a._matchScore)[0] || null;
+}
+
+async function tmdbRecommendationsFor(movieId) {
+  if (!movieId) return [];
+  const j = await tmdbFetch(`/movie/${encodeURIComponent(movieId)}/recommendations`, { page: '1' });
+  return Array.isArray(j?.results) ? j.results : [];
+}
+
+function seedRows(historyRows, who, limit = 8) {
+  return (historyRows || [])
+    .map((row) => {
+      const own = personRating(row, who);
+      const gAvg = groupAvg(row);
+      const score = (own || gAvg) + (own ? 0.8 : 0) + Math.min(ratingsFrom(row).length, 5) * 0.08;
+      return { row, title: filmTitle(row), score };
+    })
+    .filter((x) => x.title && x.score >= 7)
+    .sort((a, b) => b.score - a.score || dateMs(b.row) - dateMs(a.row))
+    .slice(0, limit);
+}
+
+async function externalCandidates(historyRows, wishlistRows, who) {
+  const blocked = blockedTitleSet(historyRows, wishlistRows);
+  const candidates = new Map();
+  const seeds = seedRows(historyRows, who);
+  if (!seeds.length) return [];
+
+  await Promise.all(seeds.map(async (seed) => {
+    const source = await tmdbFindMovie(seed.title);
+    const recs = await tmdbRecommendationsFor(source?.id);
+    for (const rec of recs) {
+      const title = String(rec?.title || rec?.original_title || '').trim();
+      const key = normalizeTitle(title);
+      if (!key || blocked.has(key)) continue;
+
+      const existing = candidates.get(key) || {
+        key,
+        title,
+        year: String(rec.release_date || '').slice(0, 4),
+        seeds: [],
+        tmdbVote: 0,
+        tmdbPopularity: 0,
+        score: 0
+      };
+      existing.seeds.push(seed.title);
+      existing.tmdbVote = Math.max(existing.tmdbVote, Number(rec.vote_average || 0));
+      existing.tmdbPopularity = Math.max(existing.tmdbPopularity, Number(rec.popularity || 0));
+      existing.score += seed.score * 0.7
+        + Number(rec.vote_average || 0) * 0.35
+        + Math.min(Number(rec.popularity || 0), 120) * 0.01;
+      candidates.set(key, existing);
+    }
+  }));
+
+  return [...candidates.values()];
+}
+
 function buildUserProfile(historyRows, who) {
   const seen = new Set();
   const trust = new Map();
@@ -207,6 +329,7 @@ function ensureCandidate(map, title) {
 function buildCandidates(historyRows, wishlistRows, who) {
   const profile = buildUserProfile(historyRows, who);
   const candidates = new Map();
+  const blocked = blockedTitleSet(historyRows, wishlistRows);
 
   for (const item of wishlistRows || []) {
     const c = ensureCandidate(candidates, item.title);
@@ -223,7 +346,7 @@ function buildCandidates(historyRows, wishlistRows, who) {
   }
 
   for (const [key, c] of candidates) {
-    if (profile.seen.has(key)) {
+    if (profile.seen.has(key) || blocked.has(key)) {
       candidates.delete(key);
       continue;
     }
@@ -278,13 +401,35 @@ function rank(rows, wishlists, query, who, limit = 5) {
     .slice(0, limit);
 }
 
+async function rankNewMovies(rows, wishlists, query, who, limit = 5) {
+  const q = normalizeTitle(query);
+  const external = await externalCandidates(rows, wishlists, who);
+  const filtered = external
+    .map((candidate) => ({
+      title: candidate.title,
+      year: candidate.year,
+      owners: [],
+      avg: candidate.tmdbVote,
+      n: candidate.seeds.length,
+      seeds: [...new Set(candidate.seeds)].slice(0, 2),
+      score: candidate.score + titleMatchScore(candidate.title, query)
+    }))
+    .filter((x) => x.title && x.score >= 0 && (!q || titleMatchScore(x.title, query) >= 0))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title, 'sv'))
+    .slice(0, limit);
+
+  if (filtered.length) return filtered;
+  return rank(rows, wishlists, query, who, limit);
+}
+
 function metaText(item, who) {
   const parts = [];
   const others = item.owners.filter((p) => !samePerson(p, who));
+  if (item.seeds?.length) parts.push(`liknar ${item.seeds.join(', ')}`);
   if (item.owners.some((p) => samePerson(p, who))) parts.push('pa din lista');
   if (others.length) parts.push(`pa ${others.join(', ')}s lista`);
-  if (item.avg) parts.push(`andra gav ${Math.round(item.avg * 10) / 10}${item.n ? ` (${item.n})` : ''}`);
-  return parts.join(' · ');
+  if (item.avg) parts.push(`betyg ${Math.round(item.avg * 10) / 10}${item.n && !item.seeds?.length ? ` (${item.n})` : ''}`);
+  return parts.join(' Â· ');
 }
 
 function ensureStyles() {
@@ -327,7 +472,7 @@ async function render(input, anchor, onPick) {
   const [rows, wishlists] = await Promise.all([loadHistory(), loadWishlists()]);
   if (!input?.isConnected) return;
 
-  const items = rank(rows, wishlists, input.value, activeWho);
+  const items = await rankNewMovies(rows, wishlists, input.value, activeWho);
   if (!items.length) return hide(input);
 
   const box = getBox(input, anchor);
