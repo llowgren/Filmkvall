@@ -324,6 +324,7 @@ class FilmNow extends HTMLElement {
     this._busy = false;
     this._cooldownUntil = 0;
     this._lastCurrent = null;
+    this._pollTimer = null;
 
     this._lookupSeq = 0;
     this._hint = null;
@@ -339,9 +340,17 @@ class FilmNow extends HTMLElement {
         this.refresh();
       })
     );
+
+    this._pollTimer = setInterval(() => {
+      if (!this._busy && document.visibilityState !== 'hidden') {
+        this.refresh({ locked: false, passive: true }).catch(() => {});
+      }
+    }, 7000);
   }
 
   disconnectedCallback() {
+    if (this._pollTimer) clearInterval(this._pollTimer);
+    this._pollTimer = null;
     for (const u of this._unsubs) try { u(); } catch (_) {}
     this._unsubs = [];
   }
@@ -376,36 +385,37 @@ class FilmNow extends HTMLElement {
 
   setBusy(on) {
     this._busy = !!on;
-    const buttons = [this.$('#btnRefresh'), this.$('#btnSkip'), this.$('#btnLookup'), this.$('#btnSave'), this.$('#btnDoJump'), this.$('#btnSkipOne')];
+    const buttons = [this.$('#btnRefresh'), this.$('#btnSkip'), this.$('#btnLookup'), this.$('#btnStartNight'), this.$('#btnSave'), this.$('#btnDoJump'), this.$('#btnSkipOne')];
     for (const b of buttons) {
       if (!b) continue;
       b.disabled = this._busy;
       b.classList.toggle('is-busy', this._busy);
     }
+    if (!this._busy) this.applyActiveState();
   }
 
   resetScoresUI() {
     this.querySelectorAll('.score-select').forEach((s) => (s.value = ''));
   }
 
-  async _refreshUnlocked() {
+  async _refreshUnlocked({ passive = false } = {}) {
     const cur = await api('getCurrent');
     this._lastCurrent = cur;
-    this.applyCurrent(cur);
-    await this.updateSuggestedInfo();
+    this.applyCurrent(cur, { passive });
+    if (!passive || cur?.active) await this.updateSuggestedInfo();
   }
 
-  async refresh({ locked = true } = {}) {
+  async refresh({ locked = true, passive = false } = {}) {
     if (!locked) {
-      await this._refreshUnlocked();
+      await this._refreshUnlocked({ passive });
       return;
     }
     await this.runLocked(async () => {
-      await this._refreshUnlocked();
+      await this._refreshUnlocked({ passive });
     }, 350);
   }
 
-  applyCurrent(cur) {
+  applyCurrent(cur, { passive = false } = {}) {
     if (!cur?.ok) return;
 
     const picker = (cur.next || '').trim();
@@ -415,9 +425,12 @@ class FilmNow extends HTMLElement {
     const sug = (cur.suggestion || '').trim();
     const input = this.$('#suggested');
     if (input) {
-      input.value = sug;
-      input.readOnly = false;
+      const editingUnlocked = passive && !cur.active && document.activeElement === input;
+      if (!editingUnlocked) input.value = sug;
+      input.readOnly = !!cur.active && !this.isCurrentPicker();
     }
+
+    this.applyActiveState(cur);
 
     if (cur.scores) {
       for (const p of PEOPLE) {
@@ -428,6 +441,31 @@ class FilmNow extends HTMLElement {
 
     this.updateJumpOptions({ forceDefault: true });
     this._hint = null;
+  }
+
+  isCurrentPicker() {
+    return getWho() === (this.$('#picker')?.value || '').trim();
+  }
+
+  applyActiveState(cur = this._lastCurrent) {
+    const active = !!cur?.active;
+    const canEdit = !active || this.isCurrentPicker();
+    const input = this.$('#suggested');
+    const lookup = this.$('#btnLookup');
+    const start = this.$('#btnStartNight');
+    const msg = this.$('#activeMsg');
+
+    if (input) input.readOnly = !canEdit;
+    if (lookup) lookup.disabled = this._busy || !canEdit;
+    if (start) {
+      start.disabled = this._busy || !canEdit;
+      start.textContent = active ? 'Uppdatera filmval' : 'Starta filmkväll';
+    }
+    if (msg) {
+      if (active && canEdit) msg.textContent = 'Filmkvällen är startad. Du kan ändra filmvalet eftersom det är din tur.';
+      else if (active) msg.textContent = `Filmkvällen är startad för ${(cur.next || '').trim()}. Endast den personen kan ändra filmvalet.`;
+      else msg.textContent = 'Vem som helst kan skriva in filmvalet och starta filmkvällen för personen på tur.';
+    }
   }
 
   orderedTurnList() {
@@ -533,6 +571,23 @@ class FilmNow extends HTMLElement {
 
       await this.refresh({ locked: false });
     });
+  }
+
+  async startNight() {
+    await this.runLocked(async () => {
+      const film = (this.$('#suggested')?.value || '').trim();
+      if (!film) return;
+
+      const res = await api('startNight', { film, by: getWho() });
+      if (!res?.ok) {
+        this.applyActiveState(this._lastCurrent);
+        const msg = this.$('#activeMsg');
+        if (msg) msg.textContent = res?.message || 'Filmvalet är låst av personen som är på tur.';
+        return;
+      }
+
+      await this.refresh({ locked: false });
+    }, 650);
   }
 
   renderSuggestions(suggestions, heading = 'Menade du:') {
@@ -738,6 +793,7 @@ class FilmNow extends HTMLElement {
 
     const doSearch = debounce(async () => {
       if (composing) return;
+      if (input.readOnly) return hide();
       if (document.activeElement !== input) return;
       const q = (input.value || '').trim();
       if (q.length < 2) return hide();
@@ -796,10 +852,11 @@ class FilmNow extends HTMLElement {
     this.$('#btnDoJump')?.addEventListener('click', () => this.doJumpToSelected());
 
     this.$('#btnLookup')?.addEventListener('click', () => this.runLocked(() => this.updateSuggestedInfo(), 450));
+    this.$('#btnStartNight')?.addEventListener('click', () => this.startNight());
     this.$('#suggested')?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        this.runLocked(() => this.updateSuggestedInfo(), 450);
+        if (!this.$('#suggested')?.readOnly) this.runLocked(() => this.updateSuggestedInfo(), 450);
       }
     });
 
@@ -829,6 +886,7 @@ class FilmNow extends HTMLElement {
       this._hint = { title, year };
 
       const input = this.$('#suggested');
+      if (input?.readOnly) return;
       if (input) input.value = year ? `${title} (${year})` : title;
 
       this.runLocked(() => this.updateSuggestedInfo(), 350);
@@ -865,8 +923,10 @@ class FilmNow extends HTMLElement {
             <div class="filmRow ac-wrap">
               <input id="suggested" class="lookup-input" autocomplete="off" autocapitalize="off" spellcheck="false">
               <button id="btnLookup" class="lookup-btn">Sök</button>
+              <button id="btnStartNight" class="primary start-btn">Starta filmkväll</button>
               <div class="ac-list" id="ac-suggested" style="display:none"></div>
             </div>
+            <div id="activeMsg" class="muted activeMsg"></div>
           </div>
         </div>
 
@@ -934,6 +994,8 @@ class FilmNow extends HTMLElement {
         /* Film-sök */
         .filmRow{display:flex; gap:8px; align-items:center; position:relative}
         .lookup-input{flex:1 1 auto; min-width:0}
+        .start-btn{flex:0 0 auto}
+        .activeMsg{font-size:12px; margin-top:6px}
 
         /* --- OMDb meta --- */
         .metaGrid{
@@ -991,8 +1053,9 @@ class FilmNow extends HTMLElement {
 
           /* Filmrad: knapp får plats */
           .lookup-btn{flex:0 0 auto}
-          .filmRow{align-items:stretch}
+          .filmRow{align-items:stretch; flex-wrap:wrap}
           .filmRow .lookup-input{height:auto}
+          .start-btn{width:100%}
 
           /* Meta: en kolumn (minskar tomma områden) */
           .metaGrid{
