@@ -57,6 +57,7 @@ function handle_(e){
       case 'getHistory':   return json_(getHistory_(p));
 
       case 'skipNext':     return json_(skipNext_());
+      case 'startNight':   return json_(startNight_(p));
       case 'saveNight':    return json_(saveNight_(p));
       case 'sendTestRatingEmail': return json_(sendTestRatingEmail_(p));
       case 'sendTestRatingEmails': return json_(sendTestRatingEmails_(p));
@@ -439,18 +440,25 @@ function createRatingTokenAndSendEmail_(film, historyRow, person, email){
 /** ===== Actions ===== */
 function getCurrent_(){
   const PEOPLE = getPeople_();
+  const active = getActiveNight_();
   let idx = Number(getConfig_('nextIndex') || '0');
   if(!isFinite(idx) || idx < 0) idx = 0;
   idx = idx % PEOPLE.length;
 
-  const who = PEOPLE[idx];
+  const who = (active && PEOPLE.indexOf(active.who) >= 0) ? active.who : PEOPLE[idx];
 
-  // Här är viktiga raden: suggestion ska vara R1 för "who"
-  const wl = getWishlist_({ person: who });
-  const suggestion = wl && wl.ok ? (wl.R1 || '') : '';
+  const suggestion = active ? active.film : ((getWishlist_({ person: who }) || {}).R1 || '');
 
   const scores = getScores_().scores || {};
-  return { ok:true, next:who, suggestion, scores };
+  return {
+    ok:true,
+    next:who,
+    suggestion,
+    scores,
+    active: !!active,
+    activeBy: active ? active.by : '',
+    activeAt: active ? active.at : ''
+  };
 }
 
 function getScores_(){
@@ -488,6 +496,32 @@ function saveScores_(p){
 
   sh.getRange(2,1,1,PEOPLE.length).setValues([row]);
   return { ok:true };
+}
+
+function getActiveNight_(){
+  const who = normName_(getConfig_('activeWho'));
+  const film = trim_(getConfig_('activeFilm'));
+  if(!who || !film) return null;
+  return {
+    who,
+    film,
+    by: normName_(getConfig_('activeBy')),
+    at: trim_(getConfig_('activeAt'))
+  };
+}
+
+function setActiveNight_(who, film, by){
+  setConfig_('activeWho', who);
+  setConfig_('activeFilm', film);
+  setConfig_('activeBy', by || '');
+  setConfig_('activeAt', new Date().toISOString());
+}
+
+function clearActiveNight_(){
+  setConfig_('activeWho', '');
+  setConfig_('activeFilm', '');
+  setConfig_('activeBy', '');
+  setConfig_('activeAt', '');
 }
 
 function getWishlist_(p){
@@ -768,7 +802,37 @@ function skipNext_(){
     if(!isFinite(idx) || idx < 0) idx = 0;
     idx = (idx + 1) % PEOPLE.length;
     setConfig_('nextIndex', String(idx));
+    clearActiveNight_();
     return { ok:true, next: PEOPLE[idx] };
+  }finally{
+    lock.releaseLock();
+  }
+}
+
+function startNight_(p){
+  const PEOPLE = getPeople_();
+  const film = trim_(p && p.film);
+  const by = normName_(p && p.by);
+
+  if(!film) return { ok:false, error:'film required' };
+
+  const lock = LockService.getScriptLock();
+  if(!lock.tryLock(8000)) return { ok:false, error:'lock timeout' };
+
+  try{
+    const active = getActiveNight_();
+    let idx = Number(getConfig_('nextIndex') || '0');
+    if(!isFinite(idx) || idx < 0) idx = 0;
+    idx = idx % PEOPLE.length;
+
+    const owner = (active && PEOPLE.indexOf(active.who) >= 0) ? active.who : PEOPLE[idx];
+    if(active && by !== owner){
+      return { ok:false, error:'locked', owner, message:'only owner can change active movie' };
+    }
+
+    setActiveNight_(owner, film, by);
+    setConfig_('nextIndex', String(PEOPLE.indexOf(owner)));
+    return { ok:true, next:owner, suggestion:film, active:true, activeBy:by };
   }finally{
     lock.releaseLock();
   }
@@ -832,6 +896,7 @@ function saveNight_(p){
     const whoIdx = PEOPLE.indexOf(who);
     const nextIdx = (whoIdx >= 0) ? (whoIdx + 1) % PEOPLE.length : 0;
     setConfig_('nextIndex', String(nextIdx));
+    clearActiveNight_();
 
     return { ok:true, nextPerson: PEOPLE[nextIdx], mail };
   }finally{
