@@ -93,7 +93,7 @@ class FilmLogin extends HTMLElement {
           <button id="emailSave" class="ghost" type="button">Spara</button>
           <button id="emailTest" class="ghost" type="button">Testa</button>
         </div>
-        <div id="emailMsg" class="muted" style="margin-top:.4rem;font-size:12px"></div>
+        <div id="emailMsg" class="muted" role="status" aria-live="polite" style="margin-top:.4rem;font-size:12px;min-height:1.2em"></div>
       </section>
     `;
   }
@@ -135,7 +135,7 @@ class FilmLogin extends HTMLElement {
     if (msg) msg.textContent = 'Sparar...';
 
     try {
-      const j = await postBackend('saveUserEmail', { person: who, email });
+      const j = await requestBackend('saveUserEmail', { person: who, email });
       if (!j?.ok) throw new Error(j?.error || 'Kunde inte spara e-post');
       setLocalEmail(who, email);
       if (msg) msg.textContent = email ? 'Sparad.' : 'E-post borttagen.';
@@ -162,7 +162,7 @@ class FilmLogin extends HTMLElement {
     if (msg) msg.textContent = 'Skickar test...';
 
     try {
-      const j = await postBackend('sendTestRatingEmail', {
+      const j = await requestBackend('sendTestRatingEmail', {
         who,
         email,
         film: `Testfilm för ${who}`
@@ -172,10 +172,12 @@ class FilmLogin extends HTMLElement {
 
       const sent = Number(j.mail?.sent || 0);
       const dev = Number(j.mail?.development || 0);
+      const skipped = Number(j.mail?.skippedNoEmail || 0);
       if (msg) {
-        msg.textContent = sent
-          ? 'Testmejl skickat.'
-          : (dev ? 'Testmejl skapat i DevEmails.' : 'Test klart, men ingen mottagare hittades.');
+        if (sent) msg.textContent = 'Testmejl skickat.';
+        else if (dev) msg.textContent = 'Testet skapades i DevEmails. Inget mejl skickas förrän EMAIL_MODE=send är satt i Apps Script.';
+        else if (skipped) msg.textContent = 'Test klart, men mottagaren saknar e-postadress.';
+        else msg.textContent = 'Test klart, men backend skickade inget mejl.';
       }
     } catch (e) {
       if (msg) msg.textContent = String(e?.message || e);
@@ -236,17 +238,53 @@ function setLocalEmail(who, email) {
   } catch {}
 }
 
-async function postBackend(action, params = {}) {
-  const body = new URLSearchParams({
+async function requestBackend(action, params = {}) {
+  const body = buildParams(action, params);
+  try {
+    return await fetchJson(API_URL, {
+      method: 'POST',
+      body,
+      cache: 'no-store'
+    });
+  } catch (postError) {
+    const url = `${API_URL}?${body.toString()}`;
+    try {
+      return await fetchJson(url, { cache: 'no-store' });
+    } catch (getError) {
+      throw new Error(`Kunde inte nå backend: ${getError?.message || postError?.message || getError || postError}`);
+    }
+  }
+}
+
+function buildParams(action, params = {}) {
+  return new URLSearchParams({
     action,
     pw: AUTH.pw,
     ...params
   });
+}
 
-  const r = await fetch(API_URL, {
-    method: 'POST',
-    body,
-    cache: 'no-store'
-  });
-  return r.json();
+async function fetchJson(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const r = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    const text = await r.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (_) {
+      throw new Error(`Backend svarade inte med JSON (${r.status})`);
+    }
+    if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+    return data;
+  } catch (err) {
+    if (err?.name === 'AbortError') throw new Error('Backend svarade inte inom 15 sekunder');
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
