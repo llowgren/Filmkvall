@@ -555,6 +555,26 @@ class FilmNow extends HTMLElement {
     return scores;
   }
 
+  setSaveMsg(text = '') {
+    const el = this.$('#saveMsg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.display = text ? 'block' : 'none';
+  }
+
+  mailStatusText(mail) {
+    const sent = Number(mail?.sent || 0);
+    const dev = Number(mail?.development || 0);
+    const skipped = Number(mail?.skippedNoEmail || 0);
+    const parts = [];
+    if (sent) parts.push(`${sent} röstmejl skickade`);
+    if (dev) parts.push(`${dev} röstmejl skapade i DevEmails`);
+    if (skipped) parts.push(`${skipped} saknar e-post`);
+    if (!parts.length) return 'Kvällen sparades, men inga röstmejl skapades.';
+    const suffix = dev ? ' Riktiga mejl kräver EMAIL_MODE=send i Apps Script.' : '';
+    return `${parts.join(', ')}.${suffix}`;
+  }
+
   async saveNight() {
     await this.runLocked(async () => {
       const who = (this.$('#picker')?.value || '').trim();
@@ -562,14 +582,21 @@ class FilmNow extends HTMLElement {
       const comment = (this.$('#comment')?.value || '').trim();
       if (!who || !film) return;
 
-      await api('saveScores', { scores: JSON.stringify(this.getScoresPayload()) });
-      await api('saveNight', { who, film, comment });
+      try {
+        this.setSaveMsg('Sparar kväll och skapar röstlänkar...');
+        await api('saveScores', { scores: JSON.stringify(this.getScoresPayload()) });
+        const saved = await api('saveNight', { who, film, comment });
+        if (!saved?.ok) throw new Error(saved?.error || 'Kunde inte spara kväll');
 
-      this.resetScoresUI();
-      const c = this.$('#comment');
-      if (c) c.value = '';
+        this.resetScoresUI();
+        const c = this.$('#comment');
+        if (c) c.value = '';
 
-      await this.refresh({ locked: false });
+        await this.refresh({ locked: false });
+        this.setSaveMsg(this.mailStatusText(saved.mail));
+      } catch (err) {
+        this.setSaveMsg(String(err?.message || err));
+      }
     });
   }
 
@@ -974,6 +1001,7 @@ class FilmNow extends HTMLElement {
           <div class="col saveCol">
             <label>Kommentar</label>
             <input id="comment" placeholder="valfritt">
+            <div id="saveMsg" class="muted saveMsg" role="status" aria-live="polite" style="display:none"></div>
           </div>
           <div class="col saveBtnCol">
             <button id="btnSave" class="primary">Spara kväll</button>
@@ -996,6 +1024,7 @@ class FilmNow extends HTMLElement {
         .lookup-input{flex:1 1 auto; min-width:0}
         .start-btn{flex:0 0 auto}
         .activeMsg{font-size:12px; margin-top:6px}
+        .saveMsg{font-size:12px; margin-top:6px}
 
         /* --- OMDb meta --- */
         .metaGrid{
