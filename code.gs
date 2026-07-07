@@ -287,6 +287,29 @@ function envBool_(key, fallback){
   return ['1','true','yes','ja','on'].indexOf(raw) >= 0;
 }
 
+function configureMailForSend(){
+  const url = 'https://script.google.com/macros/s/AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA/exec';
+  PropertiesService.getScriptProperties().setProperties({
+    MAIL_PROVIDER: 'mailapp',
+    EMAIL_MODE: 'send',
+    MAIL_FROM_NAME: 'Filmkväll',
+    APP_BASE_URL: url,
+    TEST_MOVIES_ENABLED: 'true',
+    TEST_MOVIE_TITLE: 'Testet'
+  }, false);
+  return {
+    MAIL_PROVIDER: getEnv_('MAIL_PROVIDER', ''),
+    EMAIL_MODE: getEnv_('EMAIL_MODE', ''),
+    MAIL_FROM_NAME: getEnv_('MAIL_FROM_NAME', ''),
+    APP_BASE_URL: getEnv_('APP_BASE_URL', ''),
+    TEST_MOVIES_ENABLED: getEnv_('TEST_MOVIES_ENABLED', '')
+  };
+}
+
+function authorizeMailApp(){
+  return MailApp.getRemainingDailyQuota();
+}
+
 function isValidEmail_(email){
   const e = trim_(email);
   return e.length <= 254 && EMAIL_RE.test(e);
@@ -370,17 +393,38 @@ function buildRatingEmail_(film, token){
       : `/rate/${encodeURIComponent(token)}?rating=${i}`;
     links.push({ rating:i, href });
   }
-  const text = `Du har tittat på filmen ${film}. Sätt ditt betyg mellan 1 och 10.\n\n` +
-    links.map(x => `${x.rating}: ${x.href}`).join('\n');
-  const htmlLinks = links.map(x => `<a href="${escapeHtml_(x.href)}" style="display:inline-block;margin:4px;padding:10px 13px;border:1px solid #111;border-radius:8px;text-decoration:none;color:#111">${x.rating}</a>`).join('');
-  const html = `<p>Du har tittat på filmen ${escapeHtml_(film)}. Sätt ditt betyg mellan 1 och 10.</p><p>${htmlLinks}</p>`;
-  return { subject:`Betygsätt ${film}`, text, html };
+  const safeFilm = escapeHtml_(film);
+  const text = `Dags att betygsätta: ${film}\n\nKlicka på ett betyg mellan 1 och 10:\n\n` +
+    links.map(x => `${x.rating}: ${x.href}`).join('\n') +
+    '\n\nDu kan klicka igen om du vill ändra betyget senare.';
+  const htmlLinks = links.map(x => {
+    const bg = x.rating >= 8 ? '#22c55e' : (x.rating >= 5 ? '#f7c948' : '#ef4444');
+    const color = x.rating >= 5 ? '#111827' : '#ffffff';
+    return `<a href="${escapeHtml_(x.href)}" style="display:inline-block;width:44px;line-height:44px;margin:5px;border-radius:10px;background:${bg};color:${color};font-weight:800;font-size:18px;text-align:center;text-decoration:none">${x.rating}</a>`;
+  }).join('');
+  const html = `
+    <div style="margin:0;padding:24px;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden">
+        <div style="padding:22px 24px;background:#111827;color:#ffffff">
+          <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#f7c948;font-weight:700">Filmkväll</div>
+          <h1 style="margin:8px 0 0;font-size:24px;line-height:1.2">Betygsätt filmen</h1>
+        </div>
+        <div style="padding:24px">
+          <p style="margin:0 0 8px;font-size:14px;color:#6b7280">Ni har tittat på</p>
+          <div style="margin:0 0 22px;font-size:22px;font-weight:800;line-height:1.25">${safeFilm}</div>
+          <p style="margin:0 0 16px;font-size:16px;line-height:1.45">Välj ditt betyg. Länken sparar betyget direkt och du kan klicka igen om du vill ändra dig.</p>
+          <div style="margin:18px 0 8px">${htmlLinks}</div>
+          <p style="margin:18px 0 0;font-size:12px;line-height:1.45;color:#6b7280">Om knapparna inte fungerar kan du kopiera en av länkarna från textversionen av mejlet.</p>
+        </div>
+      </div>
+    </div>`;
+  return { subject:`Betygsätt: ${film}`, text, html };
 }
 
 function deliverRatingEmail_(person, email, film, token){
   const msg = buildRatingEmail_(film, token);
-  const provider = String(getEnv_('MAIL_PROVIDER', '')).toLowerCase();
-  const mode = String(getEnv_('EMAIL_MODE', '')).toLowerCase();
+  const provider = String(getEnv_('MAIL_PROVIDER', 'mailapp')).toLowerCase();
+  const mode = String(getEnv_('EMAIL_MODE', 'send')).toLowerCase();
   const shouldSend = provider === 'mailapp' && mode === 'send';
 
   if(shouldSend){
