@@ -62,7 +62,7 @@ class FilmLogin extends HTMLElement {
 
   render() {
     const who = (typeof getWho === 'function' ? getWho() : 'Maria') || 'Maria';
-    const email = getLocalEmail(who);
+    const emailSaved = hasLocalEmail(who);
 
     this.innerHTML = `
       <section class="card">
@@ -89,11 +89,11 @@ class FilmLogin extends HTMLElement {
         </label>
 
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input id="emailInput" type="email" autocomplete="email" inputmode="email" value="${escapeAttr(email)}" placeholder="namn@example.com" style="flex:1 1 220px;min-width:0">
+          <input id="emailInput" type="email" autocomplete="email" inputmode="email" value="" placeholder="${emailSaved ? 'E-post sparad - skriv ny för att ändra' : 'namn@example.com'}" style="flex:1 1 220px;min-width:0">
           <button id="emailSave" class="ghost" type="button">Spara</button>
           <button id="emailTest" class="ghost" type="button">Testa</button>
         </div>
-        <div id="emailMsg" class="muted" role="status" aria-live="polite" style="margin-top:.4rem;font-size:12px;min-height:1.2em"></div>
+        <div id="emailMsg" class="muted" role="status" aria-live="polite" style="margin-top:.4rem;font-size:12px;min-height:1.2em">${emailSaved ? 'E-post är sparad. Adressen visas inte på sidan.' : 'Lämna tomt och spara för att ta bort e-post.'}</div>
       </section>
     `;
   }
@@ -138,7 +138,12 @@ class FilmLogin extends HTMLElement {
       const j = await requestBackend('saveUserEmail', { person: who, email });
       if (!j?.ok) throw new Error(j?.error || 'Kunde inte spara e-post');
       setLocalEmail(who, email);
-      if (msg) msg.textContent = email ? 'Sparad.' : 'E-post borttagen.';
+      const input = this.querySelector('#emailInput');
+      if (input) {
+        input.value = '';
+        input.placeholder = email ? 'E-post sparad - skriv ny för att ändra' : 'namn@example.com';
+      }
+      if (msg) msg.textContent = email ? 'Sparad. Adressen visas inte på sidan.' : 'E-post borttagen.';
     } catch (e) {
       if (msg) msg.textContent = String(e?.message || e);
     } finally {
@@ -169,6 +174,11 @@ class FilmLogin extends HTMLElement {
       });
       if (!j?.ok) throw new Error(j?.error || 'Kunde inte skicka test');
       setLocalEmail(who, email);
+      const input = this.querySelector('#emailInput');
+      if (input) {
+        input.value = '';
+        input.placeholder = 'E-post sparad - skriv ny för att ändra';
+      }
 
       const sent = Number(j.mail?.sent || 0);
       const dev = Number(j.mail?.development || 0);
@@ -226,14 +236,24 @@ function emailKey(who) {
   return `film_email_${String(who || '').trim().toLowerCase()}`;
 }
 
-function getLocalEmail(who) {
-  try { return localStorage.getItem(emailKey(who)) || ''; } catch { return ''; }
+function hasLocalEmail(who) {
+  try {
+    const key = emailKey(who);
+    const saved = localStorage.getItem(key) || '';
+    if (saved.includes('@')) {
+      localStorage.setItem(key, '1');
+      return true;
+    }
+    return saved === '1';
+  } catch {
+    return false;
+  }
 }
 
 function setLocalEmail(who, email) {
   try {
     const key = emailKey(who);
-    if (email) localStorage.setItem(key, email);
+    if (email) localStorage.setItem(key, '1');
     else localStorage.removeItem(key);
   } catch {}
 }
