@@ -59,6 +59,8 @@ function handle_(e){
       case 'skipNext':     return json_(skipNext_());
       case 'startNight':   return json_(startNight_(p));
       case 'saveNight':    return json_(saveNight_(p));
+      case 'startNightFor': return json_(startNightFor_(p));
+      case 'finishNight':   return json_(finishNight_(p));
       case 'sendTestRatingEmail': return json_(sendTestRatingEmail_(p));
       case 'sendTestRatingEmails': return json_(sendTestRatingEmails_(p));
 
@@ -193,6 +195,16 @@ function ensureSheets_(){
     }
     shH.getRange(1,1,1,headH.length).setValues([headH]);
   }
+
+  // Metadata laggs sist sa att all gammal historik och personkolumner behalls.
+  const metaHeaders = ['MediaType','ExternalId','Poster','Runtime','Year','SyncId'];
+  let historyHeaders = shH.getRange(1,1,1,shH.getLastColumn()).getValues()[0].map(trim_);
+  metaHeaders.forEach(function(header){
+    if(historyHeaders.indexOf(header) < 0){
+      shH.getRange(1, shH.getLastColumn() + 1).setValue(header);
+      historyHeaders.push(header);
+    }
+  });
 
   // Users: privat kontaktdata. Returneras aldrig av publika list-/historik-API:er.
   const shU = getOrCreateSheet_('Users');
@@ -421,26 +433,9 @@ function buildRatingEmail_(film, token){
   return { subject:`Betygsätt: ${film}`, text, html };
 }
 
-function deliverRatingEmail_(person, email, film, token){
-  const msg = buildRatingEmail_(film, token);
-  const provider = String(getEnv_('MAIL_PROVIDER', 'mailapp')).toLowerCase();
-  const mode = String(getEnv_('EMAIL_MODE', 'send')).toLowerCase();
-  const shouldSend = provider === 'mailapp' && mode === 'send';
-
-  if(shouldSend){
-    MailApp.sendEmail({
-      to: email,
-      subject: msg.subject,
-      body: msg.text,
-      htmlBody: msg.html,
-      name: getEnv_('MAIL_FROM_NAME', 'Filmkväll')
-    });
-    return 'sent';
-  }
-
-  const sh = ss_().getSheetByName('DevEmails');
-  sh.appendRow([new Date().toISOString(), 'development', maskEmail_(email), person, film, msg.subject, msg.text, msg.html]);
-  return 'development';
+function deliverRatingEmail_(){
+  // Mailbetyg ar permanent avstangt. Alla betyg laggs i iPad-granssnittet.
+  return 'disabled';
 }
 
 function createRatingTokensAndSendEmails_(film, historyRow){
@@ -882,6 +877,80 @@ function startNight_(p){
   }
 }
 
+/** Nytt sofflage: Lars kan valja vem som helst direkt fran den rankade listan. */
+function startNightFor_(p){
+  const PEOPLE = getPeople_();
+  const who = normName_(p && p.who);
+  const film = trim_(p && p.film);
+  if(PEOPLE.indexOf(who) < 0) return { ok:false, error:'unknown person' };
+  if(!film) return { ok:false, error:'film required' };
+
+  const lock = LockService.getScriptLock();
+  if(!lock.tryLock(8000)) return { ok:false, error:'lock timeout' };
+  try{
+    setActiveNight_(who, film, who);
+    setConfig_('nextIndex', String(PEOPLE.indexOf(who)));
+    return { ok:true, next:who, suggestion:film, active:true };
+  }finally{
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Sparar den nya femgradiga skalan direkt i History.
+ * star/up/neutral/down/noll ar text, sa gamla 1-10-betyg kan ligga kvar.
+ * Tomt betyder att personen inte deltog och ar ocksa viktig statistik.
+ */
+function finishNight_(p){
+  const PEOPLE = getPeople_();
+  const who = normName_(p && p.who);
+  const film = trim_(p && p.film);
+  const comment = trim_(p && p.comment);
+  if(PEOPLE.indexOf(who) < 0) return { ok:false, error:'unknown person' };
+  if(!film) return { ok:false, error:'film required' };
+
+  let ratings = {};
+  try{ ratings = p.ratings ? JSON.parse(p.ratings) : {}; }
+  catch(_){ return { ok:false, error:'bad ratings json' }; }
+
+  const allowed = { star:'star', up:'up', neutral:'neutral', down:'down', noll:'noll' };
+  const clientId = trim_(p && p.clientId);
+  const lock = LockService.getScriptLock();
+  if(!lock.tryLock(15000)) return { ok:false, error:'lock timeout' };
+  try{
+    const shH = ss_().getSheetByName('History');
+    const headers = shH.getRange(1,1,1,shH.getLastColumn()).getValues()[0].map(trim_);
+    const row = headers.map(function(h){
+      if(h === 'Datum') return today_();
+      if(h === 'Film') return film;
+      if(h === 'Vem valde') return who;
+      if(h === 'Kommentar') return comment;
+      if(h === 'MediaType') return trim_(p.mediaType) || 'movie';
+      if(h === 'ExternalId') return trim_(p.externalId);
+      if(h === 'Poster') return trim_(p.poster);
+      if(h === 'Runtime') return Number(p.runtime) || '';
+      if(h === 'Year') return trim_(p.year);
+      if(h === 'SyncId') return clientId;
+      if(PEOPLE.indexOf(h) >= 0) return allowed[String(ratings[h] || '')] || '';
+      return '';
+    });
+    let targetRow = 0;
+    const syncCol = headers.indexOf('SyncId') + 1;
+    if(clientId && syncCol > 0 && shH.getLastRow() >= 2){
+      const ids = shH.getRange(2,syncCol,shH.getLastRow()-1,1).getValues();
+      for(let i=0;i<ids.length;i++){
+        if(trim_(ids[i][0]) === clientId){ targetRow=i+2; break; }
+      }
+    }
+    if(targetRow) shH.getRange(targetRow,1,1,row.length).setValues([row]);
+    else shH.appendRow(row);
+    clearActiveNight_();
+    return { ok:true, historyRow:targetRow || shH.getLastRow() };
+  }finally{
+    lock.releaseLock();
+  }
+}
+
 function saveNight_(p){
   const PEOPLE = getPeople_();
 
@@ -916,7 +985,8 @@ function saveNight_(p){
 
     shH.appendRow(row);
     const historyRow = shH.getLastRow();
-    const mail = createRatingTokensAndSendEmails_(film, historyRow);
+    // Betyg satts direkt i iPad-granssnittet. Skicka aldrig ratingmejl har.
+    const mail = { disabled:true, sent:0, development:0, skippedNoEmail:0 };
 
     // Nollställ scores
     const shS = ss_().getSheetByName('Scores');
