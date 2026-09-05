@@ -1,11 +1,7 @@
 name: Deploy Apps Script
 
 on:
-  push:
-    paths:
-      - "code.gs"
-      - "appsscript.json"
-      - ".clasp.json"
+  workflow_dispatch:
 
 jobs:
   deploy:
