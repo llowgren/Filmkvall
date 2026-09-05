@@ -5,3 +5,14 @@
 .syncBadge{color:var(--muted);font-size:13px;white-space:nowrap}
 .homeLists{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:26px}.homeLists h2{font-size:22px;margin:0 0 10px}.historyList{display:grid;gap:8px}.historyCard{display:grid;grid-template-columns:54px 1fr;gap:12px;align-items:center;min-height:72px;text-align:left;border:1px solid var(--line);border-radius:15px;background:#101725;color:var(--text);padding:8px}.historyCard strong{display:block;font-size:15px;line-height:1.2}.historyCard small{display:block;color:var(--muted);margin-top:5px}.historyThumb,.historyPoster,.activePoster{display:block;background:#263149 center/cover no-repeat}.historyThumb{width:48px;height:56px;border-radius:9px}.historyDetail{display:grid;grid-template-columns:170px 1fr;gap:22px}.historyPoster{width:170px;aspect-ratio:2/3;border-radius:16px}.danger{min-height:52px;border:1px solid var(--red);border-radius:15px;background:#401d25;color:#fff;padding:0 18px;font-weight:750;margin-top:8px}
 @media(max-width:760px){.homeLists{grid-template-columns:1fr}.historyDetail{grid-template-columns:100px 1fr}.historyPoster{width:100px}}
+.chooserBand{display:flex;align-items:center;gap:10px;margin:-22px -22px 22px;padding:12px 18px;border-bottom:1px solid var(--line);overflow-x:auto;background:rgba(244,200,76,.08);border-radius:24px 24px 0 0;scrollbar-width:none}.chooserBand::-webkit-scrollbar{display:none}.chooserBandTitle{font-weight:800;white-space:nowrap;margin-right:4px}.chooserWinner{display:flex;align-items:baseline;gap:7px;white-space:nowrap;border-left:1px solid var(--line);padding-left:12px}.chooserWinner small{color:var(--muted)}
+@media(prefers-color-scheme:light){
+  :root{color-scheme:light;--bg:#f3f5f9;--panel:#fff;--panel2:#f5f7fb;--line:#d5dbe6;--text:#172033;--muted:#657087;--gold:#b88000;--green:#16884e;--red:#c53c4a}
+  html,body{background:radial-gradient(circle at 50% -20%,#dfe8f7 0,var(--bg) 55%)}
+  .heroPanel{background:rgba(255,255,255,.94);box-shadow:0 18px 50px rgba(31,44,70,.13)}
+  .person{background:linear-gradient(150deg,var(--panel2),#fff)}.rank{color:rgba(23,32,51,.16)}
+  .historyCard,.rate{background:#fff}.movie,.searchHit,.ratingRow{background:var(--panel2)}
+  .posterPh,.historyThumb,.historyPoster,.activePoster{background-color:#e1e6ef}
+  .stream{background:#eef2f8;border-color:#ccd5e3}.danger{background:#fff0f1;color:#8e2632}
+  .rate.selected.star{background:#fff0b3}.rate.selected.up{background:#dff5e9}.rate.selected.neutral{background:#e5e9f0}.rate.selected.down,.rate.selected.noll{background:#ffe2e5}
+}
