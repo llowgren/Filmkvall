@@ -61,6 +61,8 @@ function handle_(e){
       case 'saveNight':    return json_(saveNight_(p));
       case 'startNightFor': return json_(startNightFor_(p));
       case 'finishNight':   return json_(finishNight_(p));
+      case 'updateHistory': return json_(updateHistory_(p));
+      case 'deleteHistory': return json_(deleteHistory_(p));
       case 'sendTestRatingEmail': return json_(sendTestRatingEmail_(p));
       case 'sendTestRatingEmails': return json_(sendTestRatingEmails_(p));
 
@@ -634,6 +636,7 @@ function getHistory_(p){
   for(let i=data.length-1; i>=0 && out.length<limit; i--){
     const obj = {};
     headers.forEach((h,idx)=> obj[h] = data[i][idx]);
+    obj._row = i + 2;
     out.push(obj);
   }
   return { ok:true, rows: out };
@@ -949,6 +952,59 @@ function finishNight_(p){
   }finally{
     lock.releaseLock();
   }
+}
+
+function findHistoryRow_(sh, headers, p){
+  const syncId = trim_(p && p.syncId);
+  const syncCol = headers.indexOf('SyncId') + 1;
+  if(syncId && syncCol > 0 && sh.getLastRow() >= 2){
+    const ids = sh.getRange(2,syncCol,sh.getLastRow()-1,1).getValues();
+    for(let i=0;i<ids.length;i++) if(trim_(ids[i][0]) === syncId) return i+2;
+  }
+  const row = Number(p && p.row);
+  if(!Number.isInteger(row) || row < 2 || row > sh.getLastRow()) return 0;
+  const filmCol = headers.indexOf('Film') + 1;
+  if(p.film && filmCol > 0 && trim_(sh.getRange(row,filmCol).getValue()) !== trim_(p.film)) return 0;
+  return row;
+}
+
+function updateHistory_(p){
+  let ratings = {};
+  try{ ratings = p.ratings ? JSON.parse(p.ratings) : {}; }
+  catch(_){ return { ok:false, error:'bad ratings json' }; }
+  const allowed = { star:'star', up:'up', neutral:'neutral', down:'down', noll:'noll' };
+  const lock = LockService.getScriptLock();
+  if(!lock.tryLock(15000)) return { ok:false, error:'lock timeout' };
+  try{
+    const sh = ss_().getSheetByName('History');
+    const headers = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(trim_);
+    const row = findHistoryRow_(sh,headers,p);
+    if(!row) return { ok:false, error:'history row not found' };
+    getPeople_().forEach(function(person){
+      const col = headers.indexOf(person) + 1;
+      if(col > 0) sh.getRange(row,col).setValue(allowed[String(ratings[person] || '')] || '');
+    });
+    return { ok:true, historyRow:row };
+  }finally{ lock.releaseLock(); }
+}
+
+function deleteHistory_(p){
+  const lock = LockService.getScriptLock();
+  if(!lock.tryLock(15000)) return { ok:false, error:'lock timeout' };
+  try{
+    const sh = ss_().getSheetByName('History');
+    const headers = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(trim_);
+    const row = findHistoryRow_(sh,headers,p);
+    if(!row) return { ok:false, error:'history row not found' };
+    const filmCol = headers.indexOf('Film') + 1;
+    const whoCol = headers.indexOf('Vem valde') + 1;
+    const film = filmCol > 0 ? trim_(sh.getRange(row,filmCol).getValue()) : '';
+    const who = whoCol > 0 ? normName_(sh.getRange(row,whoCol).getValue()) : '';
+    sh.deleteRow(row);
+    const active = getActiveNight_();
+    if(active && active.film === film && active.who === who) clearActiveNight_();
+    return { ok:true };
+  }finally{ lock.releaseLock(); }
 }
 
 function saveNight_(p){
