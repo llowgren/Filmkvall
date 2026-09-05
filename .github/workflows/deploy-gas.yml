@@ -29,3 +29,6 @@ jobs:
 
       - name: Push to Apps Script
         run: clasp push -f
+
+      - name: Update web app deployment
+        run: clasp deploy -i AKfycby82y98CZDZc4d9tSdyi-dovoHf84sx4LC0RLQ-SosU44_BlNPzhsqWhqkNHU5Vsw7hrA -d "GitHub ${GITHUB_SHA::7}"
