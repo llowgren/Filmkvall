@@ -962,10 +962,20 @@ function findHistoryRow_(sh, headers, p){
     for(let i=0;i<ids.length;i++) if(trim_(ids[i][0]) === syncId) return i+2;
   }
   const row = Number(p && p.row);
-  if(!Number.isInteger(row) || row < 2 || row > sh.getLastRow()) return 0;
   const filmCol = headers.indexOf('Film') + 1;
-  if(p.film && filmCol > 0 && trim_(sh.getRange(row,filmCol).getValue()) !== trim_(p.film)) return 0;
-  return row;
+  if(Number.isInteger(row) && row >= 2 && row <= sh.getLastRow()){
+    if(!p.film || filmCol < 1 || trim_(sh.getRange(row,filmCol).getValue()) === trim_(p.film)) return row;
+  }
+  const whoCol = headers.indexOf('Vem valde') + 1;
+  if(p.film && filmCol > 0){
+    const data = sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).getValues();
+    for(let i=data.length-1;i>=0;i--){
+      const sameFilm = trim_(data[i][filmCol-1]) === trim_(p.film);
+      const sameWho = !p.who || whoCol < 1 || normName_(data[i][whoCol-1]) === normName_(p.who);
+      if(sameFilm && sameWho) return i+2;
+    }
+  }
+  return 0;
 }
 
 function updateHistory_(p){
