@@ -79,8 +79,14 @@ function rankPeople(history){
     let reason = deficit ? `${deficit} val färre än den som valt flest` : (last<0?'Har ännu inte valt':`${last} kvällar sedan senaste valet`);
     if(activeRate < .35) reason += ' · låg aktivitet';
     else if(quality > .25) reason += ' · uppskattade val';
-    return {person,picks:picks.length,participation,quality,score,reason};
-  }).sort((a,b)=>b.score-a.score || a.picks-b.picks);
+    return {person,picks:picks.length,participation,quality,score,reason,last};
+  }).sort((a,b)=>{
+    // Rättvis turordning först: den som väntat längst sedan sitt senaste val går före.
+    // Historiskt underskott, aktivitet och uppskattade val avgör bara mellan personer
+    // som har samma väntetid.
+    if(a.last !== b.last) return b.last - a.last;
+    return b.score-a.score || a.picks-b.picks;
+  });
 }
 
 function likedSeeds(history, person, limit=5){
