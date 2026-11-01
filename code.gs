@@ -62,6 +62,7 @@ function handle_(e){
       case 'startNightFor': return json_(startNightFor_(p));
       case 'finishNight':   return json_(finishNight_(p));
       case 'updateHistory': return json_(updateHistory_(p));
+      case 'setRating':     return json_(setRating_(p));
       case 'deleteHistory': return json_(deleteHistory_(p));
       case 'sendTestRatingEmail': return json_(sendTestRatingEmail_(p));
       case 'sendTestRatingEmails': return json_(sendTestRatingEmails_(p));
@@ -995,6 +996,28 @@ function updateHistory_(p){
       if(col > 0) sh.getRange(row,col).setValue(allowed[String(ratings[person] || '')] || '');
     });
     return { ok:true, historyRow:row };
+  }finally{ lock.releaseLock(); }
+}
+
+/** Sparar exakt en persons betyg utan att röra någon annans samtidiga röst. */
+function setRating_(p){
+  const person = normName_(p && p.person);
+  const rating = trim_(p && p.rating).toLowerCase();
+  const allowed = { '':'', star:'star', up:'up', neutral:'neutral', down:'down', noll:'noll' };
+  if(getPeople_().indexOf(person) < 0) return { ok:false, error:'unknown person' };
+  if(!Object.prototype.hasOwnProperty.call(allowed,rating)) return { ok:false, error:'invalid rating' };
+
+  const lock = LockService.getScriptLock();
+  if(!lock.tryLock(15000)) return { ok:false, error:'lock timeout' };
+  try{
+    const sh = ss_().getSheetByName('History');
+    const headers = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(trim_);
+    const row = findHistoryRow_(sh,headers,p);
+    if(!row) return { ok:false, error:'history row not found' };
+    const col = headers.indexOf(person) + 1;
+    if(col <= 0) return { ok:false, error:'person column not found' };
+    sh.getRange(row,col).setValue(allowed[rating]);
+    return { ok:true, historyRow:row, person:person, rating:allowed[rating] };
   }finally{ lock.releaseLock(); }
 }
 

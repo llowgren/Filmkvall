@@ -175,3 +175,15 @@ TEST_MOVIE_TITLE=Testfilm
 Om `MAIL_PROVIDER=mailapp` och `EMAIL_MODE=send` saknas används development-läge. Då skickas inget mejl; mejlet skrivs till sheetet `DevEmails` med maskerad mottagare.
 
 Testfilmer kan skapas via API-action `sendTestRatingEmails` när `TEST_MOVIES_ENABLED=true`.
+
+## Delningslänkar
+
+Huvudappen har stöd för djupa länkar som kan skickas direkt till familjen:
+
+```text
+?page=choose&person=Tuva
+?page=rate&syncId=<SyncId>
+?page=rate&syncId=<SyncId>&person=Lars
+```
+
+Valsidan visar flera personliga filmförslag och sparar det färdiga valet centralt med `startNightFor`. En personlig betygslänk visar bara mottagarens rad. API-action `setRating` uppdaterar endast den personens kolumn i `History`, så samtidiga röster inte skriver över varandra.
