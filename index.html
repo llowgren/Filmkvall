@@ -8,15 +8,28 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Filmkväll</title>
+  <meta property="og:title" content="Filmkväll">
+  <meta property="og:description" content="Välj smart. Rösta snabbt. Bygg statistiken.">
+  <script>
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const film = params.get('film');
+      if (params.get('page') !== 'rate' || !film) return;
+      const shareTitle = `Rösta på ${film}`;
+      document.title = shareTitle;
+      document.querySelector('meta[property="og:title"]')?.setAttribute('content', shareTitle);
+      document.querySelector('meta[property="og:description"]')?.setAttribute('content', `Lämna din röst på ${film}.`);
+    })();
+  </script>
   <link rel="icon" type="image/png" href="Logo.PNG">
   <link rel="apple-touch-icon" href="Logo.PNG">
-  <link rel="stylesheet" href="./soffa.css?v=20261113-1">
+  <link rel="stylesheet" href="./soffa.css?v=20261122-1">
 </head>
 <body>
   <film-app></film-app>
   <script type="module">
     import './film-login.js';
-    import './film-app.js?v=20261113-1';
+    import './film-app.js?v=20261122-1';
   </script>
 </body>
 </html>
