@@ -1,9 +1,10 @@
 import { api } from './api.js';
-import { getApiUrl, getMovieTokens, getUsers } from './film-login.js';
+import { getMovieTokens, getUsers } from './film-login.js';
 
 const PEOPLE = getUsers();
 const TMDB = 'https://api.themoviedb.org/3';
 const IMG = 'https://image.tmdb.org/t/p/w500';
+const SHARE_PREVIEW = 'https://filmkvall-rosta.lowgren.chatgpt.site/share';
 const cache = new Map();
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const val = (row, key) => row?.[key] ?? '';
@@ -182,7 +183,7 @@ class FilmApp extends HTMLElement{
 
   async syncQueue(){if(this.syncing||!navigator.onLine)return;if(!this.queue().length){this.syncBadge();return;}this.syncing=true;this.syncBadge();try{while(this.queue().length){const job=this.queue()[0],sentRev=job.rev;if(job.type==='start'){let cur=await api('getCurrent');for(let i=0;i<PEOPLE.length&&cur?.next!==job.who;i++){await api('skipNext');cur=await api('getCurrent');}const res=await api('startNight',{film:job.film,by:job.who});if(!res?.ok)throw Error(res?.error||'Kunde inte synka filmvalet');}else if(job.type==='finish'){const res=await api('finishNight',{clientId:job.nightId,who:job.who,film:job.film,ratings:JSON.stringify(job.ratings||{}),mediaType:job.mediaType||'movie',externalId:job.externalId||'',poster:job.poster||'',runtime:job.runtime||'',year:job.year||'',comment:job.comment||''});if(!res?.ok)throw Error(res?.error==='unknown action'?'Säker databassynkning väntar på backenduppdateringen':res?.error||'Kunde inte synka kvällen');}else if(job.type==='update'){const res=await api('updateHistory',{row:job.row||'',syncId:job.syncId||'',film:job.film,ratings:JSON.stringify(job.ratings||{})});if(!res?.ok)throw Error(res?.error||'Kunde inte ändra betygen');}else if(job.type==='delete'){const res=await api('deleteHistory',{row:job.row||'',syncId:job.syncId||'',film:job.film,who:job.who,date:job.date||''});if(!res?.ok)throw Error(res?.error||'Kunde inte ta bort kvällen');}this.saveQueue(this.queue().filter(x=>x.id!==job.id||(sentRev&&x.rev!==sentRev)));}this.status('Allt är synkat.');}catch(e){this.status(String(e.message||e).includes('backenduppdateringen')?'Sparat på iPad · mejlfri databassynkning väntar.':'Sparat på iPad · synkar automatiskt senare.');}finally{this.syncing=false;this.syncBadge();}}
   ratingUrl(row,person=''){return appUrl({page:'rate',syncId:row.SyncId||'',row:row.SyncId?'':row._row||'',person,film:titleOf(row)});}
-  ratingShareUrl(row,person=''){const url=new URL(getApiUrl());url.searchParams.set('action','shareRating');url.searchParams.set('film',titleOf(row));url.searchParams.set('poster',posterUrl(val(row,'Poster')));url.searchParams.set('target',this.ratingUrl(row,person));return url.toString();}
+  ratingShareUrl(row,person=''){const url=new URL(SHARE_PREVIEW);url.searchParams.set('film',titleOf(row));url.searchParams.set('poster',posterUrl(val(row,'Poster')));url.searchParams.set('target',this.ratingUrl(row,person));return url.toString();}
   ratingShareText(row,person=''){const title=`Rösta på ${titleOf(row)}`;return {title,text:person?`${person}: ${title}`:title};}
   async shareLink(url,title,text){const sharedText=[text,url].filter(Boolean).join('\n');try{if(navigator.share){await navigator.share({title,text,url});this.status('Delningsrutan öppnades.');return;}await navigator.clipboard.writeText(sharedText);this.status('Rubrik och länk är kopierade.');}catch(e){if(e?.name!=='AbortError'){window.prompt('Kopiera och skicka:',sharedText);this.status('Kopiera texten och skicka den vidare.');}}}
   shareCurrent(){if(this.viewMode==='choose'&&this.picker){return this.shareLink(appUrl({page:'choose',person:this.picker}),`${this.picker} väljer film`,`${this.picker}, välj en film och tryck på “Klart! Detta är mitt val”.`);}if(this.viewMode==='ratings')return this.shareActiveRating();if(this.viewMode==='history'&&this.editingRow){const share=this.ratingShareText(this.editingRow);return this.shareLink(this.ratingShareUrl(this.editingRow),share.title,share.text);}return this.shareLink(appUrl(),'Filmkväll','Öppna Filmkväll.');}

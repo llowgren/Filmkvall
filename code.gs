@@ -35,10 +35,6 @@ function handle_(e){
 
     if(!action) return json_({ ok:false, error:'action required' });
 
-    // Publik mellanlandning för röstningslänkar. Sociala förhandsvisningar
-    // kör inte appens JavaScript, så titel och poster måste finnas i HTML-svaret.
-    if(action === 'shareRating') return shareRatingPage_(p);
-
     // Enkel auth (som din index.htm förväntar sig)
     if(pw !== PW_REQUIRED){
       return json_({ ok:false, error:'bad pw' });
@@ -92,52 +88,6 @@ function html_(title, body){
   return HtmlService
     .createHtmlOutput(`<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeTitle}</title><style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:32px;line-height:1.5;color:#111}main{max-width:680px;margin:auto}.msg{font-size:20px}</style></head><body><main>${safeBody}</main></body></html>`)
     .setTitle(safeTitle)
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-function shareRatingPage_(p){
-  const home = 'https://llowgren.github.io/Filmkvall/';
-  const film = trim_(p && p.film).slice(0, 160) || 'kvällens film';
-  const rawTarget = trim_(p && p.target);
-  const target = rawTarget.indexOf(home) === 0 && rawTarget.length <= 2000 ? rawTarget : home;
-  const rawPoster = trim_(p && p.poster);
-  const poster = /^https:\/\/image\.tmdb\.org\/t\/p\/[A-Za-z0-9._\/-]+$/.test(rawPoster)
-    ? rawPoster.replace('/w500/', '/w780/')
-    : home + 'Logo.PNG';
-  const title = 'Rösta på ' + film;
-  const description = 'Tryck här och lämna din röst på ' + film + '.';
-  const safeTitle = escapeHtml_(title);
-  const safeDescription = escapeHtml_(description);
-  const safePoster = escapeHtml_(poster);
-  const safeTarget = escapeHtml_(target);
-  const targetJson = JSON.stringify(target).replace(/</g, '\\u003c');
-
-  return HtmlService
-    .createHtmlOutput(`<!doctype html>
-<html lang="sv">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>${safeTitle}</title>
-  <meta name="description" content="${safeDescription}">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Filmkväll">
-  <meta property="og:title" content="${safeTitle}">
-  <meta property="og:description" content="${safeDescription}">
-  <meta property="og:image" content="${safePoster}">
-  <meta property="og:image:secure_url" content="${safePoster}">
-  <meta property="og:image:width" content="780">
-  <meta property="og:image:height" content="1170">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="${safeTitle}">
-  <meta name="twitter:description" content="${safeDescription}">
-  <meta name="twitter:image" content="${safePoster}">
-  <style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#111827;color:#fff}main{max-width:420px;padding:28px;text-align:center}img{width:min(240px,70vw);aspect-ratio:2/3;object-fit:cover;border-radius:18px}h1{font-size:28px;margin:20px 0 8px}p{color:#cbd5e1;font-size:17px}a{display:inline-flex;min-height:54px;align-items:center;margin-top:12px;padding:0 24px;border-radius:16px;background:#f4c84c;color:#211d10;text-decoration:none;font-weight:800}</style>
-  <script>location.replace(${targetJson});</script>
-</head>
-<body><main><img src="${safePoster}" alt=""><h1>${safeTitle}</h1><p>${safeDescription}</p><a href="${safeTarget}">Rösta nu</a></main></body>
-</html>`)
-    .setTitle(title)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
